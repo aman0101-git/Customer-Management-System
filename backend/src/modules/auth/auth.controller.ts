@@ -20,12 +20,20 @@ export async function getMe(req: Request, res: Response) {
   }
 }
 
+
 export async function login(req: Request, res: Response) {
   const { username, password } = req.body;
 
   try {
     const result = await AuthService.login(username, password);
-    res.json(result);
+    // Set JWT as HTTP-only cookie for local dev
+    res.cookie('token', result.token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: false
+    });
+    // Only return role, not token
+    res.json({ role: result.role });
   } catch {
     res.status(401).json({ message: 'Invalid credentials' });
   }
