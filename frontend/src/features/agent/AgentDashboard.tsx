@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 // ...removed PageContainer import...
 import { AppShell } from "@/components/ui/app-shell";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
+import CustomerDetails from "./customerDetails";
 
 export default function AgentDashboard() {
   const [user, setUser] = useState<{ first_name?: string }>({});
@@ -87,7 +88,9 @@ export default function AgentDashboard() {
             <DrawerTitle>My Customers</DrawerTitle>
             <DrawerDescription>View and manage your customers</DrawerDescription>
           </DrawerHeader>
-          <div className="p-4">Customer management content goes here.</div>
+          <div className="p-4 overflow-auto">
+            <CustomerDetails />
+          </div>
           <DrawerClose asChild>
             <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
           </DrawerClose>

@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,7 @@ export default function CustomerResolvePage() {
   const [phone, setPhone] = useState("");
   const [searching, setSearching] = useState(false);
   const [customer, setCustomer] = useState<any>(null);
+  const [searchParams] = useSearchParams();
 
   // Form state for CREATE/EDIT
   const [form, setForm] = useState<CustomerForm>({
@@ -115,46 +118,38 @@ export default function CustomerResolvePage() {
   const isEdit = pageState === "EDIT";
   const isCreate = pageState === "CREATE";
   // Prefill form when entering EDIT
-  React.useEffect(() => {
-    if (isEdit && customer) {
-      setForm({
-        name: customer.name || "",
-        owner: customer.owner || "",
-        project: customer.project || "",
-        location: customer.location || "",
-        pincode: customer.pincode || "",
-        source: customer.source || "",
-        leadRating: customer.leadRating || "",
-        budget: customer.budget || "",
-        config: customer.config || "",
-        profession: customer.profession || "",
-        purpose: customer.purpose || "",
-        status: customer.status || "",
-        followUpDate: customer.followUpDate || "",
-        followUpTime: customer.followUpTime || "",
-        remark: customer.remark || "",
-      });
+  useEffect(() => {
+    // If ?edit param exists, fetch customer and set EDIT mode
+    const editId = searchParams.get("edit");
+    if (editId) {
+      fetch(`${import.meta.env.VITE_API_URL}/agent/customers`, { credentials: "include" })
+        .then(res => res.json())
+        .then(list => {
+          const found = Array.isArray(list) ? list.find((c: any) => String(c.id) === editId) : null;
+          if (found) {
+            setCustomer(found);
+            setPageState("EDIT");
+            setForm({
+              name: found.name || "",
+              owner: found.owner || "",
+              project: found.project || "",
+              location: found.location || "",
+              pincode: found.pincode || "",
+              source: found.source || "",
+              leadRating: found.leadRating || "",
+              budget: found.budget || "",
+              config: found.config || "",
+              profession: found.profession || "",
+              purpose: found.purpose || "",
+              status: found.status_code || "",
+              followUpDate: found.follow_up_date || "",
+              followUpTime: found.follow_up_time || "",
+              remark: found.remark || "",
+            });
+          }
+        });
     }
-    if (isCreate) {
-      setForm({
-        name: "",
-        owner: "",
-        project: "",
-        location: "",
-        pincode: "",
-        source: "",
-        leadRating: "",
-        budget: "",
-        config: "",
-        profession: "",
-        purpose: "",
-        status: "",
-        followUpDate: "",
-        followUpTime: "",
-        remark: "",
-      });
-    }
-  }, [pageState, customer, isEdit, isCreate]);
+  }, [searchParams]);
 
   // Controlled form change
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -164,6 +159,39 @@ export default function CustomerResolvePage() {
 
   // Cancel returns to SEARCH
   const handleCancel = () => setPageState("SEARCH");
+
+  // Handel submit
+  const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    try {
+      if (isCreate) {
+        await fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ ...form, contact: phone }),
+        });
+
+      } else if (isEdit && customer) {
+        await fetch(
+          `${import.meta.env.VITE_API_URL}/api/agent/customers/${customer.id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ ...form, contact: phone }),
+          }
+        );
+      }
+
+      setPageState("SEARCH");
+
+    } catch (err) {
+      console.error("Create/Edit failed", err);
+    }
+  };
+
 
   // Main UI
   return (
@@ -298,7 +326,7 @@ export default function CustomerResolvePage() {
               </span>
             </div>
 
-            <form className="p-8 space-y-10" onSubmit={(e) => e.preventDefault()}>
+            <form className="p-8 space-y-10" onSubmit={handleCreateOrEdit}>
               
               {/* Section 1: Lead Information */}
               <section className="space-y-6">
