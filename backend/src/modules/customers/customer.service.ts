@@ -1,3 +1,31 @@
+// Mark agent customer as completed if status is visit-done or booking-done
+export async function completeAgentCustomer(agentCustomerId: number, agentId: number) {
+  // Check status
+  const [rows]: any = await db.query(
+    "SELECT status_code FROM agent_customers WHERE id = ? AND agent_id = ?",
+    [agentCustomerId, agentId]
+  );
+  if (!rows.length) return "FORBIDDEN";
+  const status = rows[0].status_code;
+  if (status !== "visit-done" && status !== "booking-done") return "FORBIDDEN";
+  await db.query(
+    `UPDATE agent_customers SET final_status = 'COMPLETED', is_active = false WHERE id = ?`,
+    [agentCustomerId]
+  );
+  return "OK";
+}
+// Get all customers assigned to an agent, joined with customers table, sorted by updated_at DESC
+export async function getAgentCustomers(agentId: number) {
+  const [rows]: any = await db.query(
+    `SELECT ac.*, c.name, c.contact, c.owner, c.project
+     FROM agent_customers ac
+     JOIN customers c ON c.id = ac.customer_id
+     WHERE ac.agent_id = ?
+     ORDER BY ac.updated_at DESC`,
+    [agentId]
+  );
+  return rows;
+}
 import {db} from "../../config/db.js";
 
 export async function searchCustomerForAgent(

@@ -1,3 +1,27 @@
+// Mark agent customer as completed
+export async function completeAgentCustomer(req: Request, res: Response) {
+  const agentId = req.user.id;
+  const agentCustomerId = Number(req.params.id);
+  try {
+    const result = await Service.completeAgentCustomer(agentCustomerId, agentId);
+    if (result === "FORBIDDEN") {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to complete customer" });
+  }
+}
+// Get all customers assigned to logged-in agent
+export async function getAgentCustomers(req: Request, res: Response) {
+  const agentId = req.user.id;
+  try {
+    const customers = await Service.getAgentCustomers(agentId);
+    return res.json(customers);
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to fetch customers" });
+  }
+}
 import { Request, Response } from "express";
 import * as Service from "./customer.service.js";
 
