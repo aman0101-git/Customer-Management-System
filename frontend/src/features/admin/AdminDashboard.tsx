@@ -17,13 +17,15 @@ export default function AdminDashboard() {
 
   const [user, setUser] = useState<{ first_name?: string }>({});
     useEffect(() => {
-      const token = localStorage.getItem("ams_token");
-      if (!token) return;
       fetch(`${API_BASE}/auth/me`, {
-        headers: { Authorization: `Bearer ${token}` }
+        credentials: 'include'
       })
-        .then(res => res.json())
-        .then(data => setUser(data));
+        .then(res => {
+          if (!res.ok) throw new Error('Unauthorized');
+          return res.json();
+        })
+        .then(data => setUser(data))
+        .catch(() => setUser({}));
     }, []);
   
     const logout = () => {

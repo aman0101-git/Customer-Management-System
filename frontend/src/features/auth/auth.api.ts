@@ -1,12 +1,13 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse } from '@/contracts/auth.ts';
+import type { LoginRequest, UserRole } from '@/contracts/auth';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-export async function login(payload: LoginRequest): Promise<LoginResponse> {
-  const res = await axios.post<LoginResponse>(
+export async function login(payload: LoginRequest): Promise<{ role: UserRole }> {
+  const res = await axios.post(
     `${API_BASE}/auth/login`,
-    payload
+    payload,
+    { withCredentials: true }
   );
   return res.data;
 }

@@ -27,9 +27,9 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      const { token, role } = await login({ username, password });
+      const { role } = await login({ username, password });
 
-      setAuth(token, role);
+      setAuth(role);
 
       switch (role) {
         case 'ADMIN':

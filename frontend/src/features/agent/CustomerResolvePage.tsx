@@ -17,13 +17,48 @@ export default function CustomerResolvePage() {
   // Handlers
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSearching(true);
-    // TODO: Call backend API here
-    // Simulate API response for UI only
-    setTimeout(() => {
-      // setPageState("FOUND"); // or "NOT_FOUND"
+
+    if (phone.length !== 10) return;
+
+    try {
+      setSearching(true);
+      setCustomer(null);
+
+      const res = await fetch(
+        `${import.meta.env.VITE_API_URL}/api/agent/customers/search`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            phone,
+            name: name || undefined,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        // Hard failure → reset to SEARCH
+        setPageState("SEARCH");
+        throw new Error("Search failed");
+      }
+
+      const data = await res.json();
+
+      if (data.status === "FOUND") {
+        setCustomer(data.customer);
+        setPageState("FOUND");
+      } else {
+        setPageState("NOT_FOUND");
+      }
+    } catch (err) {
+      console.error("Customer search error:", err);
+      setPageState("SEARCH");
+    } finally {
       setSearching(false);
-    }, 1000);
+    }
   };
 
   // UI
