@@ -7,9 +7,10 @@ const router = Router();
 
 // Agent APIs
 
-// My Customers List
-router.get("/agent/customers", authenticate, Controller.getAgentCustomers);
-router.patch("/agent/customers/:id/complete", authenticate, Controller.completeAgentCustomer);
+// My Customers List (base path)
+router.get("/", authenticate, Controller.getAgentCustomers);
+router.get("/:id", authenticate, Controller.getAgentCustomerById);
+router.patch("/:id/complete", authenticate, Controller.completeAgentCustomer);
 router.post("/search", authenticate, Controller.searchCustomer);
 router.post("/", authenticate, Controller.createCustomer);
 router.put("/:agentCustomerId", authenticate, Controller.updateAgentCustomer);
