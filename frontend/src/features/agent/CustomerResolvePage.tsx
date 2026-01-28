@@ -5,6 +5,7 @@ import { AppShell } from "@/components/ui/app-shell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useNavigate } from "react-router-dom";
 
 // Types for state
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -46,6 +47,18 @@ export default function CustomerResolvePage() {
   const [searching, setSearching] = useState(false);
   const [customer, setCustomer] = useState<any>(null);
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const [user, setUser] = useState<{ first_name?: string } | undefined>(undefined);
+
+  // Fetch agent info for welcome message
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/auth/me`, { credentials: "include" })
+      .then(res => res.ok ? res.json() : undefined)
+      .then(data => {
+        if (data && data.first_name) setUser({ first_name: data.first_name });
+        else setUser(undefined);
+      });
+  }, []);
 
   // Form state for CREATE/EDIT
   const [form, setForm] = useState<CustomerForm>({
@@ -115,14 +128,10 @@ export default function CustomerResolvePage() {
 
   // UI
   // Prefill logic for EDIT
-  const isEdit = pageState === "EDIT";
-  const isCreate = pageState === "CREATE";
-  // Prefill form when entering EDIT
   useEffect(() => {
-    // If ?edit param exists, fetch customer and set EDIT mode
     const editId = searchParams.get("edit");
     if (editId) {
-      fetch(`${import.meta.env.VITE_API_URL}/agent/customers`, { credentials: "include" })
+      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, { credentials: "include" })
         .then(res => res.json())
         .then(list => {
           const found = Array.isArray(list) ? list.find((c: any) => String(c.id) === editId) : null;
@@ -163,16 +172,21 @@ export default function CustomerResolvePage() {
   // Handel submit
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-
     try {
       if (isCreate) {
         await fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ ...form, contact: phone }),
+          body: JSON.stringify({
+            ...form,
+            contact: phone,
+            status_code: form.status,
+            follow_up_date: form.followUpDate,
+            follow_up_time: form.followUpTime,
+          }),
         });
-
+        navigate("/agent/dashboard"); // Redirect after create
       } else if (isEdit && customer) {
         await fetch(
           `${import.meta.env.VITE_API_URL}/api/agent/customers/${customer.id}`,
@@ -180,22 +194,28 @@ export default function CustomerResolvePage() {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ ...form, contact: phone }),
+            body: JSON.stringify({
+              ...form,
+              contact: phone,
+              status_code: form.status,
+              follow_up_date: form.followUpDate,
+              follow_up_time: form.followUpTime,
+            }),
           }
         );
+        navigate("/agent/dashboard"); // Redirect after edit
       }
-
-      setPageState("SEARCH");
-
     } catch (err) {
       console.error("Create/Edit failed", err);
     }
   };
 
+  const isCreate = pageState === "CREATE";
+  const isEdit = pageState === "EDIT";
 
   // Main UI
   return (
-    <AppShell>
+    <AppShell user={user}>
       <div className="max-w-6xl mx-auto py-8">
         {/* Section 1: Search Area */}
         {pageState === "SEARCH" && (

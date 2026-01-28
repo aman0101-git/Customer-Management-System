@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { API_BASE } from "@/apiBase";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-// ...removed PageContainer import...
 import { AppShell } from "@/components/ui/app-shell";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
-import CustomerDetails from "./customerDetails";
+import CustomerDetails from "./CustomerDetails";
 
 export default function AgentDashboard() {
   const [user, setUser] = useState<{ first_name?: string }>({});
@@ -36,12 +35,15 @@ export default function AgentDashboard() {
 
   return (
     <AppShell sidebar={null} user={user} onLogout={logout}>
-      <div className="flex justify-start items-center mb-6">
+      <div className="flex justify-center items-center mb-8 border-b border-slate-100 pb-6">
         <a
           href="/agent/customers/resolve"
-          className="inline-block bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-lg shadow transition"
+          className="inline-flex items-center gap-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-6 py-3 rounded-full shadow-md hover:shadow-indigo-200 transition-all border-b-4 border-blue-800 active:border-b-0 active:translate-y-1"
         >
-          Create / Search Customer
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" />
+          </svg>
+          <span>Customer Lookup</span>
         </a>
       </div>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
