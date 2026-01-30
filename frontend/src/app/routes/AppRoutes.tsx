@@ -5,6 +5,7 @@ import AuthLayout from '../layouts/AuthLayout';
 import AdminDashboard from '@/features/admin/AdminDashboard';
 import AgentDashboard from '@/features/agent/AgentDashboard';
 import CustomerResolvePage from '@/features/agent/CustomerResolvePage';
+import AgentCustomersPage from '@/features/agent/AgentCustomersPage';
 import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 
 export default function AppRoutes() {
@@ -44,7 +45,16 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
-
+      
+      <Route
+        path="/agent/customers"
+        element={
+          <RequireAuth role="AGENT">
+            <AgentCustomersPage />
+          </RequireAuth>
+        }
+      />
+      
       <Route
         path="/supervisor/dashboard"
         element={

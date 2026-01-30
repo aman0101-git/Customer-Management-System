@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { API_BASE } from "@/apiBase";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
-import CustomerDetails from "./CustomerDetails";
 
 export default function AgentDashboard() {
   const [user, setUser] = useState<{ first_name?: string }>({});
@@ -24,14 +23,7 @@ export default function AgentDashboard() {
     window.location.href = "/";
   };
 
-  const [activePanel, setActivePanel] = useState<
-    | "MY_CUSTOMERS"
-    | "MY_VISITS"
-    | "MY_FOLLOWUPS"
-    | "MY_ATTENDANCE"
-    | "TODAYS_SUMMARY"
-    | null
-  >(null);
+  const navigate = useNavigate();
 
   return (
     <AppShell sidebar={null} user={user} onLogout={logout}>
@@ -46,110 +38,42 @@ export default function AgentDashboard() {
           <span>Customer Lookup</span>
         </a>
       </div>
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        <Card accent="blue" className="cursor-pointer" onClick={() => setActivePanel("MY_CUSTOMERS") }>
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 w-full px-6">
+        <Card accent="blue" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/agent/customers") }>
           <CardHeader>
             <CardTitle>🏠 My Customers</CardTitle>
             <CardDescription>View and manage your customers</CardDescription>
           </CardHeader>
         </Card>
 
-        <Card accent="pink" className="cursor-pointer" onClick={() => setActivePanel("MY_VISITS") }>
+        <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/agent/visits") }>
           <CardHeader>
             <CardTitle>📍 My Visits</CardTitle>
             <CardDescription>Manage visit lifecycle</CardDescription>
           </CardHeader>
         </Card>
 
-        <Card accent="yellow" className="cursor-pointer" onClick={() => setActivePanel("MY_FOLLOWUPS") }>
+        <Card accent="yellow" className="cursor-pointer" onClick={() => navigate("/agent/followups") }>
           <CardHeader>
             <CardTitle>⏰ My Follow-ups</CardTitle>
             <CardDescription>Your scheduled follow-ups</CardDescription>
           </CardHeader>
         </Card>
 
-        <Card accent="green" className="cursor-pointer" onClick={() => setActivePanel("MY_ATTENDANCE") }>
+        <Card accent="green" className="cursor-pointer" onClick={() => navigate("/agent/attendance") }>
           <CardHeader>
             <CardTitle>🕒 My Attendance</CardTitle>
             <CardDescription>Login / Logout for today</CardDescription>
           </CardHeader>
         </Card>
 
-        <Card accent="purple" className="cursor-pointer" onClick={() => setActivePanel("TODAYS_SUMMARY") }>
+        <Card accent="purple" className="cursor-pointer" onClick={() => navigate("/agent/summary") }>
           <CardHeader>
             <CardTitle>📊 Today’s Summary</CardTitle>
             <CardDescription>Quick view of today’s activity</CardDescription>
           </CardHeader>
         </Card>
       </div>
-
-      {/* Drawers for each action */}
-      <Drawer open={activePanel === "MY_CUSTOMERS"} onOpenChange={open => !open && setActivePanel(null)}>
-        <DrawerContent className="max-w-7xl w-full mx-auto h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>My Customers</DrawerTitle>
-            <DrawerDescription>View and manage your customers</DrawerDescription>
-          </DrawerHeader>
-          <div className="p-4 overflow-auto">
-            <CustomerDetails />
-          </div>
-          <DrawerClose asChild>
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
-          </DrawerClose>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer open={activePanel === "MY_VISITS"} onOpenChange={open => !open && setActivePanel(null)}>
-        <DrawerContent className="max-w-7xl w-full mx-auto h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>My Visits</DrawerTitle>
-            <DrawerDescription>Manage visit lifecycle</DrawerDescription>
-          </DrawerHeader>
-          <div className="p-4">Visit management content goes here.</div>
-          <DrawerClose asChild>
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
-          </DrawerClose>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer open={activePanel === "MY_FOLLOWUPS"} onOpenChange={open => !open && setActivePanel(null)}>
-        <DrawerContent className="max-w-7xl w-full mx-auto h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>My Follow-ups</DrawerTitle>
-            <DrawerDescription>Your scheduled follow-ups</DrawerDescription>
-          </DrawerHeader>
-          <div className="p-4">Follow-up content goes here.</div>
-          <DrawerClose asChild>
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
-          </DrawerClose>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer open={activePanel === "MY_ATTENDANCE"} onOpenChange={open => !open && setActivePanel(null)}>
-        <DrawerContent className="max-w-7xl w-full mx-auto h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>My Attendance</DrawerTitle>
-            <DrawerDescription>Login / Logout for today</DrawerDescription>
-          </DrawerHeader>
-          <div className="p-4">Attendance content goes here.</div>
-          <DrawerClose asChild>
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
-          </DrawerClose>
-        </DrawerContent>
-      </Drawer>
-
-      <Drawer open={activePanel === "TODAYS_SUMMARY"} onOpenChange={open => !open && setActivePanel(null)}>
-        <DrawerContent className="max-w-7xl w-full mx-auto h-[90vh]">
-          <DrawerHeader>
-            <DrawerTitle>Today’s Summary</DrawerTitle>
-            <DrawerDescription>Quick view of today’s activity</DrawerDescription>
-          </DrawerHeader>
-          <div className="p-4">Summary content goes here.</div>
-          <DrawerClose asChild>
-            <button className="absolute top-4 right-4 text-gray-400 hover:text-gray-700">✕</button>
-          </DrawerClose>
-        </DrawerContent>
-      </Drawer>
     </AppShell>
   );
 }

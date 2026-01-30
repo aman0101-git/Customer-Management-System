@@ -1,8 +1,8 @@
 #root {
-  max-width: 1280px;
+  width: 100%;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  padding: 0;
+  text-align: left;
 }
 
 .logo {
@@ -43,13 +43,22 @@
 
 /* Add this to your App.css */
 body {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
+  margin: 0;
+  display: flex;
+  place-items: flex-start; /* Ensure items align to top-left */
+  min-width: 320px;
+  min-height: 100vh;
+  width: 100%;
 }
 
 /* Fix for blurry text inside transformed elements like Drawers */
 .fixed, .absolute {
   transform: translateZ(0);
   backface-visibility: hidden;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }

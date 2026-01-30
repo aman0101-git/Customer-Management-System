@@ -57,8 +57,9 @@ export function AppShell({ sidebar, children, onLogout, user }: AppShellProps) {
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto bg-[#f8fafc] p-6 lg:p-10">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 overflow-y-auto bg-[#f8fafc] p-4 lg:p-8">
+          {/* Changed w-full to an unconstrained div for maximum spread */}
+          <div className="w-full h-full"> 
             {children}
           </div>
         </main>
