@@ -111,9 +111,9 @@ export default function CustomerResolvePage() {
       }
 
       const data = await res.json();
-
       if (data.status === "FOUND") {
-        setCustomer(data.customer);
+        // The backend returns the customer in 'data.data'
+        setCustomer(data.data);
         setPageState("FOUND");
       } else {
         setPageState("NOT_FOUND");
@@ -131,23 +131,22 @@ export default function CustomerResolvePage() {
   useEffect(() => {
     const editId = searchParams.get("edit");
     if (editId) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, { credentials: "include" })
+      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers/${editId}`, { credentials: "include" })
         .then(res => res.json())
-        .then(list => {
-          const found = Array.isArray(list) ? list.find((c: any) => String(c.id) === editId) : null;
+        .then(found => {
           if (found) {
             setCustomer(found);
             setPageState("EDIT");
             setForm({
               name: found.name || "",
-              owner: found.owner || "",
+              owner: found.owner_name || "",
               project: found.project || "",
               location: found.location || "",
               pincode: found.pincode || "",
               source: found.source || "",
-              leadRating: found.leadRating || "",
+              leadRating: found.rating || "",
               budget: found.budget || "",
-              config: found.config || "",
+              config: found.config || found.configuration || "",
               profession: found.profession || "",
               purpose: found.purpose || "",
               status: found.status_code || "",
@@ -276,36 +275,86 @@ export default function CustomerResolvePage() {
             </div>
 
             <div className="p-6">
-              <div className="grid grid-cols-2 gap-8 mb-8">
-                <div className="space-y-1">
-                  <Label className="text-slate-500 font-medium text-xs uppercase tracking-wide">Phone Number</Label>
-                  <p className="text-lg font-mono font-semibold text-slate-900 selection:bg-indigo-100">
-                    {customer?.phone || "N/A"}
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-slate-500 font-medium text-xs uppercase tracking-wide">Customer Name</Label>
-                  <p className="text-lg font-semibold text-slate-900">
-                    {customer?.name || "Unknown User"}
-                  </p>
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8 animate-in fade-in duration-500">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
+                  
+                  {/* Row 1 */}
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Phone Number</Label>
+                    <p className="text-lg font-mono font-bold text-slate-900">
+                      {customer?.contact || "-"}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
+                    <p className="text-lg font-bold text-slate-900">
+                      {customer?.name || "-"}
+                    </p>
+                  </div>
+
+                  {/* Row 2 */}
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
+                    <p className="text-lg text-slate-700 font-medium">
+                      {customer?.owner_name || "-"}
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
+                    <p className="text-lg text-slate-700">
+                      {customer?.project || "-"}
+                    </p>
+                  </div>
+
+                  {/* Row 3 */}
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Status</Label>
+                    <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[12px] font-bold uppercase border border-slate-200">
+                      {customer?.status_code || "-"}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Created At</Label>
+                    <p className="text-xs text-slate-600">
+                      {customer?.created_at
+                        ? new Date(customer.created_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+                        : "-"}
+                    </p>
+                  </div>
+
+                  {/* Remark - Full Width Row */}
+                  <div className="col-span-1 md:col-span-2 flex flex-col gap-2 mt-2 pt-2">
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Remark</Label>
+                    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 min-h-[60px]">
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {customer?.remark || "No remarks available."}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div className="flex gap-3 pt-4 border-t border-slate-100">
                 <Button 
-                  onClick={() => setPageState("EDIT")}
+                  onClick={() => navigate(`/agent/customers/resolve?edit=${customer.id}`)}
                   className="bg-white text-slate-700 border-slate-200 hover:bg-slate-50 shadow-sm"
                   variant="outline"
                 >
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 mr-2 bg-rose-100 text-rose-700 border-rose-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                   </svg>
                   Edit Details
                 </Button>
                 
                 {/* New suggested action: Quick Log */}
-                <Button className="bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 shadow-lg">
-                  Proceed to Dialer
+                <Button
+                  onClick={() => navigate("/agent/dashboard")}
+                  className="bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200 shadow-lg"
+                >
+                  Go Back
                 </Button>
               </div>
             </div>
