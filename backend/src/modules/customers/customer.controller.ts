@@ -65,6 +65,7 @@ export async function searchCustomer(req: Request, res: Response) {
     return res.json({ status: "NOT_FOUND" });
   }
 
+  // Return full data if found so frontend can display and edit
   return res.json({ status: "FOUND", data: result });
 }
 

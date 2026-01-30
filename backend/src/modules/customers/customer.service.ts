@@ -3,9 +3,14 @@ import {db} from "../../config/db.js";
 // Get merged customer + agent_customer for edit
 export async function getAgentCustomerMerged(agentCustomerId: number, agentId: number) {
   const [rows]: any = await db.query(
-    `SELECT ac.id, ac.status_code, ac.final_status, ac.follow_up_date, ac.follow_up_time, ac.remark, ac.assigned_at, ac.updated_at,
-            ac.rating, ac.configuration, ac.budget, ac.purpose,
-            c.name, c.contact as phone, c.email, c.location, c.pincode, c.profession, c.designation, c.preferences
+    `SELECT ac.id, ac.status_code,
+            ac.follow_up_date,
+            ac.follow_up_time,
+            ac.remark, ac.assigned_at,
+            ac.rating,
+            ac.configuration AS config,
+            ac.budget, ac.purpose, ac.source,
+            c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, c.updated_at, c.created_at AS created_at
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      WHERE ac.id = ? AND ac.agent_id = ?`,
@@ -23,7 +28,7 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
   );
   if (!rows.length) return "FORBIDDEN";
   const status = rows[0].status_code;
-  if (status !== "visit-done" && status !== "booking-done") return "FORBIDDEN";
+  if (status !== "visit-done" && status !== "booking-done" && status !== "lost") return "FORBIDDEN";
   await db.query(
     `UPDATE agent_customers SET final_status = 'COMPLETED', is_active = false WHERE id = ?`,
     [agentCustomerId]
@@ -33,7 +38,8 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
 // Get all customers assigned to an agent, joined with customers table, sorted by updated_at DESC
 export async function getAgentCustomers(agentId: number) {
   const [rows]: any = await db.query(
-    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at
+    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.budget, ac.status_code,
+            c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      WHERE ac.agent_id = ?
@@ -113,6 +119,7 @@ export async function createAgentCustomer(agentId: number, data: any) {
         followUpTime = t.toTimeString().slice(0, 8);
       } catch {}
     }
+
     const [assignment]: any = await conn.query(
       `INSERT INTO agent_customers
        (agent_id, customer_id, source, rating, budget, configuration, purpose,
@@ -175,12 +182,11 @@ export async function updateAgentCustomer(
 
   // Format follow_up_date and follow_up_time
   let followUpDate = data.follow_up_date;
-  let followUpTime = data.follow_up_time;
   if (followUpDate) {
-    try {
-      followUpDate = new Date(followUpDate).toISOString().slice(0, 10); // YYYY-MM-DD
-    } catch {}
+    // Always extract YYYY-MM-DD from any string (ISO or plain date)
+    followUpDate = String(followUpDate).slice(0, 10);
   }
+  let followUpTime = data.follow_up_time;
   if (followUpTime) {
     try {
       // Accepts 'HH:mm' or ISO, returns 'HH:mm:ss'
@@ -205,16 +211,16 @@ export async function updateAgentCustomer(
     ]
   );
 
-  // Optionally update customer table if those fields are present
-  if (data.name || data.location || data.pincode || data.profession || data.designation) {
-    const [agentRow]: any = await db.query(
-      `SELECT customer_id FROM agent_customers WHERE id = ?`,
-      [agentCustomerId]
-    );
-    if (agentRow.length) {
-      const customerId = agentRow[0].customer_id;
+  // Always update customer table's updated_at
+  const [agentRow]: any = await db.query(
+    `SELECT customer_id FROM agent_customers WHERE id = ?`,
+    [agentCustomerId]
+  );
+  if (agentRow.length) {
+    const customerId = agentRow[0].customer_id;
+    if (data.name || data.location || data.pincode || data.profession || data.designation) {
       await db.query(
-        `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ? WHERE id = ?`,
+        `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?, updated_at = NOW() WHERE id = ?`,
         [
           data.name,
           data.location,
@@ -223,6 +229,11 @@ export async function updateAgentCustomer(
           data.designation,
           customerId,
         ]
+      );
+    } else {
+      await db.query(
+        `UPDATE customers SET updated_at = NOW() WHERE id = ?`,
+        [customerId]
       );
     }
   }
