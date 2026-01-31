@@ -12,8 +12,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
-      '/auth': 'http://localhost:3000',
+      '/api/auth': {
+        target: 'http://localhost:3000', // Change this if your backend runs on a different port
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/api\/auth/, '/auth'),
+        // rewrite: (path) => path.replace(/^\/api/, '/api'),
+      },
     },
   },
 })

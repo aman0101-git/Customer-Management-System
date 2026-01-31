@@ -1,30 +1,13 @@
-import { useEffect, useState } from "react";
-import { API_BASE } from "@/apiBase";
+import { useAuth } from "@/context/AuthContext";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
 import { useNavigate } from "react-router-dom";
 
 export default function SupervisorDashboard() {
-  const [user, setUser] = useState<{ first_name?: string }>({});
-  useEffect(() => {
-    fetch(`${API_BASE}/auth/me`, {
-      credentials: 'include'
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthorized');
-        return res.json();
-      })
-      .then(data => setUser(data))
-      .catch(() => setUser({}));
-  }, []);
-
-  const logout = () => {
-    localStorage.clear();
-    window.location.href = "/";
-  };
-
+  const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
-
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired. Please log in again.</div>;
   return (
     <AppShell sidebar={null} user={user} onLogout={logout}>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 w-full px-6">

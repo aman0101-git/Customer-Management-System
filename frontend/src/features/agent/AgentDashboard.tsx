@@ -1,30 +1,14 @@
-import { useEffect, useState } from "react";
+
 import { useNavigate } from "react-router-dom";
-import { API_BASE } from "@/apiBase";
+import { useAuth } from "@/context/AuthContext";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
 
 export default function AgentDashboard() {
-  const [user, setUser] = useState<{ first_name?: string }>({});
-  useEffect(() => {
-    fetch(`${API_BASE}/auth/me`, {
-      credentials: 'include'
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthorized');
-        return res.json();
-      })
-      .then(data => setUser(data))
-      .catch(() => setUser({}));
-  }, []);
-
-  const logout = () => {
-    localStorage.clear();
-    window.location.href = "/";
-  };
-
+  const { user, logout, loading } = useAuth();
   const navigate = useNavigate();
-
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired. Please log in again.</div>;
   return (
     <AppShell sidebar={null} user={user} onLogout={logout}>
       <div className="flex justify-center items-center mb-8 border-b border-slate-100 pb-6">
@@ -59,7 +43,6 @@ export default function AgentDashboard() {
             <CardDescription>Your scheduled follow-ups</CardDescription>
           </CardHeader>
         </Card>
-
         <Card accent="green" className="cursor-pointer" onClick={() => navigate("/agent/attendance") }>
           <CardHeader>
             <CardTitle>🕒 My Attendance</CardTitle>

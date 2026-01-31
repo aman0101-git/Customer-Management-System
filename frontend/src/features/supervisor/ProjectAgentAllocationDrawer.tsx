@@ -27,46 +27,43 @@ export default function ProjectAgentAllocationDrawer({
   // const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (open && project?.id) {
+
+  const refreshAgents = () => {
+    if (project?.id) {
       fetch(`/api/supervisor/projects/${project.id}/agents`, { credentials: "include" })
         .then((res) => res.json())
-        .then((data) => setAgents(data));
+        .then(setAgents);
+    }
+  };
+
+  useEffect(() => {
+    if (open) {
+      refreshAgents();
     }
   }, [open, project?.id]);
 
-  const handleAssign = (agentId: number) => {
+  const handleAssign = async (agentId: number) => {
     setAssigning(agentId);
-    fetch(`/api/supervisor/projects/${project?.id}/assign`, {
+    await fetch(`/api/supervisor/projects/${project?.id}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ user_id: agentId }),
-    })
-      .then((res) => res.json())
-      .then(() => {
-        setAgents((prev) =>
-          prev.map((a) => (a.id === agentId ? { ...a, assigned: true } : a))
-        );
-      })
-      .finally(() => setAssigning(null));
+    });
+    refreshAgents();
+    setAssigning(null);
   };
 
-  const handleUnassign = (agentId: number) => {
+  const handleUnassign = async (agentId: number) => {
     setAssigning(agentId);
-    fetch(`/api/supervisor/projects/${project?.id}/unassign`, {
+    await fetch(`/api/supervisor/projects/${project?.id}/unassign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ user_id: agentId }),
-    })
-      .then((res) => res.json())
-      .then(() => {
-        setAgents((prev) =>
-          prev.map((a) => (a.id === agentId ? { ...a, assigned: false } : a))
-        );
-      })
-      .finally(() => setAssigning(null));
+    });
+    refreshAgents();
+    setAssigning(null);
   };
 
   if (!project) return null;
