@@ -9,8 +9,8 @@ export async function createUser(payload: {
   username: string;
   password: string;
   role: 'AGENT' | 'SUPERVISOR' | 'ADMIN';
-}) {
+}, token: string) {
   await axios.post(`${API_BASE}/auth/users`, payload, {
-    withCredentials: true
+    headers: { Authorization: `Bearer ${token}` }
   });
 }

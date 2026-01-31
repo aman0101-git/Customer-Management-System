@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from '@/features/auth/auth.context';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 
 interface Agent {
@@ -27,20 +28,26 @@ export default function ProjectAgentAllocationDrawer({
   // const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState<number | null>(null);
 
+  const { token } = useAuth();
   useEffect(() => {
-    if (open && project?.id) {
-      fetch(`/api/supervisor/projects/${project.id}/agents`, { credentials: "include" })
+    if (open && project?.id && token) {
+      fetch(`/api/supervisor/projects/${project.id}/agents`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
         .then((res) => res.json())
         .then((data) => setAgents(data));
     }
-  }, [open, project?.id]);
+  }, [open, project?.id, token]);
 
   const handleAssign = (agentId: number) => {
+    if (!token) return;
     setAssigning(agentId);
     fetch(`/api/supervisor/projects/${project?.id}/assign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
       body: JSON.stringify({ user_id: agentId }),
     })
       .then((res) => res.json())
@@ -53,11 +60,14 @@ export default function ProjectAgentAllocationDrawer({
   };
 
   const handleUnassign = (agentId: number) => {
+    if (!token) return;
     setAssigning(agentId);
     fetch(`/api/supervisor/projects/${project?.id}/unassign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
       body: JSON.stringify({ user_id: agentId }),
     })
       .then((res) => res.json())

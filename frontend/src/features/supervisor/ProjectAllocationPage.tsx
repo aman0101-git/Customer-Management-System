@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from '@/features/auth/auth.context';
 import { AppShell } from "@/components/ui/app-shell";
 import ProjectFormDrawer from "./ProjectFormDrawer";
 import ProjectAgentAllocationDrawer from "./ProjectAgentAllocationDrawer";
@@ -41,22 +42,29 @@ const ProjectStatusBadge = ({ status }: { status: ProjectStatus }) => {
 /* -------------------- Component -------------------- */
 
 export default function ProjectAllocationPage() {
+  const { token } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   useEffect(() => {
-    fetch("/api/projects", { credentials: "include" })
+    if (!token) return;
+    fetch("/api/projects", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then((data: Project[]) => setProjects(data));
-  }, []);
+  }, [token]);
 
   const handleCreateProject = (data: Partial<Project>) => {
+    if (!token) return;
     fetch("/api/projects", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
       body: JSON.stringify(data),
     })
       .then(res => res.json())

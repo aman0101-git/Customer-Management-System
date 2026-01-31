@@ -11,27 +11,30 @@ import {
 import { AppShell } from "@/components/ui/app-shell";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerClose } from "@/components/ui/drawer";
 import CreateUserForm from "./CreateUserForm";
+import { useAuth } from '@/features/auth/auth.context';
 
 export default function AdminDashboard() {
   const [activePanel, setActivePanel] = useState<"CREATE_USER" | "SYSTEM_SETTINGS" | "AUDIT_LOGS" | null>(null);
 
+  const { token } = useAuth();
   const [user, setUser] = useState<{ first_name?: string }>({});
-    useEffect(() => {
-      fetch(`${API_BASE}/auth/me`, {
-        credentials: 'include'
+  useEffect(() => {
+    if (!token) return setUser({});
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Unauthorized');
+        return res.json();
       })
-        .then(res => {
-          if (!res.ok) throw new Error('Unauthorized');
-          return res.json();
-        })
-        .then(data => setUser(data))
-        .catch(() => setUser({}));
-    }, []);
-  
-    const logout = () => {
-      localStorage.clear();
-      window.location.href = "/";
-    };
+      .then(data => setUser(data))
+      .catch(() => setUser({}));
+  }, [token]);
+
+  const logout = () => {
+    localStorage.clear();
+    window.location.href = "/";
+  };
 
   return (
     <AppShell sidebar={null} user={user} onLogout={logout}>

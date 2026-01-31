@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from '@/features/auth/auth.context';
 import { AppShell } from "@/components/ui/app-shell";
 import CreateUserForm from "../admin/CreateUserForm";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
@@ -27,22 +28,25 @@ const RoleBadge = ({ role }: { role: string }) => {
 };
 
 export default function SupervisorCreateUserPage() {
+  const { token } = useAuth();
   const [agents, setAgents] = useState<User[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/users", { credentials: "include" })
+    if (!token) return;
+    fetch("/api/users", {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then((res) => res.json())
       .then((users: User[]) => {
         setAgents(users.filter(u => u.role?.toUpperCase() === 'AGENT'));
       });
-  }, []);
+  }, [token]);
 
   return (
     <AppShell sidebar={null} user={{}} onLogout={() => {}}>
       <div className="min-h-screen bg-slate-50/50 p-6">
         <div className="max-w-6xl mx-auto">
-          
           {/* Header Section */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
@@ -57,7 +61,6 @@ export default function SupervisorCreateUserPage() {
               Create New Agent
             </button>
           </div>
-
           {/* Table Card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
@@ -119,7 +122,6 @@ export default function SupervisorCreateUserPage() {
             </div>
           </div>
         </div>
-
         <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
           <DrawerContent className="max-w-md ml-auto">
             <DrawerHeader className="flex flex-row items-center justify-between border-b border-slate-100 p-6">

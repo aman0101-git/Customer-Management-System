@@ -1,18 +1,17 @@
-
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from './auth.api';
-import { setAuth } from './auth.store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useAuth } from './auth.context';
 
 export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
+  const { setToken } = useAuth();
   const navigate = useNavigate();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -27,9 +26,9 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      const { role } = await login({ username, password });
+      const { token, role } = await login({ username, password });
 
-      setAuth(role);
+      setToken(token);
 
       switch (role) {
         case 'ADMIN':

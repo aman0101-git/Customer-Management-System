@@ -2,6 +2,7 @@ import { AppShell } from "@/components/ui/app-shell";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { API_BASE } from "@/apiBase";
+import { useAuth } from '@/features/auth/auth.context';
 import { 
   isSameDay, 
   subDays, 
@@ -36,6 +37,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export default function AgentCustomersPage() {
   const navigate = useNavigate();
+  const { token } = useAuth();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -58,7 +60,10 @@ export default function AgentCustomersPage() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
+      if (!token) throw new Error("No auth token");
+      const res = await fetch(`${API_BASE}/api/agent/customers`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (!res.ok) throw new Error("Failed to fetch customers");
       const data = await res.json();
       // Apply global filter: Remove "lost" customers immediately from the local state
@@ -72,7 +77,7 @@ export default function AgentCustomersPage() {
     }
   };
 
-  useEffect(() => { loadCustomers(); }, []);
+  useEffect(() => { loadCustomers(); }, [token]);
 
   // Filtering Logic
   const filteredCustomers = customers.filter(c => {
@@ -194,6 +199,11 @@ export default function AgentCustomersPage() {
             </div>
           </div>
 
+          {error && (
+            <div className="mb-4 rounded bg-red-50 px-4 py-2 text-red-700 font-semibold text-sm border border-red-200">
+              {error}
+            </div>
+          )}
           <div className="w-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse leading-normal">

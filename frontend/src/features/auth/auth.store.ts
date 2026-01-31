@@ -13,3 +13,5 @@ export function clearAuth() {
 export function getRole(): UserRole | null {
   return localStorage.getItem(ROLE_KEY) as UserRole | null;
 }
+
+// Deprecated: Do not use these. Use AuthProvider context for JWT and role.

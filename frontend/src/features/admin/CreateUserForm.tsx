@@ -1,6 +1,7 @@
 
 import { useState } from 'react';
 import { createUser } from './admin.api';
+import { useAuth } from '@/features/auth/auth.context';
 import { Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +17,7 @@ interface CreateUserFormProps {
 const ALL_ROLES: Role[] = ['AGENT', 'SUPERVISOR', 'ADMIN'];
 
 export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: CreateUserFormProps) {
+  const { token } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
@@ -36,16 +38,19 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
       return;
     }
 
+    if (!token) {
+      setError('Authorization token missing. Please login again.');
+      return;
+    }
     try {
       setLoading(true);
-
       await createUser({
         firstName,
         lastName,
         username,
         password,
         role,
-      });
+      }, token);
 
       setSuccess(true);
       setFirstName('');

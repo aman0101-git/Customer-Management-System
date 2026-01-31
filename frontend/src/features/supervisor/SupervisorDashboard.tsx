@@ -3,12 +3,15 @@ import { API_BASE } from "@/apiBase";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from '@/features/auth/auth.context';
 
 export default function SupervisorDashboard() {
+  const { token } = useAuth();
   const [user, setUser] = useState<{ first_name?: string }>({});
   useEffect(() => {
+    if (!token) return setUser({});
     fetch(`${API_BASE}/auth/me`, {
-      credentials: 'include'
+      headers: { Authorization: `Bearer ${token}` }
     })
       .then(res => {
         if (!res.ok) throw new Error('Unauthorized');
@@ -16,7 +19,7 @@ export default function SupervisorDashboard() {
       })
       .then(data => setUser(data))
       .catch(() => setUser({}));
-  }, []);
+  }, [token]);
 
   const logout = () => {
     localStorage.clear();

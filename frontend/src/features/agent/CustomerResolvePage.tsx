@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from '@/features/auth/auth.context';
 
 // Types for state
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -42,6 +43,7 @@ type CustomerForm = {
 };
 
 export default function CustomerResolvePage() {
+  const { token } = useAuth();
   const [pageState, setPageState] = useState<PageState>("SEARCH");
   const [phone, setPhone] = useState("");
   const [searching, setSearching] = useState(false);
@@ -52,13 +54,16 @@ export default function CustomerResolvePage() {
 
   // Fetch agent info for welcome message
   useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/auth/me`, { credentials: "include" })
+    if (!token) return setUser(undefined);
+    fetch(`${import.meta.env.VITE_API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
       .then(res => res.ok ? res.json() : undefined)
       .then(data => {
         if (data && data.first_name) setUser({ first_name: data.first_name });
         else setUser(undefined);
       });
-  }, []);
+  }, [token]);
 
   // Form state for CREATE/EDIT
   const [form, setForm] = useState<CustomerForm>({
@@ -95,8 +100,8 @@ export default function CustomerResolvePage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
           },
-          credentials: "include",
           body: JSON.stringify({
             phone,
               // name: name || undefined, // Removed unused variable
@@ -131,7 +136,7 @@ export default function CustomerResolvePage() {
   useEffect(() => {
     const editId = searchParams.get("edit");
     if (editId) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers/${editId}`, { credentials: "include" })
+      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers/${editId}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(res => res.json())
         .then(found => {
           if (found) {
@@ -175,8 +180,10 @@ export default function CustomerResolvePage() {
       if (isCreate) {
         await fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
           body: JSON.stringify({
             ...form,
             contact: phone,
@@ -191,8 +198,10 @@ export default function CustomerResolvePage() {
           `${import.meta.env.VITE_API_URL}/api/agent/customers/${customer.id}`,
           {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`
+            },
             body: JSON.stringify({
               ...form,
               contact: phone,
