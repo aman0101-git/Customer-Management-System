@@ -11,6 +11,13 @@ router.post("/", authenticate, Controller.createProject);
 // Edit a project
 router.put("/:id", authenticate, Controller.updateProject);
 // Assign agents to a project
-router.post("/:id/assign", authenticate, Controller.assignAgentsToProject);
+// (Removed bulk assignment route)
+
+// List all agents for a project
+router.get("/:id/agents", authenticate, Controller.getProjectAgents);
+// Assign a single agent
+router.post("/:id/assign", authenticate, Controller.assignAgentToProject);
+// Unassign a single agent
+router.post("/:id/unassign", authenticate, Controller.unassignAgentFromProject);
 
 export default router;

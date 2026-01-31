@@ -1,6 +1,48 @@
 import { db } from "../../config/db.js";
 import { ResultSetHeader } from "mysql2";
 
+// List all agents, with assignment status for a project
+export async function getProjectAgentsService(projectId: number, supervisorId: number) {
+  const [rows] = await db.query(`
+    SELECT 
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.username,
+      CASE 
+        WHEN up.id IS NOT NULL AND up.is_active = 1 THEN 1 
+        ELSE 0 
+      END AS assigned
+    FROM users u
+    LEFT JOIN user_projects up 
+      ON up.user_id = u.id 
+     AND up.project_id = ?
+    WHERE 
+      u.role = 'AGENT'
+      AND u.is_active = 1
+      AND u.supervisor_id = ?
+  `, [projectId, supervisorId]);
+  return rows;
+}
+
+// Assign a single agent to a project
+export async function assignAgentToProjectService(projectId: number, userId: number) {
+  // Upsert: set is_active=1 if exists, else insert
+  await db.query(`
+    INSERT INTO user_projects (user_id, project_id, assigned_at, is_active)
+    VALUES (?, ?, NOW(), 1)
+    ON DUPLICATE KEY UPDATE is_active=1, assigned_at=NOW()
+  `, [userId, projectId]);
+}
+
+// Unassign a single agent from a project
+export async function unassignAgentFromProjectService(projectId: number, userId: number) {
+  await db.query(`
+    UPDATE user_projects SET is_active=0
+    WHERE user_id=? AND project_id=?
+  `, [userId, projectId]);
+}
+
 export async function getAllProjectsWithAgentsService() {
   const [rows] = await db.query(`
     SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
@@ -47,15 +89,4 @@ export async function updateProjectService(
   return { id, ...data };
 }
 
-export async function assignAgentsToProjectService(projectId: number, agentIds: number[]) {
-  // Remove previous assignments
-  await db.query(`UPDATE user_projects SET is_active=0 WHERE project_id=?`, [projectId]);
-  // Assign new agents
-  for (const agentId of agentIds) {
-    await db.query(
-      `INSERT INTO user_projects (user_id, project_id, assigned_at, is_active) VALUES (?, ?, NOW(), 1)`,
-      [agentId, projectId]
-    );
-  }
-  return { projectId, agentIds };
-}
+// (Removed bulk assignment service)

@@ -1,6 +1,42 @@
 import { Request, Response } from "express";
 import * as Service from "./project.service.js";
 
+// List all agents for a project, with assignment status
+export async function getProjectAgents(req: Request, res: Response) {
+  try {
+    const supervisorId = req.user.id;
+    const projectId = Number(req.params.id);
+    const agents = await Service.getProjectAgentsService(projectId, supervisorId);
+    res.json(agents);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch agents" });
+  }
+}
+
+// Assign a single agent to a project
+export async function assignAgentToProject(req: Request, res: Response) {
+  try {
+    const projectId = Number(req.params.id);
+    const { user_id } = req.body;
+    await Service.assignAgentToProjectService(projectId, user_id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to assign agent" });
+  }
+}
+
+// Unassign a single agent from a project
+export async function unassignAgentFromProject(req: Request, res: Response) {
+  try {
+    const projectId = Number(req.params.id);
+    const { user_id } = req.body;
+    await Service.unassignAgentFromProjectService(projectId, user_id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to unassign agent" });
+  }
+}
+
 export async function getAllProjectsWithAgents(req: Request, res: Response) {
   try {
     const projects = await Service.getAllProjectsWithAgentsService();
@@ -29,17 +65,4 @@ export async function updateProject(req: Request, res: Response) {
   }
 }
 
-export async function assignAgentsToProject(req: Request, res: Response) {
-  try {
-    const projectId = Number(req.params.id);
-    let agentIds: number[] = Array.isArray(req.body.agentIds)
-      ? req.body.agentIds.map(Number)
-      : typeof req.body.agentIds === 'string'
-        ? req.body.agentIds.split(',').map(Number)
-        : [];
-    const result = await Service.assignAgentsToProjectService(projectId, agentIds);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to assign agents" });
-  }
-}
+// (Removed bulk assignment controller)
