@@ -8,6 +8,7 @@ import CustomerResolvePage from '@/features/agent/CustomerResolvePage';
 import AgentCustomersPage from '@/features/agent/AgentCustomersPage';
 import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUserPage';
+import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
 
 export default function AppRoutes() {
   return (
@@ -70,6 +71,14 @@ export default function AppRoutes() {
         element={
           <RequireAuth role="SUPERVISOR">
             <SupervisorCreateUserPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/project-allocation"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <ProjectAllocationPage />
           </RequireAuth>
         }
       />

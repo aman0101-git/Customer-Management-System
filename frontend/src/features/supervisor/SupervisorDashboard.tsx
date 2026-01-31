@@ -34,16 +34,16 @@ export default function SupervisorDashboard() {
           onClick={() => navigate("/supervisor/create-user")}
         >
           <CardHeader>
-            <CardTitle>👤 Create Agent</CardTitle>
+            <CardTitle>👤Agent Management</CardTitle>
             <CardDescription>
-              Create Agents
+              Create and manage agents
             </CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="blue" className="cursor-pointer" onClick={() => {}}>
+        <Card accent="blue" className="cursor-pointer" onClick={() => navigate("/supervisor/project-allocation") }>
           <CardHeader>
-            <CardTitle>👥 Agents Overview</CardTitle>
-            <CardDescription>View agents and activity</CardDescription>
+            <CardTitle>👥 Project Allocation</CardTitle>
+            <CardDescription>Create projects and allocate to agents</CardDescription>
           </CardHeader>
         </Card>
         <Card accent="pink" className="cursor-pointer" onClick={() => {}}>
