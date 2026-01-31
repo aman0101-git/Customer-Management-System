@@ -32,8 +32,8 @@ export async function login(req: Request, res: Response) {
       sameSite: 'lax',
       secure: false
     });
-    // Only return role, not token
-    res.json({ role: result.role });
+    // Return both token and role for frontend
+    res.json({ token: result.token, role: result.role });
   } catch {
     res.status(401).json({ message: 'Invalid credentials' });
   }
