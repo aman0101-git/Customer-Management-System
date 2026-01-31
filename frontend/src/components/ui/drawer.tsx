@@ -26,7 +26,10 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/80", className)}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-opacity duration-300",
+      className
+    )}
     {...props}
   />
 ))
@@ -41,13 +44,15 @@ const DrawerContent = React.forwardRef<
     <DrawerPrimitive.Content
       ref={ref}
       className={cn(
-        // Added 'antialiased' and sharpened text colors
-        "fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border border-slate-200 bg-white text-slate-950 antialiased shadow-2xl",
+        // 80% width for all drawers, responsive
+        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-auto w-[80vw] max-w-[80vw] flex-col rounded-t-[20px] border border-slate-200 bg-white shadow-2xl outline-none antialiased",
+        "after:hidden", // Removes the default vaul handle if you want a custom one
         className
       )}
       {...props}
     >
-      <div className="mx-auto mt-4 h-1.5 w-[50px] rounded-full bg-slate-200" />
+      {/* Sleeker Grab Handle */}
+      <div className="mx-auto mt-4 h-1 w-12 shrink-0 rounded-full bg-slate-300" />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>
@@ -59,7 +64,7 @@ const DrawerHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("grid gap-1.5 p-4 text-center sm:text-left", className)}
+    className={cn("grid gap-1.5 p-6 text-center sm:text-left", className)}
     {...props}
   />
 )
@@ -70,7 +75,7 @@ const DrawerFooter = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+    className={cn("mt-auto flex flex-col gap-3 p-6 pt-0", className)}
     {...props}
   />
 )
@@ -83,8 +88,7 @@ const DrawerTitle = React.forwardRef<
   <DrawerPrimitive.Title
     ref={ref}
     className={cn(
-      // Increased weight and darkened color for 'HD' look
-      "text-xl font-extrabold leading-none tracking-tight text-slate-900",
+      "text-lg font-semibold leading-tight tracking-tight text-slate-900",
       className
     )}
     {...props}
@@ -98,8 +102,7 @@ const DrawerDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Description
     ref={ref}
-    // Replaced 'text-muted-foreground' with a specific darker slate
-    className={cn("text-sm font-medium text-slate-500", className)}
+    className={cn("text-sm text-slate-500", className)}
     {...props}
   />
 ))

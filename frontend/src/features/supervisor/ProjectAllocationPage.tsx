@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/ui/app-shell";
 import ProjectFormDrawer from "./ProjectFormDrawer";
+import ProjectAgentAllocationDrawer from "./ProjectAgentAllocationDrawer";
 
 /* -------------------- Types -------------------- */
 
@@ -42,6 +43,8 @@ const ProjectStatusBadge = ({ status }: { status: ProjectStatus }) => {
 export default function ProjectAllocationPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   useEffect(() => {
     fetch("/api/projects", { credentials: "include" })
@@ -134,7 +137,13 @@ export default function ProjectAllocationPage() {
                         {p.agents || <span className="italic text-slate-300">Unassigned</span>}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button className="text-indigo-600 font-bold text-xs">
+                        <button
+                          className="text-indigo-600 font-bold text-xs"
+                          onClick={() => {
+                            setSelectedProject(p);
+                            setAllocationDrawerOpen(true);
+                          }}
+                        >
                           Manage
                         </button>
                       </td>
@@ -150,6 +159,11 @@ export default function ProjectAllocationPage() {
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
           onSubmit={handleCreateProject}
+        />
+        <ProjectAgentAllocationDrawer
+          open={allocationDrawerOpen}
+          onClose={() => setAllocationDrawerOpen(false)}
+          project={selectedProject}
         />
       </div>
     </AppShell>

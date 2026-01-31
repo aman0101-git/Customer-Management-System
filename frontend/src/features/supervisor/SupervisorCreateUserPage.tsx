@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/ui/app-shell";
 import CreateUserForm from "../admin/CreateUserForm";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 
 type User = {
   id: number;
@@ -119,42 +120,23 @@ export default function SupervisorCreateUserPage() {
           </div>
         </div>
 
-        {/* Professional Drawer */}
-        {drawerOpen && (
-          <div className="fixed inset-0 z-50 overflow-hidden">
-            {/* Backdrop */}
-            <div 
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-              onClick={() => setDrawerOpen(false)}
-            />
-            
-            <div className="absolute inset-y-0 right-0 flex max-w-full pl-10">
-              <div className="w-screen max-w-md transform transition-all duration-500 ease-in-out shadow-2xl">
-                <div className="flex h-full flex-col bg-white">
-                  
-                  {/* Drawer Header */}
-                  <div className="flex items-center justify-between p-6 border-b border-slate-100">
-                    <h2 className="text-lg font-bold text-slate-900">Create New Agent</h2>
-                    <button 
-                      onClick={() => setDrawerOpen(false)}
-                      className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-all"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  </div>
-
-                  {/* Drawer Body */}
-                  <div className="relative flex-1 p-6 overflow-y-auto bg-slate-50/30">
-                    <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                       <CreateUserForm allowedRoles={['AGENT']} />
-                    </div>
-                  </div>
-                  
-                </div>
+        <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+          <DrawerContent className="max-w-md ml-auto">
+            <DrawerHeader className="flex flex-row items-center justify-between border-b border-slate-100 p-6">
+              <DrawerTitle className="text-lg font-bold text-slate-900">Create New Agent</DrawerTitle>
+              <DrawerClose asChild>
+                <button className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-all">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </DrawerClose>
+            </DrawerHeader>
+            <div className="relative flex-1 p-6 overflow-y-auto bg-slate-50/30">
+              <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                <CreateUserForm allowedRoles={['AGENT']} />
               </div>
             </div>
-          </div>
-        )}
+          </DrawerContent>
+        </Drawer>
       </div>
     </AppShell>
   );
