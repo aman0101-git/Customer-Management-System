@@ -1,51 +1,60 @@
-
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { login } from './auth.api';
-import { setAuth } from './auth.store';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { login } from "./auth.api";
+import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
     if (!username || !password) {
-      setError('Username and password are required');
+      setError("Username and password are required");
       return;
     }
 
     try {
       setLoading(true);
 
-      const { role } = await login({ username, password });
+      // 1️⃣ Login → cookie set
+      await login({ username, password });
 
-      setAuth(role);
+      // 2️⃣ Fetch identity
+      await refreshUser();
 
-      switch (role) {
-        case 'ADMIN':
-          navigate('/admin/dashboard');
+      // 3️⃣ Redirect based on role (from context)
+      const res = await fetch("http://localhost:3000/auth/me", {
+        credentials: "include",
+      });
+
+      const user = await res.json();
+
+      switch (user.role) {
+        case "ADMIN":
+          navigate("/admin/dashboard", { replace: true });
           break;
-        case 'SUPERVISOR':
-          navigate('/supervisor/dashboard');
+        case "SUPERVISOR":
+          navigate("/supervisor/dashboard", { replace: true });
           break;
-        case 'AGENT':
-          navigate('/agent/dashboard');
+        case "AGENT":
+          navigate("/agent/dashboard", { replace: true });
           break;
         default:
-          throw new Error('Unknown role');
+          setError("Unknown role");
       }
-    } catch (err) {
-      setError('Invalid username or password');
+    } catch {
+      setError("Invalid username or password");
     } finally {
       setLoading(false);
     }
@@ -56,6 +65,7 @@ export default function LoginPage() {
       <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 mb-2">
         AMS <span className="text-blue-600">Login</span>
       </h1>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <Label htmlFor="username">Username</Label>
@@ -63,9 +73,10 @@ export default function LoginPage() {
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="e.g.,FCS0001"
+            placeholder="e.g., FCS0001"
           />
         </div>
+
         <div>
           <Label htmlFor="password">Password</Label>
           <Input
@@ -73,20 +84,22 @@ export default function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="e.g.,1234"
+            placeholder="e.g., 1234"
           />
         </div>
+
         {error && (
           <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
             {error}
           </div>
         )}
+
         <Button
           type="submit"
           className="w-full bg-purple-600 hover:bg-purple-700 text-white"
           disabled={loading}
         >
-          {loading ? 'Logging in…' : 'Login'}
+          {loading ? "Logging in…" : "Login"}
         </Button>
       </form>
     </>

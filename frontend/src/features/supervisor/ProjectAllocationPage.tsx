@@ -47,13 +47,27 @@ export default function ProjectAllocationPage() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
   useEffect(() => {
-    fetch("/api/projects", { credentials: "include" })
-      .then(res => res.json())
-      .then((data: Project[]) => setProjects(data));
+    const API_BASE = "http://localhost:3000";
+
+      fetch(`${API_BASE}/api/projects`, {
+        credentials: "include",
+      })
+        .then(async res => {
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text);
+          }
+          return res.json();
+        })
+        .then((data: Project[]) => setProjects(data))
+        .catch(err => {
+          console.error("Failed to load projects:", err);
+        });
+
   }, []);
 
   const handleCreateProject = (data: Partial<Project>) => {
-    fetch("/api/projects", {
+    fetch("${API_BASE}/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

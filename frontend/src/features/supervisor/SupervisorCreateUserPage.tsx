@@ -31,10 +31,23 @@ export default function SupervisorCreateUserPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/users", { credentials: "include" })
-      .then((res) => res.json())
+    const API_BASE = "http://localhost:3000";
+
+    fetch(`${API_BASE}/api/users`, {
+      credentials: "include",
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        return res.json();
+      })
       .then((users: User[]) => {
         setAgents(users.filter(u => u.role?.toUpperCase() === 'AGENT'));
+      })
+      .catch(err => {
+        console.error("Failed to load users:", err);
       });
   }, []);
 

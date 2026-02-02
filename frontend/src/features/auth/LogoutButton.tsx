@@ -5,7 +5,13 @@ import { Button } from '@/components/ui/button';
 export default function LogoutButton() {
   const navigate = useNavigate();
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {}
     clearAuth();
     navigate('/', { replace: true });
   }

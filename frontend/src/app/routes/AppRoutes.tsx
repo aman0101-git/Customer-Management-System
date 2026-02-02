@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from '@/features/auth/LoginPage';
 import RequireAuth from './RequireAuth';
 import AuthLayout from '../layouts/AuthLayout';
@@ -14,12 +14,16 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route
-        path="/"
+        path="/login"
         element={
           <AuthLayout>
             <LoginPage />
           </AuthLayout>
         }
+      />
+      <Route
+        path="/"
+        element={<Navigate to="/login"/>}
       />
 
       <Route
