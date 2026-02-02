@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/ui/app-shell";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/apiBase";
 import { 
   isSameDay, 
@@ -36,8 +37,13 @@ const StatusBadge = ({ status }: { status: string }) => {
 
 export default function AgentCustomersPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // New State for Projects Filter
+  const [projects, setProjects] = useState<any[]>([]);
+  const [projectFilter, setProjectFilter] = useState<string>("all");
 
   const STATUS_FILTERS = [
     "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed",
@@ -53,28 +59,36 @@ export default function AgentCustomersPage() {
   const NON_EDITABLE_STATUSES = ["visit-done", "booking-done", "lost"];
   const COMPLETABLE_STATUSES = ["visit-done", "booking-done", "lost"];
 
-  const loadCustomers = async () => {
+  const loadData = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch customers");
-      const data = await res.json();
-      setCustomers(Array.isArray(data) ? data : []);
+      
+      // Load Customers
+      const resCust = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
+      if (resCust.ok) setCustomers(await resCust.json());
+
+      // Load Projects (Assigned to Agent)
+      const resProj = await fetch(`${API_BASE}/api/projects`, { credentials: "include" });
+      if (resProj.ok) setProjects(await resProj.json());
+
     } catch (err) {
-      setCustomers([]);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadCustomers(); }, []);
+  useEffect(() => { loadData(); }, []);
 
   // Filtering Logic
   const filteredCustomers = customers.filter(c => {
-    // 1. Status Filter
+    // 1. Project Filter (New)
+    if (projectFilter !== "all" && c.project_id !== Number(projectFilter)) return false;
+
+    // 2. Status Filter
     if (statusFilter && c.status_code !== statusFilter) return false;
 
-    // 2. Date Filter
+    // 3. Date Filter
     if (dateRangeType === "all") return true;
     const customerDate = c.assigned_at ? parseISO(c.assigned_at) : null;
     if (!customerDate) return false;
@@ -167,6 +181,23 @@ export default function AgentCustomersPage() {
           <div className="flex justify-between items-center mb-6">
             <h1 className="text-xl font-bold text-slate-800">Customer Directory</h1>
             <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+              
+              {/* --- NEW PROJECT FILTER --- */}
+              <div className="flex items-center gap-2 border-r pr-3 border-slate-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Project:</span>
+                <select 
+                  className="text-xs font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
+                  value={projectFilter}
+                  onChange={(e) => setProjectFilter(e.target.value)}
+                >
+                  <option value="all">All Projects</option>
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              {/* ------------------------- */}
+
               <select 
                 className="text-xs font-bold text-slate-600 bg-transparent outline-none cursor-pointer px-2"
                 value={dateRangeType}
@@ -211,7 +242,9 @@ export default function AgentCustomersPage() {
                         <tr key={c.id} className="hover:bg-slate-50 transition-colors group">
                           <td className="px-5 py-4">
                             <div className="text-sm font-bold text-slate-800">{safe(c.name)}</div>
-                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">Owner: You</div>
+                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">
+                              Owner: {user?.first_name} {user?.last_name}
+                            </div>
                           </td>
                           <td className="px-5 py-4"><div className="text-sm font-mono text-slate-600">{safe(c.contact)}</div></td>
                           <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project_name)}</td>
@@ -238,7 +271,7 @@ export default function AgentCustomersPage() {
                                   onClick={async () => {
                                     if (!window.confirm("Mark as completed?")) return;
                                     const res = await fetch(`${API_BASE}/api/agent/customers/${c.id}/complete`, { method: "PATCH", credentials: "include" });
-                                    if (res.ok) loadCustomers();
+                                    if (res.ok) loadData(); // Reload Logic Update
                                   }}
                                   className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm"
                                 >Complete</button>
