@@ -13,7 +13,7 @@ export interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  refreshUser: () => Promise<void>;
+  refreshUser: () => Promise<User | null>;
   logout: () => Promise<void>;
 }
 
@@ -30,9 +30,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         withCredentials: true,
       });
       setUser(res.data);
+      return res.data; // ✅ RETURN USER
     } catch {
-      // NOT LOGGED IN ≠ ERROR
       setUser(null);
+      return null;
     } finally {
       setLoading(false);
     }

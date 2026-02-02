@@ -38,7 +38,6 @@ export default function AgentCustomersPage() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   const STATUS_FILTERS = [
     "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed",
@@ -57,7 +56,6 @@ export default function AgentCustomersPage() {
   const loadCustomers = async () => {
     try {
       setLoading(true);
-      setError("");
       const res = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch customers");
       const data = await res.json();
@@ -65,7 +63,6 @@ export default function AgentCustomersPage() {
       const activeCustomers = Array.isArray(data) ? data.filter(c => c.status_code !== 'lost') : [];
       setCustomers(activeCustomers);
     } catch (err) {
-      setError("Failed to load customers");
       setCustomers([]);
     } finally {
       setLoading(false);
@@ -121,13 +118,13 @@ export default function AgentCustomersPage() {
   };
 
   if (loading) return (
-    <AppShell sidebar={null} user={{}} onLogout={() => {}}>
+    <AppShell sidebar={null}>
       <div className="w-full p-6 text-center text-slate-500 italic">Syncing with server...</div>
     </AppShell>
   );
 
   return (
-    <AppShell sidebar={null} user={{}} onLogout={() => {}}>
+    <AppShell sidebar={null}>
       <div className="flex w-full min-h-[80vh]">
         {/* Sidebar for Status Filters */}
         <aside className="relative group flex flex-col items-center bg-white border-r border-slate-200 shadow-md transition-all duration-300 w-16 hover:w-56 z-10">

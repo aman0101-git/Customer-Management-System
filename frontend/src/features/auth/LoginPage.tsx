@@ -27,20 +27,18 @@ export default function LoginPage() {
     try {
       setLoading(true);
 
-      // 1️⃣ Login → cookie set
+      // 1️⃣ Login → sets cookie
       await login({ username, password });
 
-      // 2️⃣ Fetch identity
-      await refreshUser();
+      // 2️⃣ Fetch identity ONCE
+      const loggedInUser = await refreshUser();
 
-      // 3️⃣ Redirect based on role (from context)
-      const res = await fetch("http://localhost:3000/auth/me", {
-        credentials: "include",
-      });
+      if (!loggedInUser) {
+        throw new Error("Auth failed");
+      }
 
-      const user = await res.json();
-
-      switch (user.role) {
+      // 3️⃣ Redirect by role
+      switch (loggedInUser.role) {
         case "ADMIN":
           navigate("/admin/dashboard", { replace: true });
           break;
@@ -59,7 +57,7 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
-
+  
   return (
     <>
       <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 mb-2">

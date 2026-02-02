@@ -52,7 +52,7 @@ export default function SupervisorCreateUserPage() {
   }, []);
 
   return (
-    <AppShell sidebar={null} user={{}} onLogout={() => {}}>
+    <AppShell sidebar={null}>
       <div className="min-h-screen bg-slate-50/50 p-6">
         <div className="max-w-6xl mx-auto">
           

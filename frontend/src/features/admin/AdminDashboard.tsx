@@ -14,11 +14,11 @@ import CreateUserForm from "./CreateUserForm";
 
 export default function AdminDashboard() {
   const [activePanel, setActivePanel] = useState<"CREATE_USER" | "SYSTEM_SETTINGS" | "AUDIT_LOGS" | null>(null);
-  const { user, logout, loading } = useAuth();
+  const { user, loading } = useAuth();
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>Session expired. Please log in again.</div>;
   return (
-    <AppShell sidebar={null} user={user} onLogout={logout}>
+    <AppShell sidebar={null}>
       {/* Dashboard Actions */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card

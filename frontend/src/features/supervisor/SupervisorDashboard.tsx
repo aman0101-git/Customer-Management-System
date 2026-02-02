@@ -4,12 +4,12 @@ import { AppShell } from "@/components/ui/app-shell";
 import { useNavigate } from "react-router-dom";
 
 export default function SupervisorDashboard() {
-  const { user, logout, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>Session expired. Please log in again.</div>;
   return (
-    <AppShell sidebar={null} user={user} onLogout={logout}>
+    <AppShell sidebar={null}>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 w-full px-6">
         <Card
           accent="purple"

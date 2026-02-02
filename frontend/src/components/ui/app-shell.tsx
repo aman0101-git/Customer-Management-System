@@ -6,23 +6,13 @@ import { LogOut } from "lucide-react";
 export interface AppShellProps {
   sidebar?: React.ReactNode;
   children: React.ReactNode;
-  onLogout?: () => void;
-  user?: {
-    first_name?: string;
-  };
 }
 
-export function AppShell({
-  sidebar,
-  children,
-  onLogout,
-  user,
-}: AppShellProps) {
-  // Fallback to AuthContext only if user/onLogout are not provided
-  const auth = useAuth();
+export function AppShell({ sidebar, children }: AppShellProps) {
+  const { user, logout, loading } = useAuth();
 
-  const effectiveUser = user ?? auth.user;
-  const effectiveLogout = onLogout ?? auth.logout;
+  // Prevent flicker / invalid render
+  if (loading || !user) return null;
 
   return (
     <div className="min-h-screen flex bg-[#f8fafc]">
@@ -60,31 +50,25 @@ export function AppShell({
               <div className="text-lg font-bold text-slate-900 leading-tight">
                 Welcome,{" "}
                 <span className="text-blue-600">
-                  {effectiveUser?.first_name ?? "System"}
+                  {user.first_name}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            {effectiveLogout && (
-              <Button
-                variant="ghost"
-                onClick={effectiveLogout}
-                className="bg-red-600 text-white hover:bg-red-700 transition-all duration-200 flex items-center gap-2 px-4 py-2 rounded-lg"
-              >
-                <LogOut className="w-4 h-4 text-white" />
-                <span className="font-semibold">Logout</span>
-              </Button>
-            )}
-          </div>
+          <Button
+            variant="ghost"
+            onClick={logout}
+            className="bg-red-600 text-white hover:bg-red-700 transition-all duration-200 flex items-center gap-2 px-4 py-2 rounded-lg"
+          >
+            <LogOut className="w-4 h-4 text-white" />
+            <span className="font-semibold">Logout</span>
+          </Button>
         </header>
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-[#f8fafc] p-4 lg:p-8">
-          <div className="w-full h-full">
-            {children}
-          </div>
+          {children}
         </main>
       </div>
     </div>

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 // Types for state
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -42,23 +43,17 @@ type CustomerForm = {
 };
 
 export default function CustomerResolvePage() {
+  const { user, loading } = useAuth();
   const [pageState, setPageState] = useState<PageState>("SEARCH");
   const [phone, setPhone] = useState("");
   const [searching, setSearching] = useState(false);
   const [customer, setCustomer] = useState<any>(null);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const [user, setUser] = useState<{ first_name?: string } | undefined>(undefined);
+  
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired</div>;
 
-  // Fetch agent info for welcome message
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/auth/me`, { credentials: "include" })
-      .then(res => res.ok ? res.json() : undefined)
-      .then(data => {
-        if (data && data.first_name) setUser({ first_name: data.first_name });
-        else setUser(undefined);
-      });
-  }, []);
 
   // Form state for CREATE/EDIT
   const [form, setForm] = useState<CustomerForm>({
@@ -214,7 +209,7 @@ export default function CustomerResolvePage() {
 
   // Main UI
   return (
-    <AppShell user={user}>
+    <AppShell>
       <div className="max-w-6xl mx-auto py-8">
         {/* Section 1: Search Area */}
         {pageState === "SEARCH" && (

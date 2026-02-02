@@ -5,12 +5,12 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { AppShell } from "@/components/ui/app-shell";
 
 export default function AgentDashboard() {
-  const { user, logout, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   if (loading) return <div>Loading...</div>;
   if (!user) return <div>Session expired. Please log in again.</div>;
   return (
-    <AppShell sidebar={null} user={user} onLogout={logout}>
+    <AppShell sidebar={null}>
       <div className="flex justify-center items-center mb-8 border-b border-slate-100 pb-6">
         <a
           href="/agent/customers/resolve"
