@@ -4,7 +4,11 @@ import * as Service from "./project.service.js";
 // List all agents for a project, with assignment status
 export async function getProjectAgents(req: Request, res: Response) {
   try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
     const supervisorId = req.user.id;
+
     const projectId = Number(req.params.id);
     const agents = await Service.getProjectAgentsService(projectId, supervisorId);
     res.json(agents);
