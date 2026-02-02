@@ -8,9 +8,11 @@ export async function getProjectAgents(req: Request, res: Response) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     const supervisorId = req.user.id;
-
     const projectId = Number(req.params.id);
-    const agents = await Service.getProjectAgentsService(projectId, supervisorId);
+    
+    // We pass req.user.role to handle ADMIN vs SUPERVISOR logic inside service if needed,
+    // or just rely on the fixed logic we did previously.
+    const agents = await Service.getProjectAgentsService(projectId, supervisorId, req.user.role);
     res.json(agents);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch agents" });
@@ -22,7 +24,7 @@ export async function assignAgentToProject(req: Request, res: Response) {
   try {
     const projectId = Number(req.params.id);
     const { user_id } = req.body;
-    await Service.assignAgentToProjectService(projectId, user_id);
+    await Service.assignAgentToProjectService(projectId, user_id, req.user);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Failed to assign agent" });
@@ -43,7 +45,10 @@ export async function unassignAgentFromProject(req: Request, res: Response) {
 
 export async function getAllProjectsWithAgents(req: Request, res: Response) {
   try {
-    const projects = await Service.getAllProjectsWithAgentsService();
+    if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+    
+    // FIX: Pass user ID and Role to filter the list
+    const projects = await Service.getAllProjectsWithAgentsService(req.user.id, req.user.role);
     res.json(projects);
   } catch (err) {
     res.status(500).json({ error: "Failed to fetch projects" });
@@ -51,12 +56,15 @@ export async function getAllProjectsWithAgents(req: Request, res: Response) {
 }
 
 export async function createProject(req: Request, res: Response) {
-  try {
-    const project = await Service.createProjectService(req.body);
-    res.status(201).json(project);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to create project" });
+  const user = req.user;
+
+  if (!user) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
+
+  const project = await Service.createProjectService(req.body, user.id);
+
+  return res.status(201).json(project);
 }
 
 export async function updateProject(req: Request, res: Response) {
@@ -68,5 +76,3 @@ export async function updateProject(req: Request, res: Response) {
     res.status(500).json({ error: "Failed to update project" });
   }
 }
-
-// (Removed bulk assignment controller)

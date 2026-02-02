@@ -39,10 +39,14 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
 export async function getAgentCustomers(agentId: number) {
   const [rows]: any = await db.query(
     `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.budget, ac.status_code,
-            c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at
+            c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at,
+            p.name AS project_name
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
+     LEFT JOIN projects p ON c.project_id = p.id
      WHERE ac.agent_id = ?
+       AND ac.is_active = 1
+       AND ac.status_code != 'lost'
      ORDER BY ac.assigned_at DESC`,
     [agentId]
   );
@@ -77,6 +81,14 @@ export async function searchCustomerForAgent(
 
 export async function createAgentCustomer(agentId: number, data: any) {
   const conn = await db.getConnection();
+  const [allowed]: any = await conn.query(
+    `SELECT 1 FROM user_projects
+    WHERE user_id = ? AND project_id = ? AND is_active = 1`,
+    [agentId, data.project_id]
+  );
+
+  if (!allowed.length) throw new Error("PROJECT_NOT_ASSIGNED");
+
 
   try {
     await conn.beginTransaction();
@@ -98,8 +110,8 @@ export async function createAgentCustomer(agentId: number, data: any) {
       );
     } else {
       const [result]: any = await conn.query(
-        `INSERT INTO customers (name, contact, location, pincode, profession, designation) VALUES (?, ?, ?, ?, ?, ?)`,
-        [data.name, data.contact, data.location, data.pincode, data.profession, data.designation]
+        `INSERT INTO customers (name, contact, location, pincode, profession, designation, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [data.name, data.contact, data.location, data.pincode, data.profession, data.designation, data.project_id]
       );
       customerId = result.insertId;
     }
