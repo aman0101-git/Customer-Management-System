@@ -46,9 +46,10 @@ export default function ProjectAllocationPage() {
   const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
-  useEffect(() => {
-    const API_BASE = "http://localhost:3000";
+  // Define API_BASE correctly
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
+  useEffect(() => {
       fetch(`${API_BASE}/api/projects`, {
         credentials: "include",
       })
@@ -64,20 +65,25 @@ export default function ProjectAllocationPage() {
           console.error("Failed to load projects:", err);
         });
 
-  }, []);
+  }, [API_BASE]);
 
   const handleCreateProject = (data: Partial<Project>) => {
-    fetch("${API_BASE}/api/projects", {
+    // FIX: Used backticks (`) instead of quotes (") for string interpolation
+    fetch(`${API_BASE}/api/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify(data),
     })
-      .then(res => res.json())
+      .then(res => {
+        if(!res.ok) throw new Error("Failed to create");
+        return res.json();
+      })
       .then((newProject: Project) => {
         setProjects(prev => [...prev, newProject]);
         setDrawerOpen(false);
-      });
+      })
+      .catch(err => alert("Error creating project: " + err));
   };
 
   const formatDate = (dateStr?: string | null) => {

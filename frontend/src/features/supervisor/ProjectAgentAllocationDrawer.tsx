@@ -24,15 +24,23 @@ export default function ProjectAgentAllocationDrawer({
   project: Project | null;
 }) {
   const [agents, setAgents] = useState<Agent[]>([]);
-  // const [loading, setLoading] = useState(false);
   const [assigning, setAssigning] = useState<number | null>(null);
 
+  // FIX: Added API_BASE to ensure full URL is used
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   const refreshAgents = () => {
     if (project?.id) {
-      fetch(`/api/supervisor/projects/${project.id}/agents`, { credentials: "include" })
-        .then((res) => res.json())
-        .then(setAgents);
+      // FIX: Changed URL from /api/supervisor/projects to /api/projects
+      fetch(`${API_BASE}/api/projects/${project.id}/agents`, {
+        credentials: "include",
+      })
+        .then(res => {
+          if (!res.ok) throw new Error("Unauthorized");
+          return res.json();
+        })
+        .then(setAgents)
+        .catch(() => setAgents([]));
     }
   };
 
@@ -44,7 +52,8 @@ export default function ProjectAgentAllocationDrawer({
 
   const handleAssign = async (agentId: number) => {
     setAssigning(agentId);
-    await fetch(`/api/supervisor/projects/${project?.id}/assign`, {
+    // FIX: Changed URL to /api/projects and used backticks
+    await fetch(`${API_BASE}/api/projects/${project?.id}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -56,7 +65,8 @@ export default function ProjectAgentAllocationDrawer({
 
   const handleUnassign = async (agentId: number) => {
     setAssigning(agentId);
-    await fetch(`/api/supervisor/projects/${project?.id}/unassign`, {
+    // FIX: Changed URL to /api/projects and used backticks
+    await fetch(`${API_BASE}/api/projects/${project?.id}/unassign`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
@@ -69,7 +79,7 @@ export default function ProjectAgentAllocationDrawer({
   if (!project) return null;
 
   const assignedAgents = agents.filter(a => a.assigned);
-  // const unassignedAgents = agents.filter(a => !a.assigned);
+  const unassignedAgents = agents.filter(a => !a.assigned);
 
   return (
     <Drawer open={open} onOpenChange={open => { if (!open) onClose(); }}>
@@ -102,22 +112,21 @@ export default function ProjectAgentAllocationDrawer({
               ))
             )}
           </div>
-          <div className="font-bold mb-2">All Agents</div>
+          <div className="font-bold mb-2">Available Agents</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {agents.map(agent => (
+            {unassignedAgents.length === 0 && (
+                 <span className="text-slate-400 col-span-2">No agents available.</span>
+            )}
+            {unassignedAgents.map(agent => (
               <div key={agent.id} className="flex items-center border rounded px-4 py-2 bg-white">
                 <span className="mr-3 font-semibold">{agent.first_name} {agent.last_name}</span>
-                {agent.assigned ? (
-                  <button className="bg-slate-200 text-slate-500 px-3 py-1 rounded font-bold cursor-not-allowed ml-auto" disabled>Added</button>
-                ) : (
-                  <button
-                    className="bg-teal-600 text-white px-3 py-1 rounded font-bold ml-auto"
-                    disabled={assigning === agent.id}
-                    onClick={() => handleAssign(agent.id)}
-                  >
-                    Add
-                  </button>
-                )}
+                <button
+                  className="bg-teal-600 text-white px-3 py-1 rounded font-bold ml-auto"
+                  disabled={assigning === agent.id}
+                  onClick={() => handleAssign(agent.id)}
+                >
+                  Add
+                </button>
               </div>
             ))}
           </div>

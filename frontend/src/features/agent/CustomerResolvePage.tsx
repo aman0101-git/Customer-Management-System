@@ -50,10 +50,18 @@ export default function CustomerResolvePage() {
   const [customer, setCustomer] = useState<any>(null);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
-  if (loading) return <div>Loading...</div>;
-  if (!user) return <div>Session expired</div>;
 
+  // Add projects state at the top of the component
+  const [projects, setProjects] = useState<any[]>([]);
+
+  // Load assigned projects on mount
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/api/agent/projects`, {
+      credentials: "include",
+    })
+      .then(res => res.json())
+      .then(setProjects);
+  }, []);
 
   // Form state for CREATE/EDIT
   const [form, setForm] = useState<CustomerForm>({
@@ -189,12 +197,23 @@ export default function CustomerResolvePage() {
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
-              ...form,
-              contact: phone,
+              project_id: form.project_id,
+              name: form.name,
+              location: form.location,
+              pincode: form.pincode,
+              source: form.source,
+              rating: form.leadRating,
+              budget: form.budget,
+              configuration: form.config,
+              profession: form.profession,
+              purpose: form.purpose,
               status_code: form.status,
               follow_up_date: form.followUpDate,
               follow_up_time: form.followUpTime,
-            }),
+              remark: form.remark,
+              contact: phone,
+            })
+
           }
         );
         navigate("/agent/dashboard"); // Redirect after edit
@@ -203,6 +222,9 @@ export default function CustomerResolvePage() {
       console.error("Create/Edit failed", err);
     }
   };
+
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired</div>;
 
   const isCreate = pageState === "CREATE";
   const isEdit = pageState === "EDIT";
@@ -289,18 +311,33 @@ export default function CustomerResolvePage() {
                   </div>
 
                   {/* Row 2 */}
-                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
-                    <p className="text-lg text-slate-700 font-medium">
-                      {customer?.owner_name || "-"}
+                  {/* Owner (Read-only) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-600 font-medium ml-1">Owner</Label>
+                    <p className="h-11 flex items-center px-3 rounded border bg-slate-50 text-slate-700">
+                      {user.username}
                     </p>
                   </div>
 
-                  <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
-                    <p className="text-lg text-slate-700">
-                      {customer?.project || "-"}
-                    </p>
+                  {/* Project (Read-only) */}
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-600 font-medium ml-1">
+                      Project <span className="text-rose-500">*</span>
+                    </Label>
+                    <select
+                      name="project_id"
+                      value={form.project_id || ""}
+                      onChange={handleFormChange}
+                      required
+                      className="h-11 w-full border rounded px-3"
+                    >
+                      <option value="">Select project</option>
+                      {projects.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Row 3 */}

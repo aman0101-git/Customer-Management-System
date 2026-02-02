@@ -59,9 +59,7 @@ export default function AgentCustomersPage() {
       const res = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch customers");
       const data = await res.json();
-      // Apply global filter: Remove "lost" customers immediately from the local state
-      const activeCustomers = Array.isArray(data) ? data.filter(c => c.status_code !== 'lost') : [];
-      setCustomers(activeCustomers);
+      setCustomers(Array.isArray(data) ? data : []);
     } catch (err) {
       setCustomers([]);
     } finally {
@@ -213,10 +211,10 @@ export default function AgentCustomersPage() {
                         <tr key={c.id} className="hover:bg-slate-50 transition-colors group">
                           <td className="px-5 py-4">
                             <div className="text-sm font-bold text-slate-800">{safe(c.name)}</div>
-                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">Owner: {safe(c.owner)}</div>
+                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">Owner: You</div>
                           </td>
                           <td className="px-5 py-4"><div className="text-sm font-mono text-slate-600">{safe(c.contact)}</div></td>
-                          <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project)}</td>
+                          <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project_name)}</td>
                           <td className="px-5 py-4"><StatusBadge status={c.status_code} /></td>
                           <td className="px-5 py-4">
                             <div className="text-xs font-bold text-slate-700">{formatDateTime(c.follow_up_date).d}</div>
