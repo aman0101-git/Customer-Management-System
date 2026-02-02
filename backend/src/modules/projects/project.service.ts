@@ -1,11 +1,9 @@
 import { db } from "../../config/db.js";
 import { ResultSetHeader } from "mysql2";
-import { UserRole } from "../auth/auth.types.js"; // Adjust import path as needed
 
 // List all agents, with assignment status for a project
 export async function getProjectAgentsService(projectId: number, supervisorId: number, role?: string) {
-  // If ADMIN, we don't filter by supervisor_id. If SUPERVISOR, we do.
-  let query = `
+  const query = `
     SELECT 
       u.id,
       u.first_name,
@@ -24,14 +22,7 @@ export async function getProjectAgentsService(projectId: number, supervisorId: n
       AND u.is_active = 1
   `;
 
-  const params: any[] = [projectId];
-
-  if (role !== 'ADMIN') {
-    query += ` AND u.supervisor_id = ?`;
-    params.push(supervisorId);
-  }
-
-  const [rows] = await db.query(query, params);
+  const [rows] = await db.query(query, [projectId]);
   return rows;
 }
 
@@ -41,7 +32,6 @@ export async function assignAgentToProjectService(
   agentId: number,
   currentUser: any
 ) {
-  // 1. Verify project ownership (unless admin)
   if (currentUser.role !== "ADMIN") {
     const [proj]: any = await db.query(
       `SELECT id FROM projects WHERE id = ? AND created_by = ?`,
@@ -50,16 +40,12 @@ export async function assignAgentToProjectService(
     if (!proj.length) throw new Error("FORBIDDEN_PROJECT");
   }
 
-  // 2. Verify agent belongs to supervisor (unless admin)
-  if (currentUser.role !== "ADMIN") {
-    const [agent]: any = await db.query(
-      `SELECT id FROM users WHERE id = ? AND supervisor_id = ? AND role='AGENT'`,
-      [agentId, currentUser.id]
-    );
-    if (!agent.length) throw new Error("FORBIDDEN_AGENT");
-  }
+  const [agent]: any = await db.query(
+    `SELECT id FROM users WHERE id = ? AND role='AGENT'`,
+    [agentId]
+  );
+  if (!agent.length) throw new Error("INVALID_AGENT");
 
-  // 3. Upsert assignment
   await db.query(
     `INSERT INTO user_projects (user_id, project_id, assigned_at, is_active)
       VALUES (?, ?, NOW(), 1)
@@ -68,7 +54,6 @@ export async function assignAgentToProjectService(
   );
 }
 
-// Unassign a single agent from a project
 export async function unassignAgentFromProjectService(projectId: number, userId: number) {
   await db.query(`
     UPDATE user_projects SET is_active=0
@@ -76,26 +61,41 @@ export async function unassignAgentFromProjectService(projectId: number, userId:
   `, [userId, projectId]);
 }
 
-// FIX: Now accepts userId and role to filter visibility
+// FIX: Added logic for AGENT role to fetch their assigned projects
 export async function getAllProjectsWithAgentsService(userId: number, role: string) {
-  let query = `
-    SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
-      GROUP_CONCAT(u.username) as agents
-    FROM projects p
-    LEFT JOIN user_projects up ON p.id = up.project_id AND up.is_active = 1
-    LEFT JOIN users u ON up.user_id = u.id AND u.role = 'AGENT'
-    WHERE p.is_active = 1
-  `;
-
+  let query = "";
   const params: any[] = [];
 
-  // If Supervisor, only show projects they created
-  if (role === 'SUPERVISOR') {
-    query += ` AND p.created_by = ?`;
+  if (role === 'AGENT') {
+    // Agents see projects they are assigned to, sorted by latest assignment
+    query = `
+      SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
+             up.assigned_at
+      FROM projects p
+      JOIN user_projects up ON p.id = up.project_id
+      WHERE up.user_id = ? AND up.is_active = 1 AND p.is_active = 1
+      ORDER BY up.assigned_at DESC
+    `;
     params.push(userId);
+  } else {
+    // Supervisors/Admins view
+    query = `
+      SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
+        GROUP_CONCAT(u.username) as agents
+      FROM projects p
+      LEFT JOIN user_projects up ON p.id = up.project_id AND up.is_active = 1
+      LEFT JOIN users u ON up.user_id = u.id AND u.role = 'AGENT'
+      WHERE p.is_active = 1
+    `;
+    
+    // Project Privacy: Supervisors only see projects they created
+    if (role === 'SUPERVISOR') {
+      query += ` AND p.created_by = ?`;
+      params.push(userId);
+    }
+    
+    query += ` GROUP BY p.id`;
   }
-
-  query += ` GROUP BY p.id`;
 
   const [rows] = await db.query(query, params);
   return rows;

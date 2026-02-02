@@ -21,7 +21,6 @@ export async function getAgentCustomerMerged(agentCustomerId: number, agentId: n
 
 // Mark agent customer as completed if status is visit-done or booking-done
 export async function completeAgentCustomer(agentCustomerId: number, agentId: number) {
-  // Check status
   const [rows]: any = await db.query(
     "SELECT status_code FROM agent_customers WHERE id = ? AND agent_id = ?",
     [agentCustomerId, agentId]
@@ -35,12 +34,14 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
   );
   return "OK";
 }
-// Get all customers assigned to an agent, joined with customers table, sorted by updated_at DESC
+
+// Get all customers assigned to an agent
 export async function getAgentCustomers(agentId: number) {
   const [rows]: any = await db.query(
     `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.budget, ac.status_code,
             c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at,
-            p.name AS project_name
+            p.name AS project_name,
+            p.id AS project_id
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      LEFT JOIN projects p ON c.project_id = p.id
@@ -57,7 +58,6 @@ export async function searchCustomerForAgent(
   phone: string,
   agentId: number
 ) {
-  // Step 1: Check if customer exists globally
   const [customers]: any = await db.query(
     "SELECT id, name, contact FROM customers WHERE contact = ?",
     [phone]
@@ -67,7 +67,6 @@ export async function searchCustomerForAgent(
 
   const customerId = customers[0].id;
 
-  // Step 2: Check if assigned to this agent
   const [assignments]: any = await db.query(
     `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, c.name, c.contact
      FROM agent_customers ac
@@ -81,19 +80,10 @@ export async function searchCustomerForAgent(
 
 export async function createAgentCustomer(agentId: number, data: any) {
   const conn = await db.getConnection();
-  const [allowed]: any = await conn.query(
-    `SELECT 1 FROM user_projects
-    WHERE user_id = ? AND project_id = ? AND is_active = 1`,
-    [agentId, data.project_id]
-  );
-
-  if (!allowed.length) throw new Error("PROJECT_NOT_ASSIGNED");
-
 
   try {
     await conn.beginTransaction();
 
-    // Step 1: Find or create customer, with all fields
     const [existing]: any = await conn.query(
       "SELECT id FROM customers WHERE contact = ?",
       [data.contact]
@@ -103,7 +93,6 @@ export async function createAgentCustomer(agentId: number, data: any) {
 
     if (existing.length) {
       customerId = existing[0].id;
-      // Update customer fields if already exists
       await conn.query(
         `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ? WHERE id = ?`,
         [data.name, data.location, data.pincode, data.profession, data.designation, customerId]
@@ -116,17 +105,15 @@ export async function createAgentCustomer(agentId: number, data: any) {
       customerId = result.insertId;
     }
 
-    // Format follow_up_date and follow_up_time
     let followUpDate = data.follow_up_date;
     let followUpTime = data.follow_up_time;
     if (followUpDate) {
       try {
-        followUpDate = new Date(followUpDate).toISOString().slice(0, 10); // YYYY-MM-DD
+        followUpDate = new Date(followUpDate).toISOString().slice(0, 10);
       } catch {}
     }
     if (followUpTime) {
       try {
-        // Accepts 'HH:mm' or ISO, returns 'HH:mm:ss'
         const t = new Date(`1970-01-01T${followUpTime}`);
         followUpTime = t.toTimeString().slice(0, 8);
       } catch {}
@@ -152,7 +139,6 @@ export async function createAgentCustomer(agentId: number, data: any) {
       ]
     );
 
-    // Insert log for CREATE
     await conn.query(
       `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
        VALUES (?, ?, 'CREATE', NULL, ?)` ,
@@ -185,23 +171,19 @@ export async function updateAgentCustomer(
 
   if (!check.length) return null;
 
-  // Fetch old value for logging
   const [oldRows]: any = await db.query(
     "SELECT * FROM agent_customers WHERE id = ?",
     [agentCustomerId]
   );
   const oldValue = oldRows[0] ? { ...oldRows[0] } : null;
 
-  // Format follow_up_date and follow_up_time
   let followUpDate = data.follow_up_date;
   if (followUpDate) {
-    // Always extract YYYY-MM-DD from any string (ISO or plain date)
     followUpDate = String(followUpDate).slice(0, 10);
   }
   let followUpTime = data.follow_up_time;
   if (followUpTime) {
     try {
-      // Accepts 'HH:mm' or ISO, returns 'HH:mm:ss'
       const t = new Date(`1970-01-01T${followUpTime}`);
       followUpTime = t.toTimeString().slice(0, 8);
     } catch {}
@@ -223,7 +205,6 @@ export async function updateAgentCustomer(
     ]
   );
 
-  // Always update customer table's updated_at
   const [agentRow]: any = await db.query(
     `SELECT customer_id FROM agent_customers WHERE id = ?`,
     [agentCustomerId]
@@ -250,14 +231,12 @@ export async function updateAgentCustomer(
     }
   }
 
-  // Fetch new value for logging
   const [newRows]: any = await db.query(
     "SELECT * FROM agent_customers WHERE id = ?",
     [agentCustomerId]
   );
   const newValue = newRows[0] ? { ...newRows[0] } : null;
 
-  // Insert log for EDIT
   await db.query(
     `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
      VALUES (?, ?, 'EDIT', ?, ?)` ,
