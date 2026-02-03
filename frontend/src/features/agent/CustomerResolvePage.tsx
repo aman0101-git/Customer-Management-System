@@ -25,7 +25,7 @@ const STATUS_OPTIONS = [
 
 type CustomerForm = {
   name: string;
-  project: string; // This stores the Project ID as a string
+  project: string; 
   location: string;
   pincode: string;
   source: string;
@@ -95,7 +95,6 @@ export default function CustomerResolvePage() {
     remark: "",
   });
 
-  // 2. Auto-select the last assigned project (first in list)
   useEffect(() => {
     if (pageState === "CREATE" && projects.length > 0 && !form.project) {
       setForm(prev => ({ ...prev, project: String(projects[0].id) }));
@@ -151,8 +150,7 @@ export default function CustomerResolvePage() {
             setPageState("EDIT");
             setForm({
               name: found.name || "",
-              // FIX: Use project_id from backend (added in service)
-              project: found.project_id ? String(found.project_id) : "",
+              project: found.project_id != null ? String(found.project_id) : "", 
               location: found.location || "",
               pincode: found.pincode || "",
               source: found.source || "",
@@ -162,12 +160,10 @@ export default function CustomerResolvePage() {
               profession: found.profession || "",
               purpose: found.purpose || "",
               status: found.status_code || "",
-              // FIX: Format Date properly for input[type='date']
               followUpDate: formatDateForInput(found.follow_up_date),
               followUpTime: found.follow_up_time || "",
               remark: found.remark || "",
             });
-            // Also set phone for display if needed
             setPhone(found.phone || found.contact || "");
           }
         });
@@ -184,10 +180,9 @@ export default function CustomerResolvePage() {
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
-    // Map form.project to project_id for backend
     const payload = {
       ...form,
-      project_id: form.project,
+      project_id: form.project, 
       contact: phone,
       status_code: form.status,
       follow_up_date: form.followUpDate,
@@ -226,13 +221,12 @@ export default function CustomerResolvePage() {
   const isCreate = pageState === "CREATE";
   const isEdit = pageState === "EDIT";
 
-  // Derive Owner Name from Auth Context
   const ownerName = user.first_name ? `${user.first_name} ${user.last_name}` : user.username;
 
-  // Helper to get Project Name for "Found" view
-  const getProjectName = (pid: number) => {
-    const p = projects.find(proj => proj.id === pid);
-    return p ? p.name : "Unknown Project";
+  const getProjectName = () => {
+    if (customer?.project_name) return customer.project_name;
+    const p = projects.find(proj => proj.id === customer?.project_id);
+    return p ? p.name : "-";
   };
 
   return (
@@ -282,7 +276,7 @@ export default function CustomerResolvePage() {
           </form>
         )}
 
-        {/* RESTORED AND ENHANCED FOUND UI */}
+        {/* FOUND UI - REFINED GRID */}
         {pageState === "FOUND" && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6 animate-in zoom-in-95 duration-200">
              <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
@@ -295,44 +289,59 @@ export default function CustomerResolvePage() {
 
              <div className="p-6">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4">
+                   {/* Clean 3-Column Grid */}
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
                       
-                      {/* Contact Info */}
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Phone Number</Label>
-                        <p className="text-lg font-mono font-bold text-slate-900">{customer?.contact || "-"}</p>
+                      {/* --- ROW 1 --- */}
+                      <div>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
+                        <p className="text-sm font-bold text-slate-800 mt-1">{ownerName}</p>
                       </div>
-
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
-                        <p className="text-lg font-bold text-slate-900">{customer?.name || "-"}</p>
-                      </div>
-
-                      {/* Project & Location */}
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
-                        <p className="text-sm font-semibold text-slate-700">
-                          {customer?.project_id ? getProjectName(customer.project_id) : "-"}
-                        </p>
+                        <p className="text-sm font-bold text-slate-800 mt-1">{getProjectName()}</p>
+                      </div>
+                      <div>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
+                        <p className="text-sm font-bold text-slate-800 mt-1">{customer?.name || "-"}</p>
                       </div>
 
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      {/* --- ROW 2 --- */}
+                      <div>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Contact Number</Label>
+                        <p className="text-sm font-mono font-bold text-slate-800 mt-1">{customer?.contact || "-"}</p>
+                      </div>
+                      <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Location</Label>
-                        <p className="text-sm font-semibold text-slate-700">{customer?.location || "-"}</p>
+                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.location || "-"}</p>
+                      </div>
+                      <div>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Budget Range</Label>
+                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.budget || "-"}</p>
                       </div>
 
-                      {/* Status & Follow Up */}
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      {/* --- ROW 3 --- */}
+                      <div>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Configuration</Label>
+                        <p className="text-sm font-medium text-slate-700 mt-1 uppercase">{customer?.configuration || customer?.config || "-"}</p>
+                      </div>
+                      
+                      {/* Added: Current Status */}
+                      <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
-                        <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[12px] font-bold uppercase border border-slate-200">
-                           {customer?.status_code || "-"}
-                        </span>
+                        <div className="mt-1">
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold uppercase border border-slate-200 inline-block">
+                            {customer?.status_code || "-"}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex justify-between items-center py-2 border-b border-slate-50">
+                      {/* Added: Next Follow-Up */}
+                      <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
-                        <p className="text-sm font-semibold text-slate-700">
-                          {formatDateForInput(customer?.follow_up_date) || "-"} <span className="text-xs text-slate-400 font-normal">{customer?.follow_up_time}</span>
+                        <p className="text-sm font-semibold text-slate-700 mt-1">
+                          {formatDateForInput(customer?.follow_up_date) || "Not Set"} 
+                          <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
                         </p>
                       </div>
 
@@ -376,13 +385,11 @@ export default function CustomerResolvePage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {/* Owner Field (Read Only) */}
                   <div className="space-y-1.5 opacity-80">
                     <Label className="text-slate-600 font-medium ml-1">Owner <span className="text-rose-500">*</span></Label>
                     <Input value={ownerName} disabled className="h-11 bg-slate-50 border-slate-200 cursor-not-allowed" />
                   </div>
 
-                  {/* Project Dropdown */}
                   <div className="space-y-1.5">
                     <Label htmlFor="form-project" className="text-slate-600 font-medium ml-1">Project <span className="text-rose-500">*</span></Label>
                     <select
@@ -395,7 +402,7 @@ export default function CustomerResolvePage() {
                     >
                       <option value="">Select project</option>
                       {projects.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
+                        <option key={p.id} value={String(p.id)}>{p.name}</option> 
                       ))}
                     </select>
                   </div>
@@ -419,7 +426,6 @@ export default function CustomerResolvePage() {
                 </div>
               </section>
 
-               {/* Sections 2 & 3 */}
                <section className="space-y-6">
                 <div className="flex items-center gap-4">
                   <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">02</span>

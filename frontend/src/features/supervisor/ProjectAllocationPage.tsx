@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/ui/app-shell";
 import ProjectFormDrawer from "./ProjectFormDrawer";
 import ProjectAgentAllocationDrawer from "./ProjectAgentAllocationDrawer";
+import { Users } from "lucide-react";
 
 /* -------------------- Types -------------------- */
 
@@ -14,7 +15,8 @@ type Project = {
   start_date?: string | null;
   end_date?: string | null;
   status: ProjectStatus;
-  agents?: string;
+  // FIX: Changed from string to number
+  agent_count: number; 
 };
 
 /* -------------------- UI Helpers -------------------- */
@@ -46,29 +48,31 @@ export default function ProjectAllocationPage() {
   const [allocationDrawerOpen, setAllocationDrawerOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
 
-  // Define API_BASE correctly
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-  useEffect(() => {
-      fetch(`${API_BASE}/api/projects`, {
-        credentials: "include",
+  // Function to refresh projects list
+  const fetchProjects = () => {
+    fetch(`${API_BASE}/api/projects`, {
+      credentials: "include",
+    })
+      .then(async res => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        return res.json();
       })
-        .then(async res => {
-          if (!res.ok) {
-            const text = await res.text();
-            throw new Error(text);
-          }
-          return res.json();
-        })
-        .then((data: Project[]) => setProjects(data))
-        .catch(err => {
-          console.error("Failed to load projects:", err);
-        });
+      .then((data: Project[]) => setProjects(data))
+      .catch(err => {
+        console.error("Failed to load projects:", err);
+      });
+  };
 
+  useEffect(() => {
+    fetchProjects();
   }, [API_BASE]);
 
   const handleCreateProject = (data: Partial<Project>) => {
-    // FIX: Used backticks (`) instead of quotes (") for string interpolation
     fetch(`${API_BASE}/api/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -80,7 +84,9 @@ export default function ProjectAllocationPage() {
         return res.json();
       })
       .then((newProject: Project) => {
-        setProjects(prev => [...prev, newProject]);
+        // Initialize agent_count to 0 for new projects
+        const projectWithCount = { ...newProject, agent_count: 0 };
+        setProjects(prev => [...prev, projectWithCount]);
         setDrawerOpen(false);
       })
       .catch(err => alert("Error creating project: " + err));
@@ -123,14 +129,14 @@ export default function ProjectAllocationPage() {
             <table className="w-full">
               <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold">Project</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold">Timeline</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold">Agents</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold">Actions</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Project</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Timeline</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">Team Size</th>
+                  <th className="px-6 py-4 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-100">
                 {projects.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center py-16 text-slate-400">
@@ -139,32 +145,38 @@ export default function ProjectAllocationPage() {
                   </tr>
                 ) : (
                   projects.map((p) => (
-                    <tr key={p.id} className="border-t hover:bg-slate-50">
+                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4">
-                        <div className="font-bold">{p.name}</div>
-                        <div className="text-xs text-slate-400">
+                        <div className="font-bold text-slate-900">{p.name}</div>
+                        <div className="text-xs text-slate-400 max-w-[200px] truncate">
                           {p.description || "No description"}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-xs">
-                        <div>S: {formatDate(p.start_date)}</div>
-                        <div>E: {formatDate(p.end_date)}</div>
+                      <td className="px-6 py-4 text-xs text-slate-600">
+                        <div className="flex flex-col gap-1">
+                          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>{formatDate(p.start_date)}</span>
+                          <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>{formatDate(p.end_date)}</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4">
                         <ProjectStatusBadge status={p.status} />
                       </td>
-                      <td className="px-6 py-4 text-xs">
-                        {p.agents || <span className="italic text-slate-300">Unassigned</span>}
+                      {/* FIX: Display Agent Count */}
+                      <td className="px-6 py-4">
+                        <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${p.agent_count > 0 ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                          <Users className="w-3.5 h-3.5" />
+                          <span className="text-xs font-bold">{p.agent_count} Agents</span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button
-                          className="text-indigo-600 font-bold text-xs"
+                          className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors"
                           onClick={() => {
                             setSelectedProject(p);
                             setAllocationDrawerOpen(true);
                           }}
                         >
-                          Manage
+                          Manage Team
                         </button>
                       </td>
                     </tr>
@@ -182,7 +194,11 @@ export default function ProjectAllocationPage() {
         />
         <ProjectAgentAllocationDrawer
           open={allocationDrawerOpen}
-          onClose={() => setAllocationDrawerOpen(false)}
+          onClose={() => {
+            setAllocationDrawerOpen(false);
+            // Refresh list when drawer closes to update count
+            fetchProjects(); 
+          }}
           project={selectedProject}
         />
       </div>

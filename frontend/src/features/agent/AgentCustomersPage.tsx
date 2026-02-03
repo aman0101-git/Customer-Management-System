@@ -14,7 +14,6 @@ import {
   parseISO 
 } from "date-fns";
 
-// Professional Badge Component
 const StatusBadge = ({ status }: { status: string }) => {
   const styles: any = {
     "booking-done": "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -41,7 +40,7 @@ export default function AgentCustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // New State for Projects Filter
+  // --- NEW STATE for Projects Filter ---
   const [projects, setProjects] = useState<any[]>([]);
   const [projectFilter, setProjectFilter] = useState<string>("all");
 
@@ -63,11 +62,11 @@ export default function AgentCustomersPage() {
     try {
       setLoading(true);
       
-      // Load Customers
+      // 1. Fetch Customers
       const resCust = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
       if (resCust.ok) setCustomers(await resCust.json());
 
-      // Load Projects (Assigned to Agent)
+      // 2. Fetch Assigned Projects (for filter)
       const resProj = await fetch(`${API_BASE}/api/projects`, { credentials: "include" });
       if (resProj.ok) setProjects(await resProj.json());
 
@@ -138,7 +137,7 @@ export default function AgentCustomersPage() {
   return (
     <AppShell sidebar={null}>
       <div className="flex w-full min-h-[80vh]">
-        {/* Sidebar for Status Filters */}
+        {/* Sidebar */}
         <aside className="relative group flex flex-col items-center bg-white border-r border-slate-200 shadow-md transition-all duration-300 w-16 hover:w-56 z-10">
           <div className="flex flex-col gap-2 py-8 w-full">
             <button
@@ -268,11 +267,7 @@ export default function AgentCustomersPage() {
                               )}
                               {canComplete && (
                                 <button
-                                  onClick={async () => {
-                                    if (!window.confirm("Mark as completed?")) return;
-                                    const res = await fetch(`${API_BASE}/api/agent/customers/${c.id}/complete`, { method: "PATCH", credentials: "include" });
-                                    if (res.ok) loadData(); // Reload Logic Update
-                                  }}
+                                  
                                   className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm"
                                 >Complete</button>
                               )}
