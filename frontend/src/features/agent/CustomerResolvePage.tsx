@@ -1,11 +1,9 @@
-import React, { useState } from "react";
-import { useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 
 // Types for state
@@ -18,6 +16,8 @@ const BUDGET_OPTIONS = ["0-50 Lakhs", "50-100 Lakhs", "1-2 Crore", "2+ Crore"];
 const CONFIG_OPTIONS = ["1bhk", "2bhk", "3bhk", "4bhk", "plot", "villa"];
 const PROFESSION_OPTIONS = ["business", "salaried", "professional", "retired", "other"];
 const PURPOSE_OPTIONS = ["self-use", "investment", "second-home"];
+const DESIGNATION_OPTIONS = ["CXO", "Vice President", "Director", "Manager", "Team Leader", "Associate"];
+
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
   "not-reachable", "lost", "visit-done", "virtual-meet", "booking-done", "pending"
@@ -33,10 +33,13 @@ type CustomerForm = {
   budget: string;
   config: string;
   profession: string;
+  designation: string;
   purpose: string;
   status: string;
+  finalStatus: string;
   followUpDate: string;
   followUpTime: string;
+  doneDate: string; // NEW FIELD
   remark: string;
   [key: string]: string; 
 };
@@ -53,6 +56,14 @@ const formatDateForInput = (dateStr: string | null | undefined) => {
   }
 };
 
+// Helper to calculate Final Status based on Status Code
+const getFinalStatus = (statusCode: string) => {
+  if (statusCode === "visit-done" || statusCode === "booking-done") {
+    return "COMPLETED";
+  }
+  return "PENDING";
+};
+
 export default function CustomerResolvePage() {
   const { user, loading } = useAuth();
   const [pageState, setPageState] = useState<PageState>("SEARCH");
@@ -62,11 +73,14 @@ export default function CustomerResolvePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  // History State
+  const [history, setHistory] = useState<{date: string, remark: string}[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
+
+  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   // 1. Load assigned projects
   useEffect(() => {
-    const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
     fetch(`${API_BASE}/api/projects`, {
       credentials: "include",
     })
@@ -88,10 +102,13 @@ export default function CustomerResolvePage() {
     budget: "",
     config: "",
     profession: "",
+    designation: "",
     purpose: "",
     status: "",
+    finalStatus: "PENDING",
     followUpDate: "",
     followUpTime: "",
+    doneDate: "", // NEW
     remark: "",
   });
 
@@ -110,7 +127,7 @@ export default function CustomerResolvePage() {
       setCustomer(null);
 
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/agent/customers/search`,
+        `${API_BASE}/api/agent/customers/search`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -142,12 +159,16 @@ export default function CustomerResolvePage() {
   useEffect(() => {
     const editId = searchParams.get("edit");
     if (editId) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers/${editId}`, { credentials: "include" })
+      fetch(`${API_BASE}/api/agent/customers/${editId}`, { credentials: "include" })
         .then(res => res.json())
         .then(found => {
           if (found) {
             setCustomer(found);
             setPageState("EDIT");
+            
+            setHistory(found.history || []);
+
+            const status = found.status_code || "";
             setForm({
               name: found.name || "",
               project: found.project_id != null ? String(found.project_id) : "", 
@@ -158,11 +179,14 @@ export default function CustomerResolvePage() {
               budget: found.budget || "",
               config: found.config || found.configuration || "",
               profession: found.profession || "",
+              designation: found.designation || "",
               purpose: found.purpose || "",
-              status: found.status_code || "",
+              status: status,
+              finalStatus: found.final_status || getFinalStatus(status),
               followUpDate: formatDateForInput(found.follow_up_date),
               followUpTime: found.follow_up_time || "",
-              remark: found.remark || "",
+              doneDate: formatDateForInput(found.done_date), // Load Done Date
+              remark: "", 
             });
             setPhone(found.phone || found.contact || "");
           }
@@ -172,7 +196,16 @@ export default function CustomerResolvePage() {
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setForm(f => ({ ...f, [name]: value }));
+    
+    if (name === "status") {
+      setForm(f => ({ 
+        ...f, 
+        [name]: value,
+        finalStatus: getFinalStatus(value) 
+      }));
+    } else {
+      setForm(f => ({ ...f, [name]: value }));
+    }
   };
 
   const handleCancel = () => setPageState("SEARCH");
@@ -180,6 +213,7 @@ export default function CustomerResolvePage() {
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
+    // Explicitly send payload logic handled by backend now, but we send everything
     const payload = {
       ...form,
       project_id: form.project, 
@@ -187,11 +221,12 @@ export default function CustomerResolvePage() {
       status_code: form.status,
       follow_up_date: form.followUpDate,
       follow_up_time: form.followUpTime,
+      done_date: form.doneDate, // Send to backend
     };
 
     try {
       if (isCreate) {
-        await fetch(`${import.meta.env.VITE_API_URL}/api/agent/customers`, {
+        await fetch(`${API_BASE}/api/agent/customers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -200,7 +235,7 @@ export default function CustomerResolvePage() {
         navigate("/agent/dashboard");
       } else if (isEdit && customer) {
         await fetch(
-          `${import.meta.env.VITE_API_URL}/api/agent/customers/${customer.id}`,
+          `${API_BASE}/api/agent/customers/${customer.id}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -220,8 +255,13 @@ export default function CustomerResolvePage() {
 
   const isCreate = pageState === "CREATE";
   const isEdit = pageState === "EDIT";
-
   const ownerName = user.first_name ? `${user.first_name} ${user.last_name}` : user.username;
+
+  // --- LOGIC HELPERS ---
+  const isDoneStatus = form.status === "visit-done" || form.status === "booking-done";
+  const isLostStatus = form.status === "lost";
+  const showFollowUp = !isDoneStatus && !isLostStatus;
+  const showDoneDate = isDoneStatus;
 
   const getProjectName = () => {
     if (customer?.project_name) return customer.project_name;
@@ -276,7 +316,7 @@ export default function CustomerResolvePage() {
           </form>
         )}
 
-        {/* FOUND UI - REFINED GRID */}
+        {/* FOUND UI */}
         {pageState === "FOUND" && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6 animate-in zoom-in-95 duration-200">
              <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
@@ -289,10 +329,7 @@ export default function CustomerResolvePage() {
 
              <div className="p-6">
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
-                   {/* Clean 3-Column Grid */}
                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
-                      
-                      {/* --- ROW 1 --- */}
                       <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
                         <p className="text-sm font-bold text-slate-800 mt-1">{ownerName}</p>
@@ -305,8 +342,6 @@ export default function CustomerResolvePage() {
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
                         <p className="text-sm font-bold text-slate-800 mt-1">{customer?.name || "-"}</p>
                       </div>
-
-                      {/* --- ROW 2 --- */}
                       <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Contact Number</Label>
                         <p className="text-sm font-mono font-bold text-slate-800 mt-1">{customer?.contact || "-"}</p>
@@ -319,14 +354,10 @@ export default function CustomerResolvePage() {
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Budget Range</Label>
                         <p className="text-sm font-medium text-slate-700 mt-1">{customer?.budget || "-"}</p>
                       </div>
-
-                      {/* --- ROW 3 --- */}
                       <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Configuration</Label>
-                        <p className="text-sm font-medium text-slate-700 mt-1 uppercase">{customer?.configuration || customer?.config || "-"}</p>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Designation</Label>
+                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.designation || "-"}</p>
                       </div>
-                      
-                      {/* Added: Current Status */}
                       <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
                         <div className="mt-1">
@@ -335,16 +366,31 @@ export default function CustomerResolvePage() {
                           </span>
                         </div>
                       </div>
-
-                      {/* Added: Next Follow-Up */}
                       <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
-                        <p className="text-sm font-semibold text-slate-700 mt-1">
-                          {formatDateForInput(customer?.follow_up_date) || "Not Set"} 
-                          <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
-                        </p>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Final Status</Label>
+                        <div className="mt-1">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border inline-block ${customer?.final_status === 'COMPLETED' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                            {customer?.final_status || "PENDING"}
+                          </span>
+                        </div>
                       </div>
-
+                      {/* Show Done Date in Profile if it exists */}
+                      {customer?.done_date && (
+                        <div>
+                          <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Done Date</Label>
+                          <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateForInput(customer.done_date)}</p>
+                        </div>
+                      )}
+                      {/* Show Follow Up if not done */}
+                      {!customer?.done_date && (
+                        <div>
+                          <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
+                          <p className="text-sm font-semibold text-slate-700 mt-1">
+                            {formatDateForInput(customer?.follow_up_date) || "Not Set"} 
+                            <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
+                          </p>
+                        </div>
+                      )}
                    </div>
                 </div>
 
@@ -436,10 +482,10 @@ export default function CustomerResolvePage() {
                   {[
                     { id: 'form-source', label: 'Source', name: 'source', options: SOURCE_OPTIONS, req: true },
                     { id: 'form-leadRating', label: 'Lead Rating', name: 'leadRating', options: LEAD_RATING_OPTIONS, req: true },
-                    { id: 'form-budget', label: 'Budget Range', name: 'budget', options: BUDGET_OPTIONS },
-                    { id: 'form-config', label: 'Configuration', name: 'config', options: CONFIG_OPTIONS },
-                    { id: 'form-profession', label: 'Profession', name: 'profession', options: PROFESSION_OPTIONS },
-                    { id: 'form-purpose', label: 'Purpose', name: 'purpose', options: PURPOSE_OPTIONS }
+                    { id: 'form-budget', label: 'Budget Range', name: 'budget', options: BUDGET_OPTIONS, req: true }, 
+                    { id: 'form-config', label: 'Configuration', name: 'config', options: CONFIG_OPTIONS, req: true }, 
+                    { id: 'form-profession', label: 'Profession', name: 'profession', options: PROFESSION_OPTIONS, req: true }, 
+                    { id: 'form-purpose', label: 'Purpose', name: 'purpose', options: PURPOSE_OPTIONS, req: true }, 
                   ].map((field) => (
                     <div key={field.id} className="space-y-1.5">
                       <Label htmlFor={field.id} className="text-slate-600 font-medium ml-1">
@@ -458,6 +504,22 @@ export default function CustomerResolvePage() {
                       </select>
                     </div>
                   ))}
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="form-designation" className="text-slate-600 font-medium ml-1">
+                      Designation
+                    </Label>
+                    <select
+                      id="form-designation"
+                      name="designation"
+                      value={form.designation}
+                      onChange={handleFormChange}
+                      className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all bg-white shadow-sm"
+                    >
+                      <option value="">Select designation</option>
+                      {DESIGNATION_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  </div>
                 </div>
               </section>
 
@@ -474,17 +536,80 @@ export default function CustomerResolvePage() {
                       {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="form-followUpDate" className="text-slate-600 font-medium ml-1">Follow-up Date</Label>
-                    <Input id="form-followUpDate" name="followUpDate" type="date" value={form.followUpDate} onChange={handleFormChange} className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
+                  
+                  <div className="space-y-1.5 opacity-90">
+                     <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">Final Status</Label>
+                     <Input 
+                       id="form-finalStatus" 
+                       value={form.finalStatus} 
+                       disabled 
+                       className={`h-11 border-slate-200 font-bold tracking-wide ${form.finalStatus === 'COMPLETED' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'}`} 
+                     />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="form-followUpTime" className="text-slate-600 font-medium ml-1">Follow-up Time</Label>
-                    <Input id="form-followUpTime" name="followUpTime" type="time" value={form.followUpTime} onChange={handleFormChange} className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
-                  </div>
+
+                  {/* DYNAMIC DATE FIELDS LOGIC */}
+                  
+                  {/* SCENARIO 1: NORMAL STATUS (Show Follow Up) */}
+                  {showFollowUp && (
+                    <>
+                      <div className="space-y-1.5 animate-in fade-in duration-300">
+                        <Label htmlFor="form-followUpDate" className="text-slate-600 font-medium ml-1">Follow-up Date <span className="text-rose-500">*</span></Label>
+                        <Input id="form-followUpDate" name="followUpDate" type="date" value={form.followUpDate} onChange={handleFormChange} required className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
+                      </div>
+                      <div className="space-y-1.5 animate-in fade-in duration-300">
+                        <Label htmlFor="form-followUpTime" className="text-slate-600 font-medium ml-1">Follow-up Time <span className="text-rose-500">*</span></Label>
+                        <Input id="form-followUpTime" name="followUpTime" type="time" value={form.followUpTime} onChange={handleFormChange} required className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
+                      </div>
+                    </>
+                  )}
+
+                  {/* SCENARIO 2: DONE STATUS (Show Done Date) */}
+                  {showDoneDate && (
+                    <div className="space-y-1.5 animate-in fade-in duration-300">
+                      <Label htmlFor="form-doneDate" className="text-emerald-700 font-medium ml-1">Done Date <span className="text-rose-500">*</span></Label>
+                      <Input id="form-doneDate" name="doneDate" type="date" value={form.doneDate} onChange={handleFormChange} required className="h-11 border-emerald-200 focus:ring-4 focus:ring-emerald-50 bg-emerald-50/50 shadow-sm" />
+                    </div>
+                  )}
+
+                  {/* SCENARIO 3: LOST (Show Nothing or Disabled Placeholders if preferred, currently hiding all dates as requested) */}
+                   
                    <div className="col-span-full space-y-1.5">
-                    <Label htmlFor="form-remark" className="text-slate-600 font-medium ml-1">Special Remarks</Label>
-                    <textarea id="form-remark" name="remark" value={form.remark} onChange={handleFormChange} rows={3} placeholder="Enter details..." className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all" />
+                    <Label htmlFor="form-remark" className="text-slate-600 font-medium ml-1">
+                       {isEdit ? "Add New Remark Update" : "Special Remarks"}
+                    </Label>
+                    <textarea 
+                       id="form-remark" 
+                       name="remark" 
+                       value={form.remark} 
+                       onChange={handleFormChange} 
+                       rows={3} 
+                       placeholder="Enter details..." 
+                       className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all" 
+                    />
+
+                    {isEdit && history.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                        <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-2 block">
+                          Previous Remarks History
+                        </Label>
+                        <div className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden shadow-inner">
+                          <div className="max-h-40 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-slate-300">
+                            {history.map((item, idx) => (
+                              <div key={idx} className="bg-white p-3 rounded-md border border-slate-100 shadow-sm transition-hover hover:border-indigo-100">
+                                <div className="flex justify-between items-center mb-1.5">
+                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
+                                    {new Date(item.date).toLocaleDateString()} at {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-slate-700 leading-relaxed font-medium italic">
+                                  "{item.remark}"
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </section>

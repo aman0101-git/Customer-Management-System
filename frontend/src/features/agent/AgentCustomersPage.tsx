@@ -40,7 +40,7 @@ export default function AgentCustomersPage() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- NEW STATE for Projects Filter ---
+  // Projects Filter State
   const [projects, setProjects] = useState<any[]>([]);
   const [projectFilter, setProjectFilter] = useState<string>("all");
 
@@ -62,11 +62,9 @@ export default function AgentCustomersPage() {
     try {
       setLoading(true);
       
-      // 1. Fetch Customers
       const resCust = await fetch(`${API_BASE}/api/agent/customers`, { credentials: "include" });
       if (resCust.ok) setCustomers(await resCust.json());
 
-      // 2. Fetch Assigned Projects (for filter)
       const resProj = await fetch(`${API_BASE}/api/projects`, { credentials: "include" });
       if (resProj.ok) setProjects(await resProj.json());
 
@@ -81,13 +79,9 @@ export default function AgentCustomersPage() {
 
   // Filtering Logic
   const filteredCustomers = customers.filter(c => {
-    // 1. Project Filter (New)
     if (projectFilter !== "all" && c.project_id !== Number(projectFilter)) return false;
-
-    // 2. Status Filter
     if (statusFilter && c.status_code !== statusFilter) return false;
 
-    // 3. Date Filter
     if (dateRangeType === "all") return true;
     const customerDate = c.assigned_at ? parseISO(c.assigned_at) : null;
     if (!customerDate) return false;
@@ -181,7 +175,6 @@ export default function AgentCustomersPage() {
             <h1 className="text-xl font-bold text-slate-800">Customer Directory</h1>
             <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
               
-              {/* --- NEW PROJECT FILTER --- */}
               <div className="flex items-center gap-2 border-r pr-3 border-slate-100">
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Project:</span>
                 <select 
@@ -195,7 +188,6 @@ export default function AgentCustomersPage() {
                   ))}
                 </select>
               </div>
-              {/* ------------------------- */}
 
               <select 
                 className="text-xs font-bold text-slate-600 bg-transparent outline-none cursor-pointer px-2"
@@ -224,7 +216,8 @@ export default function AgentCustomersPage() {
               <table className="w-full text-left border-collapse leading-normal">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    {["Customer & Owner", "Contact", "Project", "Status", "Follow Up", "Assigned", "Updated", "Actions"].map((head) => (
+                    {/* UPDATED: Added "Final Status" to headers */}
+                    {["Customer & Owner", "Contact", "Project", "Status", "Final Status", "Follow Up", "Assigned", "Updated", "Actions"].map((head) => (
                       <th key={head} className="px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500">{head}</th>
                     ))}
                   </tr>
@@ -237,6 +230,12 @@ export default function AgentCustomersPage() {
                       const canComplete = COMPLETABLE_STATUSES.includes(c.status_code) && !isCompleted;
                       const assigned = formatDateTime(c.assigned_at);
                       const updated = formatDateTime(c.updated_at);
+                      
+                      // LOGIC: Check if this is a 'Done' status
+                      const isDoneStatus = c.status_code === "visit-done" || c.status_code === "booking-done";
+                      const followUpDateDisplay = isDoneStatus ? formatDateTime(c.done_date).d : formatDateTime(c.follow_up_date).d;
+                      const followUpTimeDisplay = isDoneStatus ? "Done Date" : safe(c.follow_up_time);
+
                       return (
                         <tr key={c.id} className="hover:bg-slate-50 transition-colors group">
                           <td className="px-5 py-4">
@@ -247,11 +246,24 @@ export default function AgentCustomersPage() {
                           </td>
                           <td className="px-5 py-4"><div className="text-sm font-mono text-slate-600">{safe(c.contact)}</div></td>
                           <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project_name)}</td>
-                          <td className="px-5 py-4"><StatusBadge status={c.status_code} /></td>
-                          <td className="px-5 py-4">
-                            <div className="text-xs font-bold text-slate-700">{formatDateTime(c.follow_up_date).d}</div>
-                            <div className="text-[10px] text-slate-400 font-medium">{safe(c.follow_up_time)}</div>
+                          <td className="px-4 py-4"><StatusBadge status={c.status_code} /></td>
+                          
+                          {/* NEW COLUMN: Final Status */}
+                          <td className="px-4 py-4">
+                             <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border 
+                               ${c.final_status === 'COMPLETED' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                {c.final_status || "PENDING"}
+                             </span>
                           </td>
+
+                          {/* UPDATED COLUMN: Follow Up / Done Date */}
+                          <td className="px-5 py-4">
+                            <div className={`text-xs font-bold ${isDoneStatus ? 'text-emerald-700' : 'text-slate-700'}`}>
+                              {followUpDateDisplay}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium">{followUpTimeDisplay}</div>
+                          </td>
+
                           <td className="px-5 py-4">
                             <div className="text-xs font-semibold text-slate-600">{assigned.d}</div>
                             <div className="text-[10px] text-slate-400">{assigned.t}</div>
@@ -267,7 +279,6 @@ export default function AgentCustomersPage() {
                               )}
                               {canComplete && (
                                 <button
-                                  
                                   className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm"
                                 >Complete</button>
                               )}
@@ -278,7 +289,7 @@ export default function AgentCustomersPage() {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="p-10 text-center text-slate-400 font-medium">
+                      <td colSpan={9} className="p-10 text-center text-slate-400 font-medium">
                         No records found for this filter.
                       </td>
                     </tr>
