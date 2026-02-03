@@ -3,16 +3,23 @@ import * as Service from "./customer.service.js";
 
 // Get merged customer + agent_customer for edit
 export async function getAgentCustomerById(req: Request, res: Response) {
-  const agentId = req.user?.id;
+  const agentId = req.user?.id; // Type is number | undefined
   const agentCustomerId = Number(req.params.id);
 
-  if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+  // This check is your "Type Guard"
+  if (agentId === undefined) { 
+    return res.status(401).json({ message: "Unauthorized" }); 
+  }
+
   if (!agentCustomerId) return res.status(400).json({ message: "Missing id" });
 
-  const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId);
+  // Add the '!' after agentId to assert it is a number
+  const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId!);
+  
   if (!result) return res.status(404).json({ message: "Not found" });
 
-  res.json(result);
+  const history = await Service.getCustomerRemarkHistory(agentCustomerId);
+  res.json({ ...result, history });
 }
 
 // Mark agent customer as completed

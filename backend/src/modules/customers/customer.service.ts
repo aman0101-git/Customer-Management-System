@@ -1,4 +1,11 @@
-import {db} from "../../config/db.js";
+import { db } from "../../config/db.js";
+
+// Helper to determine Final Status based on Status Code
+const calculateFinalStatus = (statusCode: string) => {
+  return (statusCode === "visit-done" || statusCode === "booking-done") 
+    ? "COMPLETED" 
+    : "PENDING";
+};
 
 // Get merged customer + agent_customer for edit
 export async function getAgentCustomerMerged(agentCustomerId: number, agentId: number) {
@@ -6,10 +13,12 @@ export async function getAgentCustomerMerged(agentCustomerId: number, agentId: n
     `SELECT ac.id, ac.status_code,
             ac.follow_up_date,
             ac.follow_up_time,
+            ac.done_date, 
             ac.remark, ac.assigned_at,
             ac.rating,
             ac.configuration AS config,
             ac.budget, ac.purpose, ac.source,
+            ac.final_status,
             c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, 
             c.project_id,
             c.updated_at, c.created_at AS created_at
@@ -60,7 +69,6 @@ export async function searchCustomerForAgent(
   phone: string,
   agentId: number
 ) {
-  // Step 1: Check if customer exists globally
   const [customers]: any = await db.query(
     "SELECT id, name, contact FROM customers WHERE contact = ?",
     [phone]
@@ -70,11 +78,10 @@ export async function searchCustomerForAgent(
 
   const customerId = customers[0].id;
 
-  // Step 2: Check if assigned to this agent AND fetch all details
   const [assignments]: any = await db.query(
-    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, 
-            ac.source, ac.rating, ac.budget, ac.configuration, ac.purpose,
-            c.name, c.contact, c.location, c.pincode, c.project_id, c.profession,
+    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.done_date,
+            ac.source, ac.rating, ac.budget, ac.configuration, ac.purpose, ac.final_status,
+            c.name, c.contact, c.location, c.pincode, c.project_id, c.profession, c.designation,
             p.name as project_name
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
@@ -85,6 +92,50 @@ export async function searchCustomerForAgent(
 
   return assignments.length ? assignments[0] : null;
 }
+
+// --- HELPER FOR DATE PARSING ---
+const parseDatesBasedOnStatus = (data: any) => {
+  const isDone = data.status_code === "visit-done" || data.status_code === "booking-done";
+  const isLost = data.status_code === "lost";
+
+  let followUpDate = null;
+  let followUpTime = null;
+  let doneDate = null;
+
+  // SCENARIO 1: LOST (No dates needed)
+  if (isLost) {
+    return { followUpDate: null, followUpTime: null, doneDate: null };
+  }
+
+  // SCENARIO 2: DONE (Done Date required, Follow-up disabled)
+  if (isDone) {
+    if (data.done_date && data.done_date !== "") {
+      try {
+        doneDate = new Date(data.done_date).toISOString().slice(0, 10);
+      } catch {}
+    }
+    return { followUpDate: null, followUpTime: null, doneDate };
+  }
+
+  // SCENARIO 3: NORMAL STATUS (Follow-up required, Done Date disabled)
+  if (data.follow_up_date && data.follow_up_date !== "") {
+    try {
+      followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
+    } catch {}
+  }
+
+  if (data.follow_up_time && data.follow_up_time !== "") {
+    try {
+      const t = new Date(`1970-01-01T${data.follow_up_time}`);
+      if (!isNaN(t.getTime())) {
+        followUpTime = t.toTimeString().slice(0, 8);
+      }
+    } catch {}
+  }
+
+  return { followUpDate, followUpTime, doneDate: null };
+};
+
 
 export async function createAgentCustomer(agentId: number, data: any) {
   const conn = await db.getConnection();
@@ -113,31 +164,15 @@ export async function createAgentCustomer(agentId: number, data: any) {
       customerId = result.insertId;
     }
 
-    // FIX: Handle empty strings for Date/Time fields
-    let followUpDate = null;
-    if (data.follow_up_date && data.follow_up_date !== "") {
-      try {
-        followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
-      } catch {}
-    }
-
-    let followUpTime = null;
-    if (data.follow_up_time && data.follow_up_time !== "") {
-      try {
-        // Dummy date to parse time
-        const t = new Date(`1970-01-01T${data.follow_up_time}`);
-        // Check for invalid date
-        if (!isNaN(t.getTime())) {
-             followUpTime = t.toTimeString().slice(0, 8);
-        }
-      } catch {}
-    }
+    // Logic to handle dates based on status
+    const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
+    const finalStatus = calculateFinalStatus(data.status_code);
 
     const [assignment]: any = await conn.query(
       `INSERT INTO agent_customers
        (agent_id, customer_id, source, rating, budget, configuration, purpose,
-        status_code, follow_up_date, follow_up_time, remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        status_code, final_status, follow_up_date, follow_up_time, done_date, remark)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agentId,
         customerId,
@@ -147,8 +182,10 @@ export async function createAgentCustomer(agentId: number, data: any) {
         data.config || data.configuration,
         data.purpose,
         data.status_code,
-        followUpDate, // Passes NULL if empty
-        followUpTime, // Passes NULL if empty
+        finalStatus, 
+        followUpDate, 
+        followUpTime, 
+        doneDate, // NEW FIELD
         data.remark,
       ]
     );
@@ -191,32 +228,20 @@ export async function updateAgentCustomer(
   );
   const oldValue = oldRows[0] ? { ...oldRows[0] } : null;
 
-  // FIX: Handle empty strings for Date/Time fields
-  let followUpDate = null;
-  if (data.follow_up_date && data.follow_up_date !== "") {
-    try {
-       followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
-    } catch {}
-  }
-
-  let followUpTime = null;
-  if (data.follow_up_time && data.follow_up_time !== "") {
-    try {
-      const t = new Date(`1970-01-01T${data.follow_up_time}`);
-      if (!isNaN(t.getTime())) {
-        followUpTime = t.toTimeString().slice(0, 8);
-      }
-    } catch {}
-  }
+  // Logic to handle dates based on status
+  const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
+  const finalStatus = calculateFinalStatus(data.status_code);
 
   await db.query(
     `UPDATE agent_customers
-     SET status_code = ?, follow_up_date = ?, follow_up_time = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
+     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
      WHERE id = ?`,
     [
       data.status_code,
-      followUpDate, // Passes NULL if empty
-      followUpTime, // Passes NULL if empty
+      finalStatus, 
+      followUpDate, 
+      followUpTime, 
+      doneDate, // NEW FIELD
       data.remark,
       data.leadRating || data.lead_rating || data.rating,
       data.config || data.configuration,
@@ -265,4 +290,22 @@ export async function updateAgentCustomer(
   );
 
   return newValue;
+}
+
+export async function getCustomerRemarkHistory(agentCustomerId: number) {
+  const [rows]: any = await db.query(
+    `SELECT created_at, new_value 
+     FROM agent_customer_logs 
+     WHERE agent_customer_id = ? 
+     ORDER BY created_at DESC`,
+    [agentCustomerId]
+  );
+
+  return rows.map((log: any) => {
+    const data = JSON.parse(log.new_value);
+    return {
+      date: log.created_at,
+      remark: data.remark || "No remark entered"
+    };
+  }).filter((item: any) => item.remark !== "No remark entered");
 }
