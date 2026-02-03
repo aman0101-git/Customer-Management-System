@@ -67,9 +67,10 @@ export async function getAllProjectsWithAgentsService(userId: number, role: stri
   const params: any[] = [];
 
   if (role === 'AGENT') {
-    // Agents see projects they are assigned to, sorted by latest assignment
+    // Agents see projects they are assigned to
     query = `
       SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
+             1 as agent_count, -- Dummy count for consistency, or calculate real count if needed
              up.assigned_at
       FROM projects p
       JOIN user_projects up ON p.id = up.project_id
@@ -79,16 +80,16 @@ export async function getAllProjectsWithAgentsService(userId: number, role: stri
     params.push(userId);
   } else {
     // Supervisors/Admins view
+    // FIX: Changed GROUP_CONCAT(u.username) to COUNT(u.id)
     query = `
       SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
-        GROUP_CONCAT(u.username) as agents
+        COUNT(u.id) as agent_count
       FROM projects p
       LEFT JOIN user_projects up ON p.id = up.project_id AND up.is_active = 1
       LEFT JOIN users u ON up.user_id = u.id AND u.role = 'AGENT'
       WHERE p.is_active = 1
     `;
     
-    // Project Privacy: Supervisors only see projects they created
     if (role === 'SUPERVISOR') {
       query += ` AND p.created_by = ?`;
       params.push(userId);

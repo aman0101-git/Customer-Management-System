@@ -10,7 +10,9 @@ export async function getAgentCustomerMerged(agentCustomerId: number, agentId: n
             ac.rating,
             ac.configuration AS config,
             ac.budget, ac.purpose, ac.source,
-            c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, c.updated_at, c.created_at AS created_at
+            c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, 
+            c.project_id,
+            c.updated_at, c.created_at AS created_at
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      WHERE ac.id = ? AND ac.agent_id = ?`,
@@ -58,6 +60,7 @@ export async function searchCustomerForAgent(
   phone: string,
   agentId: number
 ) {
+  // Step 1: Check if customer exists globally
   const [customers]: any = await db.query(
     "SELECT id, name, contact FROM customers WHERE contact = ?",
     [phone]
@@ -67,10 +70,15 @@ export async function searchCustomerForAgent(
 
   const customerId = customers[0].id;
 
+  // Step 2: Check if assigned to this agent AND fetch all details
   const [assignments]: any = await db.query(
-    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, c.name, c.contact
+    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, 
+            ac.source, ac.rating, ac.budget, ac.configuration, ac.purpose,
+            c.name, c.contact, c.location, c.pincode, c.project_id, c.profession,
+            p.name as project_name
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
+     LEFT JOIN projects p ON c.project_id = p.id
      WHERE ac.agent_id = ? AND ac.customer_id = ?`,
     [agentId, customerId]
   );
@@ -105,17 +113,23 @@ export async function createAgentCustomer(agentId: number, data: any) {
       customerId = result.insertId;
     }
 
-    let followUpDate = data.follow_up_date;
-    let followUpTime = data.follow_up_time;
-    if (followUpDate) {
+    // FIX: Handle empty strings for Date/Time fields
+    let followUpDate = null;
+    if (data.follow_up_date && data.follow_up_date !== "") {
       try {
-        followUpDate = new Date(followUpDate).toISOString().slice(0, 10);
+        followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
       } catch {}
     }
-    if (followUpTime) {
+
+    let followUpTime = null;
+    if (data.follow_up_time && data.follow_up_time !== "") {
       try {
-        const t = new Date(`1970-01-01T${followUpTime}`);
-        followUpTime = t.toTimeString().slice(0, 8);
+        // Dummy date to parse time
+        const t = new Date(`1970-01-01T${data.follow_up_time}`);
+        // Check for invalid date
+        if (!isNaN(t.getTime())) {
+             followUpTime = t.toTimeString().slice(0, 8);
+        }
       } catch {}
     }
 
@@ -133,8 +147,8 @@ export async function createAgentCustomer(agentId: number, data: any) {
         data.config || data.configuration,
         data.purpose,
         data.status_code,
-        followUpDate,
-        followUpTime,
+        followUpDate, // Passes NULL if empty
+        followUpTime, // Passes NULL if empty
         data.remark,
       ]
     );
@@ -177,25 +191,32 @@ export async function updateAgentCustomer(
   );
   const oldValue = oldRows[0] ? { ...oldRows[0] } : null;
 
-  let followUpDate = data.follow_up_date;
-  if (followUpDate) {
-    followUpDate = String(followUpDate).slice(0, 10);
-  }
-  let followUpTime = data.follow_up_time;
-  if (followUpTime) {
+  // FIX: Handle empty strings for Date/Time fields
+  let followUpDate = null;
+  if (data.follow_up_date && data.follow_up_date !== "") {
     try {
-      const t = new Date(`1970-01-01T${followUpTime}`);
-      followUpTime = t.toTimeString().slice(0, 8);
+       followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
     } catch {}
   }
+
+  let followUpTime = null;
+  if (data.follow_up_time && data.follow_up_time !== "") {
+    try {
+      const t = new Date(`1970-01-01T${data.follow_up_time}`);
+      if (!isNaN(t.getTime())) {
+        followUpTime = t.toTimeString().slice(0, 8);
+      }
+    } catch {}
+  }
+
   await db.query(
     `UPDATE agent_customers
      SET status_code = ?, follow_up_date = ?, follow_up_time = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
      WHERE id = ?`,
     [
       data.status_code,
-      followUpDate,
-      followUpTime,
+      followUpDate, // Passes NULL if empty
+      followUpTime, // Passes NULL if empty
       data.remark,
       data.leadRating || data.lead_rating || data.rating,
       data.config || data.configuration,
