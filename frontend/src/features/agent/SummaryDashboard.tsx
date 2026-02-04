@@ -12,14 +12,7 @@ import {
   subDays,
 } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Loader2, Calendar, Filter, Briefcase } from "lucide-react";
+import { Loader2, Calendar, Filter, Briefcase, Layers } from "lucide-react";
 
 /* ---------------- STYLED TABS ---------------- */
 const Tabs = ({ active, setActive, labels }: any) => (
@@ -45,7 +38,6 @@ const ALL_STATUSES = [
   "visit-confirmed",
   "virtual-meet",
   "virtual-meet-confirmed",
-  "sdow",
   "visit-done",
   "booking-done",
   "lost",
@@ -60,13 +52,19 @@ export default function SummaryDashboard() {
   const [activeTab, setActiveTab] = useState(0);
   const [projects, setProjects] = useState<any[]>([]);
 
+  // Filters
   const [selectedProject, setSelectedProject] = useState("all");
   const [period, setPeriod] = useState("This Week");
+  
+  // SECTION 2 SPECIFIC FILTERS
   const [pipelineWeek, setPipelineWeek] = useState("This Week");
+  const [mode, setMode] = useState("all"); // 'all' | 'fresh' | 'repeated'
 
+  // Data Containers
   const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
   const [sec2Data, setSec2Data] = useState<any[]>([]);
   const [sec3Data, setSec3Data] = useState<Record<string, number>>({});
+  
   const [loading, setLoading] = useState(false);
 
   const getDatesFromPeriod = (p: string) => {
@@ -117,6 +115,8 @@ export default function SummaryDashboard() {
     setLoading(true);
     try {
       const ts = Date.now();
+      
+      // SECTION 1 FETCH
       if (activeTab === 0) {
         const { startDate, endDate } = getDatesFromPeriod(period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -130,13 +130,23 @@ export default function SummaryDashboard() {
         });
         setSec1Data(res.data || {});
       }
+
+      // SECTION 2 FETCH (Includes new 'mode' param)
       if (activeTab === 1) {
         const { startDate, endDate } = getDatesFromPeriod(pipelineWeek);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "2", startDate, endDate, _ts: ts },
+          params: { 
+            section: "2", 
+            startDate, 
+            endDate, 
+            mode, 
+            _ts: ts 
+          },
         });
         setSec2Data(Array.isArray(res.data) ? res.data : []);
       }
+
+      // SECTION 3 FETCH
       if (activeTab === 2) {
         const { startDate, endDate } = getDatesFromPeriod(period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -158,16 +168,16 @@ export default function SummaryDashboard() {
   useEffect(() => {
     fetchProjects();
   }, []);
+
   useEffect(() => {
     if (user) fetchData();
-  }, [activeTab, selectedProject, period, pipelineWeek, user]);
+  }, [activeTab, selectedProject, period, pipelineWeek, mode, user]);
 
   const getCount = (data: Record<string, number>, code: string) =>
     data?.[code] ?? 0;
 
   /* ---------------- UI COMPONENTS ---------------- */
 
-  // Modern Control Bar for Filters
   const FilterBar = ({ children }: any) => (
     <div className="flex flex-col md:flex-row gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-100 items-center justify-between">
       <div className="flex items-center gap-2 text-slate-500 font-medium">
@@ -178,7 +188,6 @@ export default function SummaryDashboard() {
     </div>
   );
 
-  // Custom Styled Select (Simulated using standard select with better classes for simplicity)
   const StyledSelect = ({ value, onChange, options, icon: Icon }: any) => (
     <div className="relative">
       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
@@ -269,7 +278,6 @@ export default function SummaryDashboard() {
                   {getCount(sec1Data, code as string)}
                 </div>
                 <div className={`p-2 rounded-full ${bgClass} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                   {/* Optional Icon could go here */}
                    <div className={`w-2 h-2 rounded-full ${colorClass.replace('text', 'bg')}`}></div>
                 </div>
               </div>
@@ -280,13 +288,12 @@ export default function SummaryDashboard() {
     </div>
   );
 
-  /* ---------------- SECTION 2: PIPELINE ---------------- */
+  /* ---------------- SECTION 2: PIPELINE (UPDATED & FIXED) ---------------- */
   const renderSection2 = () => {
     const statuses = [
       { label: "Visit Proposed", code: "visit-proposed" },
       { label: "Visit Confirmed", code: "visit-confirmed" },
       { label: "Virtual Meet Confirmed", code: "virtual-meet-confirmed" },
-      { label: "Virtual Meet", code: "virtual-meet" },
     ];
 
     const days = [
@@ -299,9 +306,20 @@ export default function SummaryDashboard() {
       { label: "Sun", sql: 1 },
     ];
 
-    const getDayCount = (status: string, day: number) =>
-      sec2Data.find((d) => d.status_code === status && d.day_num === day)
-        ?.count || 0;
+    // FIX: Force data conversion to Number() to prevent string concatenation bug (e.g. "01000")
+    const getDayCount = (status: string, day: number) => {
+        const row = sec2Data.find((d: any) => d.status_code === status && d.day_num === day);
+        if (!row) return 0;
+        
+        // Convert DB string responses to real numbers
+        const freshCount = Number(row.fresh) || 0;
+        const repeatedCount = Number(row.repeated) || 0;
+        
+        if (mode === "fresh") return freshCount;
+        if (mode === "repeated") return repeatedCount;
+        
+        return freshCount + repeatedCount;
+    };
 
     let grandTotal = 0;
 
@@ -317,6 +335,19 @@ export default function SummaryDashboard() {
                 <option>Past Week</option>
                 <option>This Week</option>
                 <option>Next Week</option>
+              </>
+            }
+          />
+          
+          <StyledSelect
+            icon={Layers}
+            value={mode}
+            onChange={(e: any) => setMode(e.target.value)}
+            options={
+              <>
+                <option value="all">All Leads</option>
+                <option value="fresh">Fresh</option>
+                <option value="repeated">Repeated</option>
               </>
             }
           />
@@ -366,7 +397,7 @@ export default function SummaryDashboard() {
                                 : "text-slate-300"
                             }`}
                           >
-                            {c || "-"}
+                            {c > 0 ? c : "-"}
                           </td>
                         );
                       })}
