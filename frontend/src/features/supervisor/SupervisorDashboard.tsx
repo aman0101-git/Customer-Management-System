@@ -23,22 +23,22 @@ export default function SupervisorDashboard() {
             </CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="blue" className="cursor-pointer" onClick={() => navigate("/supervisor/project-allocation") }>
+        <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/supervisor/project-allocation") }>
           <CardHeader>
             <CardTitle>👥 Project Allocation</CardTitle>
             <CardDescription>Create projects and allocate to agents</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card accent="pink" className="cursor-pointer" onClick={() => {}}>
-          <CardHeader>
-            <CardTitle>📍 Visits Monitoring</CardTitle>
-            <CardDescription>Track visits across agents</CardDescription>
           </CardHeader>
         </Card>
         <Card accent="yellow" className="cursor-pointer" onClick={() => {}}>
           <CardHeader>
             <CardTitle>⏰ Follow-up Discipline</CardTitle>
             <CardDescription>Overdue and upcoming follow-ups</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card accent="blue" className="cursor-pointer" onClick={() => {}}>
+          <CardHeader>
+            <CardTitle>📍 Visits Monitoring</CardTitle>
+            <CardDescription>Track visits across agents</CardDescription>
           </CardHeader>
         </Card>
         <Card accent="green" className="cursor-pointer" onClick={() => {}}>

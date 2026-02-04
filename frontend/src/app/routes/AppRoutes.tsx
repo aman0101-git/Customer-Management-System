@@ -9,6 +9,7 @@ import AgentCustomersPage from '@/features/agent/AgentCustomersPage';
 import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUserPage';
 import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
+import SummaryDashboard from '@/features/agent/SummaryDashboard';
 
 export default function AppRoutes() {
   return (
@@ -35,6 +36,7 @@ export default function AppRoutes() {
         }
       />
 
+      {/* AGENT ROUTES */}
       <Route
         path="/agent/dashboard"
         element={
@@ -51,7 +53,6 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
-      
       <Route
         path="/agent/customers"
         element={
@@ -60,7 +61,17 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
+      {/* FIXED: Moved inside RequireAuth role="AGENT" */}
+      <Route 
+        path="/agent/summary" 
+        element={
+          <RequireAuth role="AGENT">
+            <SummaryDashboard />
+          </RequireAuth>
+        } 
+      />
       
+      {/* SUPERVISOR ROUTES */}
       <Route
         path="/supervisor/dashboard"
         element={

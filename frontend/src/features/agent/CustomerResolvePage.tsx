@@ -45,6 +45,7 @@ type CustomerForm = {
 };
 
 // Helper to safe-format YYYY-MM-DD
+
 const formatDateForInput = (dateStr: string | null | undefined) => {
   if (!dateStr) return "";
   try {
@@ -53,6 +54,23 @@ const formatDateForInput = (dateStr: string | null | undefined) => {
     return d.toISOString().split("T")[0];
   } catch {
     return "";
+  }
+};
+
+// Helper to format Date as DD/MM/YYYY for display
+const formatDateDisplay = (dateStr: string | null | undefined) => {
+  if (!dateStr) return "-";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "-";
+    
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = String(d.getMonth() + 1).padStart(2, "0"); // Month is 0-indexed
+    const year = d.getFullYear();
+    
+    return `${day}/${month}/${year}`;
+  } catch {
+    return "-";
   }
 };
 
@@ -208,7 +226,13 @@ export default function CustomerResolvePage() {
     }
   };
 
-  const handleCancel = () => setPageState("SEARCH");
+  const handleCancel = () => {
+    if (isEdit) {
+      navigate("/agent/customers");
+    } else {
+      setPageState("SEARCH");
+    }
+  };
 
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -351,12 +375,8 @@ export default function CustomerResolvePage() {
                         <p className="text-sm font-medium text-slate-700 mt-1">{customer?.location || "-"}</p>
                       </div>
                       <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Budget Range</Label>
-                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.budget || "-"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Designation</Label>
-                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.designation || "-"}</p>
+                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Created At</Label>
+                        <p className="text-sm font-medium text-slate-700 mt-1">{formatDateDisplay(customer?.created_at) || "-"}</p>
                       </div>
                       <div>
                         <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
@@ -378,7 +398,7 @@ export default function CustomerResolvePage() {
                       {customer?.done_date && (
                         <div>
                           <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Done Date</Label>
-                          <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateForInput(customer.done_date)}</p>
+                          <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateDisplay(customer.done_date)}</p>
                         </div>
                       )}
                       {/* Show Follow Up if not done */}
@@ -386,7 +406,7 @@ export default function CustomerResolvePage() {
                         <div>
                           <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
                           <p className="text-sm font-semibold text-slate-700 mt-1">
-                            {formatDateForInput(customer?.follow_up_date) || "Not Set"} 
+                            {formatDateDisplay(customer?.follow_up_date) || "Not Set"} 
                             <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
                           </p>
                         </div>

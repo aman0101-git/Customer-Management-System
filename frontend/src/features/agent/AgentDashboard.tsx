@@ -30,6 +30,20 @@ export default function AgentDashboard() {
           </CardHeader>
         </Card>
 
+        <Card accent="yellow" className="cursor-pointer" onClick={() => navigate("/agent/followups") }>
+          <CardHeader>
+            <CardTitle>⏰ My Follow-ups</CardTitle>
+            <CardDescription>Your scheduled follow-ups</CardDescription>
+          </CardHeader>
+        </Card>
+
+        <Card accent="purple" className="cursor-pointer" onClick={() => navigate("/agent/summary") }>
+          <CardHeader>
+            <CardTitle>📊 Summary Dashboards</CardTitle>
+            <CardDescription>Quick view of today’s activity</CardDescription>
+          </CardHeader>
+        </Card>
+
         <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/agent/visits") }>
           <CardHeader>
             <CardTitle>📍 My Visits</CardTitle>
@@ -37,23 +51,10 @@ export default function AgentDashboard() {
           </CardHeader>
         </Card>
 
-        <Card accent="yellow" className="cursor-pointer" onClick={() => navigate("/agent/followups") }>
-          <CardHeader>
-            <CardTitle>⏰ My Follow-ups</CardTitle>
-            <CardDescription>Your scheduled follow-ups</CardDescription>
-          </CardHeader>
-        </Card>
         <Card accent="green" className="cursor-pointer" onClick={() => navigate("/agent/attendance") }>
           <CardHeader>
             <CardTitle>🕒 My Attendance</CardTitle>
             <CardDescription>Login / Logout for today</CardDescription>
-          </CardHeader>
-        </Card>
-
-        <Card accent="purple" className="cursor-pointer" onClick={() => navigate("/agent/summary") }>
-          <CardHeader>
-            <CardTitle>📊 Today’s Summary</CardTitle>
-            <CardDescription>Quick view of today’s activity</CardDescription>
           </CardHeader>
         </Card>
       </div>
