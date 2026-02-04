@@ -329,32 +329,38 @@ export async function getDashboardVisitsBooking(
 
   const [rows]: any = await db.query(
     `
-    SELECT ac.status_code, COUNT(*) AS count
-    FROM agent_customers ac
-    JOIN customers c ON ac.customer_id = c.id
-    WHERE ac.agent_id = ?
-    ${filter}
-    AND (
-      (
-        ac.status_code IN ('visit-done','booking-done')
-        AND ac.done_date IS NOT NULL
-        AND ac.done_date BETWEEN ? AND ?
+    SELECT status_code, COUNT(*) AS count
+    FROM (
+      SELECT ac.status_code
+      FROM agent_customers ac
+      JOIN customers c ON c.id = ac.customer_id
+      WHERE ac.agent_id = ?
+      ${filter}
+      AND (
+        (
+          ac.status_code IN (
+            'visit-proposed',
+            'visit-confirmed',
+            'virtual-meet',
+            'virtual-meet-confirmed'
+          )
+          AND DATE(ac.assigned_at) BETWEEN ? AND ?
+        )
+        OR
+        (
+          ac.status_code IN ('visit-done','booking-done','lost')
+          AND ac.done_date IS NOT NULL
+          AND ac.done_date BETWEEN ? AND ?
+        )
       )
-      OR
-      (
-        ac.status_code = 'visit-confirmed'
-        AND ac.assigned_at BETWEEN ? AND ?
-      )
-    )
-    GROUP BY ac.status_code
+    ) t
+    GROUP BY status_code
     `,
     [...params, startDate, endDate, startDate, endDate]
   );
 
   const result: Record<string, number> = {};
-  rows.forEach((r: any) => {
-    result[r.status_code] = r.count;
-  });
+  rows.forEach((r: any) => (result[r.status_code] = r.count));
 
   return result;
 }
@@ -372,12 +378,12 @@ export async function getDashboardPipeline(
       COUNT(*) AS count
     FROM agent_customers ac
     WHERE ac.agent_id = ?
-      AND ac.follow_up_date IS NOT NULL
       AND ac.follow_up_date BETWEEN ? AND ?
       AND ac.status_code IN (
-        'visit-confirmed',
         'visit-proposed',
-        'virtual-meet-confirmed'
+        'visit-confirmed',
+        'virtual-meet-confirmed',
+        'virtual-meet'
       )
     GROUP BY ac.status_code, DAYOFWEEK(ac.follow_up_date)
     `,
@@ -393,38 +399,29 @@ export async function getDashboardStatusCounts(
   startDate: string,
   endDate: string
 ) {
-  let query = `
-    SELECT ac.status_code, COUNT(*) AS count
-    FROM agent_customers ac
-    JOIN customers c ON ac.customer_id = c.id
-    WHERE ac.agent_id = ?
-  `;
-
+  let filter = "";
   const params: any[] = [agentId];
 
   if (projectId && projectId !== "all") {
-    query += " AND c.project_id = ?";
+    filter += " AND c.project_id = ?";
     params.push(projectId);
   }
 
-  // Status relevance = activity in period
-  query += `
-    AND (
-      (ac.done_date BETWEEN ? AND ?)
-      OR
-      (ac.follow_up_date BETWEEN ? AND ?)
-    )
+  const [rows]: any = await db.query(
+    `
+    SELECT ac.status_code, COUNT(*) AS count
+    FROM agent_customers ac
+    JOIN customers c ON c.id = ac.customer_id
+    WHERE ac.agent_id = ?
+    ${filter}
+    AND DATE(ac.assigned_at) BETWEEN ? AND ?
     GROUP BY ac.status_code
-  `;
-
-  params.push(startDate, endDate, startDate, endDate);
-
-  const [rows]: any = await db.query(query, params);
+    `,
+    [...params, startDate, endDate]
+  );
 
   const result: Record<string, number> = {};
-  rows.forEach((r: any) => {
-    result[r.status_code] = r.count;
-  });
+  rows.forEach((r: any) => (result[r.status_code] = r.count));
 
   return result;
 }
