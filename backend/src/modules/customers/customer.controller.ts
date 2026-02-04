@@ -123,3 +123,44 @@ export async function updateAgentCustomer(req: Request, res: Response) {
 
   return res.json(updated);
 }
+
+export async function getSummaryDashboard(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    const { section, projectId, period, timeFilter, startDate, endDate } = req.query;
+
+    // Helper to calculate dates if standard period (Today, This Week) is passed
+    // You can also handle this on frontend and pass exact dates. 
+    // Assuming Frontend passes exact YYYY-MM-DD strings for start/end to keep backend simple.
+    
+    const start = startDate as string;
+    const end = endDate as string;
+
+    if (section === "1") {
+      // Visits and Booking
+      const data = await Service.getDashboardVisitsBooking(agentId, projectId as string, start, end);
+      return res.json(data);
+    } 
+    else if (section === "2") {
+      // Weekly Pipeline (Pipeline uses timeFilter logic handled by frontend dates)
+      const data = await Service.getDashboardPipeline(agentId, start, end);
+      return res.json(data);
+    } 
+    else if (section === "3") {
+      // Status Counts
+      const data = await Service.getDashboardStatusCounts(agentId, projectId as string, start, end);
+      return res.json(data);
+    }
+    else if (section === "projects") {
+      // Filter list
+      const data = await Service.getAgentProjects(agentId);
+      return res.json(data);
+    }
+
+    return res.status(400).json({ message: "Invalid section" });
+
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
