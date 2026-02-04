@@ -368,26 +368,62 @@ export async function getDashboardVisitsBooking(
 export async function getDashboardPipeline(
   agentId: number,
   startDate: string,
-  endDate: string
+  endDate: string,
+  mode: string = "all" // New parameter to handle specific requests if needed
 ) {
+  // 1. We join the active assignments with their HISTORY (Logs)
+  // 2. We find the MIN(created_at) for when that specific status was applied.
+  // 3. IF that 'first_time' is within our filter range -> FRESH
+  // 4. IF that 'first_time' is BEFORE our filter range -> REPEATED
+
   const [rows]: any = await db.query(
     `
     SELECT 
-      ac.status_code,
-      DAYOFWEEK(ac.follow_up_date) AS day_num,
-      COUNT(*) AS count
+        ac.status_code,
+        DAYOFWEEK(ac.follow_up_date) AS day_num,
+        
+        -- Count FRESH: Created/First Assigned WITHIN this period
+        SUM(
+            CASE 
+                WHEN first_log.first_time BETWEEN ? AND ? THEN 1
+                ELSE 0
+            END
+        ) AS fresh,
+
+        -- Count REPEATED: Created BEFORE this period (Old leads pushed here)
+        SUM(
+            CASE 
+                WHEN first_log.first_time < ? THEN 1
+                ELSE 0
+            END
+        ) AS repeated
+
     FROM agent_customers ac
+    
+    -- Subquery to find the "Inception Date" of the current status
+    JOIN (
+        SELECT 
+            agent_customer_id,
+            JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code')) AS status_code,
+            MIN(created_at) AS first_time
+        FROM agent_customer_logs
+        WHERE action_type IN ('CREATE', 'EDIT', 'STATUS_CHANGE')
+        GROUP BY agent_customer_id, JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code'))
+    ) first_log 
+    ON first_log.agent_customer_id = ac.id 
+    AND first_log.status_code = ac.status_code
+
     WHERE ac.agent_id = ?
       AND ac.follow_up_date BETWEEN ? AND ?
       AND ac.status_code IN (
-        'visit-proposed',
-        'visit-confirmed',
-        'virtual-meet-confirmed',
-        'virtual-meet'
+        'visit-proposed', 
+        'visit-confirmed', 
+        'virtual-meet-confirmed'
       )
+    
     GROUP BY ac.status_code, DAYOFWEEK(ac.follow_up_date)
     `,
-    [agentId, startDate, endDate]
+    [startDate, endDate, startDate, agentId, startDate, endDate]
   );
 
   return rows;

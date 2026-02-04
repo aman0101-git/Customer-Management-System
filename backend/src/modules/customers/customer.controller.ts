@@ -142,10 +142,14 @@ export async function getSummaryDashboard(req: Request, res: Response) {
       return res.json(data);
     } 
     else if (section === "2") {
-      // Weekly Pipeline (Pipeline uses timeFilter logic handled by frontend dates)
-      const data = await Service.getDashboardPipeline(agentId, start, end);
+      const data = await Service.getDashboardPipeline(
+        agentId,
+        start,
+        end,
+        req.query.mode as string || "all"
+      );
       return res.json(data);
-    } 
+    }
     else if (section === "3") {
       // Status Counts
       const data = await Service.getDashboardStatusCounts(agentId, projectId as string, start, end);
