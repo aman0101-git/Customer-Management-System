@@ -369,38 +369,33 @@ export async function getDashboardPipeline(
   agentId: number,
   startDate: string,
   endDate: string,
-  mode: string = "all" // New parameter to handle specific requests if needed
+  mode: string = "all"
 ) {
-  // 1. We join the active assignments with their HISTORY (Logs)
-  // 2. We find the MIN(created_at) for when that specific status was applied.
-  // 3. IF that 'first_time' is within our filter range -> FRESH
-  // 4. IF that 'first_time' is BEFORE our filter range -> REPEATED
-
   const [rows]: any = await db.query(
     `
     SELECT 
         ac.status_code,
         DAYOFWEEK(ac.follow_up_date) AS day_num,
         
-        -- Count FRESH: Created/First Assigned WITHIN this period
+        -- STRICT FRESH: Status Created Date == Follow Up Date
         SUM(
             CASE 
-                WHEN first_log.first_time BETWEEN ? AND ? THEN 1
+                WHEN DATE(first_log.first_time) = DATE(ac.follow_up_date) THEN 1
                 ELSE 0
             END
         ) AS fresh,
 
-        -- Count REPEATED: Created BEFORE this period (Old leads pushed here)
+        -- STRICT REPEATED: Status Created Date < Follow Up Date (Even by 1 day)
         SUM(
             CASE 
-                WHEN first_log.first_time < ? THEN 1
+                WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1
                 ELSE 0
             END
         ) AS repeated
 
     FROM agent_customers ac
     
-    -- Subquery to find the "Inception Date" of the current status
+    -- Subquery to find the "Inception Date"
     JOIN (
         SELECT 
             agent_customer_id,
@@ -423,7 +418,7 @@ export async function getDashboardPipeline(
     
     GROUP BY ac.status_code, DAYOFWEEK(ac.follow_up_date)
     `,
-    [startDate, endDate, startDate, agentId, startDate, endDate]
+    [agentId, startDate, endDate]
   );
 
   return rows;
@@ -435,31 +430,54 @@ export async function getDashboardStatusCounts(
   startDate: string,
   endDate: string
 ) {
-  let filter = "";
+  let query = `
+    SELECT 
+        ac.status_code, 
+        -- NEW LOGIC: Determine Day based on 'Work Done' date, not 'Future' date
+        CASE 
+            -- 1. If it's a Done status, strictly use the Done Date
+            WHEN ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date IS NOT NULL 
+                THEN DAYOFWEEK(ac.done_date)
+            
+            -- 2. For all active statuses (VP, VC, etc.), use the Last Updated timestamp
+            -- This captures when the agent actually changed the status to VP/VC
+            ELSE DAYOFWEEK(c.updated_at)
+        END as day_num,
+        COUNT(*) AS count
+    FROM agent_customers ac
+    JOIN customers c ON ac.customer_id = c.id
+    WHERE ac.agent_id = ?
+      AND ac.is_active = 1
+  `;
+  
   const params: any[] = [agentId];
 
   if (projectId && projectId !== "all") {
-    filter += " AND c.project_id = ?";
+    query += " AND c.project_id = ?";
     params.push(projectId);
   }
 
-  const [rows]: any = await db.query(
-    `
-    SELECT ac.status_code, COUNT(*) AS count
-    FROM agent_customers ac
-    JOIN customers c ON c.id = ac.customer_id
-    WHERE ac.agent_id = ?
-    ${filter}
-    AND DATE(ac.assigned_at) BETWEEN ? AND ?
-    GROUP BY ac.status_code
-    `,
-    [...params, startDate, endDate]
-  );
+  // UPDATED FILTER: Only count rows where the "Work Date" falls in our range
+  query += `
+    AND (
+       (
+         ac.status_code IN ('visit-done', 'booking-done') 
+         AND ac.done_date BETWEEN ? AND ?
+       )
+       OR
+       (
+         ac.status_code NOT IN ('visit-done', 'booking-done')
+         AND c.updated_at BETWEEN ? AND ?
+       )
+    )
+    GROUP BY ac.status_code, day_num
+  `;
 
-  const result: Record<string, number> = {};
-  rows.forEach((r: any) => (result[r.status_code] = r.count));
+  // We pass the start/end date twice (once for done_date check, once for updated_at check)
+  params.push(startDate, endDate, startDate, endDate);
 
-  return result;
+  const [rows]: any = await db.query(query, params);
+  return rows;
 }
 
 // Helper to get Assigned Projects for the Filter Dropdown
