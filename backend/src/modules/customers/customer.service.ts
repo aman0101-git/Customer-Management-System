@@ -492,3 +492,37 @@ export async function getAgentProjects(agentId: number) {
   );
   return rows;
 }
+
+// ... existing imports
+
+export async function getAgentFollowUps(agentId: number) {
+  // Logic:
+  // 1. Must have a follow_up_date
+  // 2. Must NOT be 'lost'
+  // 3. Must NOT be 'COMPLETED' (Visit Done / Booking Done)
+  // 4. Sorted by Date ASC (Oldest/Overdue first) -> Then Time
+  
+  const [rows]: any = await db.query(
+    `SELECT ac.id AS agent_customer_id, 
+            ac.status_code, 
+            ac.follow_up_date, 
+            ac.follow_up_time,
+            ac.remark,
+            c.name, 
+            c.contact, 
+            c.location,
+            p.name AS project_name
+     FROM agent_customers ac
+     JOIN customers c ON ac.customer_id = c.id
+     LEFT JOIN projects p ON c.project_id = p.id
+     WHERE ac.agent_id = ? 
+       AND ac.is_active = 1
+       AND ac.follow_up_date IS NOT NULL
+       AND ac.status_code != 'lost'
+       AND ac.final_status != 'COMPLETED'
+     ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC`,
+    [agentId]
+  );
+  
+  return rows;
+}

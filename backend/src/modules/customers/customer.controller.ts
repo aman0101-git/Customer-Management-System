@@ -168,3 +168,14 @@ export async function getSummaryDashboard(req: Request, res: Response) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+export async function getFollowUps(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    const data = await Service.getAgentFollowUps(agentId);
+    res.json(data);
+  } catch (error) {
+    console.error("Follow-up fetch error:", error);
+    res.status(500).json({ message: "Failed to fetch follow-ups" });
+  }
+}

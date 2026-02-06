@@ -8,6 +8,7 @@ const router = Router();
 // Agent APIs
 
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
+router.get("/followups", authenticate, Controller.getFollowUps);
 
 router.get("/", authenticate, Controller.getAgentCustomers);
 router.post("/search", authenticate, Controller.searchCustomer);
