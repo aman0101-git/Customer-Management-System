@@ -11,6 +11,7 @@ import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUser
 import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
 import SummaryDashboard from '@/features/agent/SummaryDashboard';
 import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
+import SupervisorSummaryDashboard from '@/features/supervisor/SupervisorSummaryDashboard';
 
 export default function AppRoutes() {
   return (
@@ -105,6 +106,14 @@ export default function AppRoutes() {
         element={
           <RequireAuth role="SUPERVISOR">
             <ProjectAllocationPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/summarydashboard"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorSummaryDashboard />
           </RequireAuth>
         }
       />

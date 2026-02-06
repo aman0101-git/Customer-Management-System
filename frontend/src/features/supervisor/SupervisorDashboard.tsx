@@ -29,16 +29,17 @@ export default function SupervisorDashboard() {
             <CardDescription>Create projects and allocate to agents</CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="yellow" className="cursor-pointer" onClick={() => {}}>
+        <Card accent="blue" className="cursor-pointer" onClick={() => navigate("/supervisor/summarydashboard")}>
+          <CardHeader>
+            <CardTitle>📊 Summary Dashboards</CardTitle>
+            <CardDescription>Quick view of Agents’s activity</CardDescription>
+          </CardHeader>
+        </Card>
+        
+        {/* <Card accent="yellow" className="cursor-pointer" onClick={() => {}}>
           <CardHeader>
             <CardTitle>⏰ Follow-up Discipline</CardTitle>
             <CardDescription>Overdue and upcoming follow-ups</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card accent="blue" className="cursor-pointer" onClick={() => {}}>
-          <CardHeader>
-            <CardTitle>📍 Visits Monitoring</CardTitle>
-            <CardDescription>Track visits across agents</CardDescription>
           </CardHeader>
         </Card>
         <Card accent="green" className="cursor-pointer" onClick={() => {}}>
@@ -46,7 +47,7 @@ export default function SupervisorDashboard() {
             <CardTitle>🕒 Attendance Monitoring</CardTitle>
             <CardDescription>Login / logout and work hours</CardDescription>
           </CardHeader>
-        </Card>
+        </Card> */}
       </div>
     </AppShell>
   );
