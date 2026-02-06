@@ -10,6 +10,7 @@ import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUserPage';
 import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
 import SummaryDashboard from '@/features/agent/SummaryDashboard';
+import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
 
 export default function AppRoutes() {
   return (
@@ -61,6 +62,16 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
+
+      <Route
+        path="/agent/followups"
+        element={
+          <RequireAuth role="AGENT">
+            <FollowUpDashboard />
+          </RequireAuth>
+        }
+      />
+
       {/* FIXED: Moved inside RequireAuth role="AGENT" */}
       <Route 
         path="/agent/summary" 

@@ -44,7 +44,7 @@ export default function AgentDashboard() {
           </CardHeader>
         </Card>
 
-        <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/agent/visits") }>
+        {/* <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/agent/visits") }>
           <CardHeader>
             <CardTitle>📍 My Visits</CardTitle>
             <CardDescription>Manage visit lifecycle</CardDescription>
@@ -56,7 +56,7 @@ export default function AgentDashboard() {
             <CardTitle>🕒 My Attendance</CardTitle>
             <CardDescription>Login / Logout for today</CardDescription>
           </CardHeader>
-        </Card>
+        </Card> */}
       </div>
     </AppShell>
   );
