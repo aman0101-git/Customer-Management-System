@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { AppShell } from "@/components/ui/app-shell";
 import { format, isBefore, isToday, startOfDay } from "date-fns";
 import { 
   Loader2, 
@@ -103,6 +104,7 @@ export default function FollowUpDashboard() {
     );
 
   return (
+    <AppShell sidebar={null}>
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-6xl mx-auto font-sans">
       
       {/* HEADER SECTION */}
@@ -297,5 +299,6 @@ export default function FollowUpDashboard() {
         )} 
       </div>
     </div>
+    </AppShell>
   );
 }

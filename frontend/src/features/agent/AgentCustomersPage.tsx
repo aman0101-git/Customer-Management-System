@@ -129,7 +129,7 @@ export default function AgentCustomersPage() {
   );
 
   return (
-    
+    <AppShell sidebar={null}>
       <div className="flex w-full min-h-[80vh]">
         {/* Sidebar */}
         <aside className="relative group flex flex-col items-center bg-white border-r border-slate-200 shadow-md transition-all duration-300 w-16 hover:w-56 z-10">
@@ -300,6 +300,6 @@ export default function AgentCustomersPage() {
           </div>
         </div>
       </div>
-    
+    </AppShell>
   );
 }

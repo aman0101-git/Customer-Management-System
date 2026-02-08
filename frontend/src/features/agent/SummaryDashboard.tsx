@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { AppShell } from "@/components/ui/app-shell";
 import {
   format,
   startOfWeek,
@@ -388,6 +389,7 @@ export default function SummaryDashboard() {
   if (!user) return <div className="p-8 text-center text-slate-500">Session expired. Please login.</div>;
 
   return (
+    <AppShell sidebar={null}>
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-7xl mx-auto font-sans">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
@@ -414,5 +416,6 @@ export default function SummaryDashboard() {
         </>
       )}
     </div>
+    </AppShell>
   );
 }
