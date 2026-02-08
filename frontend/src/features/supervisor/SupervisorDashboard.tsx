@@ -23,26 +23,30 @@ export default function SupervisorDashboard() {
             </CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="pink" className="cursor-pointer" onClick={() => navigate("/supervisor/project-allocation") }>
+        <Card accent="pink" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/supervisor/project-allocation") }>
           <CardHeader>
             <CardTitle>👥 Project Allocation</CardTitle>
             <CardDescription>Create projects and allocate to agents</CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="blue" className="cursor-pointer" onClick={() => navigate("/supervisor/summarydashboard")}>
-          <CardHeader>
-            <CardTitle>📊 Summary Dashboards</CardTitle>
-            <CardDescription>Quick view of Agents’s activity</CardDescription>
-          </CardHeader>
-        </Card>
-        
-        {/* <Card accent="yellow" className="cursor-pointer" onClick={() => {}}>
+        <Card 
+          accent="yellow" 
+          className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" 
+          onClick={() => navigate("/supervisor/follow-ups")} 
+        >
           <CardHeader>
             <CardTitle>⏰ Follow-up Discipline</CardTitle>
             <CardDescription>Overdue and upcoming follow-ups</CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="green" className="cursor-pointer" onClick={() => {}}>
+        <Card accent="blue" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/supervisor/summarydashboard")}>
+          <CardHeader>
+            <CardTitle>📊 Summary Dashboards</CardTitle>
+            <CardDescription>Quick view of Agents’s activity</CardDescription>
+          </CardHeader>
+        </Card>
+  
+        {/* <Card accent="green" className="cursor-pointer" onClick={() => {}}>
           <CardHeader>
             <CardTitle>🕒 Attendance Monitoring</CardTitle>
             <CardDescription>Login / logout and work hours</CardDescription>

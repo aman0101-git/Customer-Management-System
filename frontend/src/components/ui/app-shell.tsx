@@ -41,7 +41,9 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Dashboard", path: "/supervisor/dashboard", icon: LayoutDashboard }, // Added a home link
     { name: "Agents", path: "/supervisor/create-user", icon: UserPlus },
     { name: "Projects", path: "/supervisor/project-allocation", icon: Briefcase },
+    { name: "Follow ups", path: "/supervisor/follow-ups", icon: Clock },
     { name: "Summary", path: "/supervisor/summarydashboard", icon: PieChart },
+    
   ];
 
   // Matches concepts in AdminDashboard (assuming you will create routes for these later, 
