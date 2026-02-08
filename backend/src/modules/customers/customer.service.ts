@@ -493,8 +493,6 @@ export async function getAgentProjects(agentId: number) {
   return rows;
 }
 
-// ... existing imports
-
 export async function getAgentFollowUps(agentId: number) {
   // Logic:
   // 1. Must have a follow_up_date

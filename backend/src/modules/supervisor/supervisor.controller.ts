@@ -1,6 +1,24 @@
 import { Request, Response } from "express";
 import * as Service from "./supervisor.service.js";
 
+export async function getFollowUps(req: Request, res: Response) {
+  try {
+    const supervisorId = (req as any).user.id;
+    const { agentId, projectId } = req.query;
+
+    const data = await Service.getSupervisorTeamFollowUps(
+      supervisorId,
+      (agentId as string) || "all",
+      (projectId as string) || "all"
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Supervisor FollowUps Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
 export async function getSummaryDashboard(req: Request, res: Response) {
   try {
     const supervisorId = (req as any).user.id; 

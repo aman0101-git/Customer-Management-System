@@ -191,3 +191,62 @@ export async function getSupervisorStatusCounts(
   const [rows]: any = await db.query(query, params);
   return rows;
 }
+
+// 5. Follow-up Discipline: Fetch Team Follow-ups
+export async function getSupervisorTeamFollowUps(
+  supervisorId: number,
+  filterAgentId: string,
+  projectId: string
+) {
+  // Base params
+  const params: any[] = [supervisorId];
+
+  // Dynamic Filters
+  let agentFilter = "";
+  if (filterAgentId && filterAgentId !== "all") {
+    agentFilter = " AND ac.agent_id = ? ";
+    params.push(filterAgentId);
+  }
+
+  let projectFilter = "";
+  if (projectId && projectId !== "all") {
+    // Note: Filtering by the project assigned in the tracking table
+    projectFilter = " AND ac.project_id = ? ";
+    params.push(projectId);
+  }
+
+  // LOGIC FIXES:
+  // 1. Join 'customers' (c) to get name/contact.
+  // 2. Select c.name/c.contact explicitly.
+  // 3. Apply strict filters: is_active=1, status!='lost', final_status!='COMPLETED'.
+  
+  const query = `
+    SELECT 
+      ac.id AS agent_customer_id,
+      c.name AS customer_name,      
+      c.contact AS contact_number,  
+      c.location,
+      ac.status_code,
+      ac.follow_up_date,
+      ac.follow_up_time,
+      c.updated_at,
+      ac.remark,
+      p.name as project_name,
+      CONCAT(u.first_name, ' ', u.last_name) as agent_name
+    FROM agent_customers ac
+    JOIN users u ON ac.agent_id = u.id
+    JOIN customers c ON ac.customer_id = c.id    -- Fixed: JOIN added
+    LEFT JOIN projects p ON c.project_id = p.id
+    WHERE u.supervisor_id = ? 
+      AND ac.is_active = 1
+      AND ac.follow_up_date IS NOT NULL
+      AND ac.status_code != 'lost'
+      AND (ac.final_status != 'COMPLETED' OR ac.final_status IS NULL)
+      ${agentFilter}
+      ${projectFilter}
+    ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC
+  `;
+
+  const [rows] = await db.query(query, params);
+  return rows;
+}
