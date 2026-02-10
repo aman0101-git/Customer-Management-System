@@ -56,8 +56,16 @@ export async function getSupervisorVisitsBooking(
     params.push(projectId);
   }
 
-  // Double params for the two date checks
-  const fullParams = [...params, startDate, endDate, startDate, endDate];
+  // UPDATED: We now need 3 pairs of dates for the 3 distinct OR conditions
+  // 1. Pipeline (follow_up_date)
+  // 2. Success (done_date)
+  // 3. Lost (updated_at)
+  const fullParams = [
+    ...params, 
+    startDate, endDate, 
+    startDate, endDate, 
+    startDate, endDate
+  ];
 
   const [rows]: any = await db.query(
     `
@@ -70,18 +78,29 @@ export async function getSupervisorVisitsBooking(
       ${agentCondition.sql}
       ${projectFilter}
       AND (
-        -- Scenario A: Pipeline Statuses (Based on Follow Up Date)
+        -- Scenario A: Pipeline Statuses (Based on Scheduled Follow Up Date)
         (
-          ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet', 'virtual-meet-confirmed')
+          ac.status_code IN (
+            'visit-proposed', 'visit-confirmed', 
+            'virtual-meet', 'virtual-meet-confirmed',
+            'follow-up', 'sdow', 'not-reachable'
+          )
           AND ac.follow_up_date IS NOT NULL
           AND DATE(ac.follow_up_date) BETWEEN ? AND ?
         )
         OR
-        -- Scenario B: Result Statuses (Based on Done Date)
+        -- Scenario B: Success Statuses (Based on Done Date)
         (
-          ac.status_code IN ('visit-done','booking-done','lost')
+          ac.status_code IN ('visit-done', 'booking-done')
           AND ac.done_date IS NOT NULL
           AND DATE(ac.done_date) BETWEEN ? AND ?
+        )
+        OR
+        -- Scenario C: Lost Status (Based on Updated Date)
+        (
+          ac.status_code = 'lost'
+          AND ac.updated_at IS NOT NULL
+          AND DATE(ac.updated_at) BETWEEN ? AND ?
         )
       )
     ) t
