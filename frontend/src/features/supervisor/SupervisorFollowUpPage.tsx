@@ -10,9 +10,16 @@ import {
   AlertCircle, 
   Briefcase,
   User,
-  ArrowLeft
+  ArrowLeft,
+  CheckCircle2 // Import Icon for status
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+// 1. Define the Options Constant
+const STATUS_OPTIONS = [
+  "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
+  "not-reachable", "virtual-meet", "pending"
+];
 
 export default function SupervisorFollowUpPage() {
   const { user } = useAuth();
@@ -26,6 +33,7 @@ export default function SupervisorFollowUpPage() {
   // Filter State
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedProject, setSelectedProject] = useState('all');
+  const [selectedStatus, setSelectedStatus] = useState('all'); // 2. New State
   const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'future'>('all');
   const [loading, setLoading] = useState(true);
 
@@ -37,14 +45,13 @@ export default function SupervisorFollowUpPage() {
     }
   }, [user]);
 
-  // Fetch data when filters change (skip initial mount to avoid double fetch)
+  // 3. Add selectedStatus to dependency array
   useEffect(() => {
     if (user && !loading) fetchData();
-  }, [selectedAgent, selectedProject]);
+  }, [selectedAgent, selectedProject, selectedStatus]);
 
   const fetchFilters = async () => {
     try {
-      // Using axios directly as per your SupervisorSummaryDashboard
       const [agentRes, projectRes] = await Promise.all([
         axios.get("/api/supervisor/summary-dashboard?section=associates"),
         axios.get("/api/supervisor/summary-dashboard?section=projects"),
@@ -59,20 +66,21 @@ export default function SupervisorFollowUpPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
+      // 4. Pass status to API
       const res = await axios.get(`/api/supervisor/follow-ups`, {
-        params: { agentId: selectedAgent, projectId: selectedProject }
+        params: { 
+            agentId: selectedAgent, 
+            projectId: selectedProject,
+            status: selectedStatus 
+        }
       });
       
-      // Categorize Data locally
       const todayStart = startOfDay(new Date());
       const processed = (res.data || []).map((item: any) => {
-        // FIX: Parse the combined 'scheduled_at' timestamp from backend
-        // This ensures both Date and Time are respected
         const fDate = parseISO(item.scheduled_at); 
         const itemDateStart = startOfDay(fDate);
         
         let category = 'future';
-        
         if (isBefore(itemDateStart, todayStart)) category = 'past';
         else if (isToday(itemDateStart)) category = 'today';
         
@@ -87,19 +95,18 @@ export default function SupervisorFollowUpPage() {
     }
   };
 
-  // KPI Calculations
+  // ... (KPI Calculations remain the same) ...
   const counts = {
     past: data.filter(i => i.category === 'past').length,
     today: data.filter(i => i.category === 'today').length,
     future: data.filter(i => i.category === 'future').length
   };
 
-  // Filter List for Display
   const displayList = timeFilter === 'all' 
     ? data 
     : data.filter(i => i.category === timeFilter);
 
-  // --- STYLES ---
+  // ... (Styles functions remain the same) ...
   const getRowStyle = (category: string) => {
     switch(category) {
       case 'past': return "bg-red-50/60 hover:bg-red-100 border-l-4 border-l-red-500";
@@ -132,7 +139,7 @@ export default function SupervisorFollowUpPage() {
           
           <div className="flex flex-wrap gap-3">
              {/* Agent Dropdown */}
-             <div className="relative min-w-[200px]">
+             <div className="relative min-w-[180px]">
                <select 
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
                  value={selectedAgent}
@@ -145,7 +152,7 @@ export default function SupervisorFollowUpPage() {
              </div>
 
              {/* Project Dropdown */}
-             <div className="relative min-w-[200px]">
+             <div className="relative min-w-[180px]">
                <select 
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
                  value={selectedProject}
@@ -155,6 +162,23 @@ export default function SupervisorFollowUpPage() {
                  {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                </select>
                <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
+             </div>
+
+             {/* 5. Status Dropdown (NEW) */}
+             <div className="relative min-w-[180px]">
+               <select 
+                 className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
+                 value={selectedStatus}
+                 onChange={(e) => setSelectedStatus(e.target.value)}
+               >
+                 <option value="all">All Status</option>
+                 {STATUS_OPTIONS.map((status) => (
+                   <option key={status} value={status}>
+                     {status.replace(/-/g, ' ')}
+                   </option>
+                 ))}
+               </select>
+               <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
              </div>
           </div>
         </div>
