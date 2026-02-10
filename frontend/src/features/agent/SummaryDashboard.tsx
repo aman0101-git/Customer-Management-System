@@ -295,7 +295,7 @@ export default function SummaryDashboard() {
   /* ---------------- SECTIONS ---------------- */
 
   const renderSection1 = () => (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-4 animate-in fade-in duration-500">
       <FilterBar>
         <StyledSelect
           icon={Briefcase}
@@ -311,26 +311,47 @@ export default function SummaryDashboard() {
         />
       </FilterBar>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* CHANGED: gap-4 -> gap-3 for tighter layout */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
+          // --- ROW 1: Pipeline ---
+          ["Follow Up", "follow-up", "text-cyan-600", "bg-cyan-50"],
           ["Visit Proposed", "visit-proposed", "text-blue-600", "bg-blue-50"],
           ["Visit Confirmed", "visit-confirmed", "text-indigo-600", "bg-indigo-50"],
           ["Virtual Meet", "virtual-meet", "text-purple-600", "bg-purple-50"],
-          ["Virtual Meet Confirmed", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50"],
+          ["Virtual Done", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50"],
+
+          // --- ROW 2: Outcomes & Negative ---
           ["Visit Done", "visit-done", "text-orange-600", "bg-orange-50"],
           ["Booking Done", "booking-done", "text-emerald-600", "bg-emerald-50"],
+          ["SDOW", "sdow", "text-amber-600", "bg-amber-50"],
+          ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50"],
+          ["Lost", "lost", "text-slate-600", "bg-slate-50"],
         ].map(([label, code, colorClass, bgClass]) => (
-          <Card key={code} className="border-none shadow-sm hover:shadow-md transition-all duration-300 group cursor-default">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-500 uppercase tracking-wider">{label}</CardTitle>
+          <Card 
+            key={code} 
+            // 1. Added border, removed border-none
+            className="border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group cursor-default"
+          >
+            {/* 2. Compact Header Padding (p-3 pb-0) */}
+            <CardHeader className="p-3 pb-0">
+              {/* 3. Small, tight title */}
+              <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider leading-none">
+                {label}
+              </CardTitle>
             </CardHeader>
-            <CardContent>
+            
+            {/* 4. Compact Content Padding (p-3 pt-1) */}
+            <CardContent className="p-3 pt-1">
               <div className="flex items-end justify-between">
-                <div className={`text-4xl font-bold ${colorClass} group-hover:scale-105 transition-transform origin-left`}>
+                {/* 5. Reduced text size (text-3xl -> text-2xl) */}
+                <div className={`text-2xl font-bold ${colorClass} group-hover:scale-105 transition-transform origin-left`}>
                   {getCount(sec1Data, code as string)}
                 </div>
-                <div className={`p-2 rounded-full ${bgClass} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                   <div className={`w-2 h-2 rounded-full ${colorClass.replace('text', 'bg')}`}></div>
+                
+                {/* 6. Smaller dot container */}
+                <div className={`p-1.5 rounded-full ${bgClass} opacity-0 group-hover:opacity-100 transition-opacity`}>
+                   <div className={`w-1.5 h-1.5 rounded-full ${colorClass.replace('text', 'bg')}`}></div>
                 </div>
               </div>
             </CardContent>
@@ -338,7 +359,7 @@ export default function SummaryDashboard() {
         ))}
       </div>
     </div>
-  );
+);
 
   const renderSection2 = () => {
     const pipelineRows = [

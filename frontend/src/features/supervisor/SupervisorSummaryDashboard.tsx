@@ -106,8 +106,6 @@ export default function SupervisorSummaryDashboard() {
     return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
   };
 
-  const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
-
   // --- API CALLS ---
   useEffect(() => {
     const loadFilters = async () => {
@@ -173,7 +171,10 @@ export default function SupervisorSummaryDashboard() {
   );
 
   // 4. Cards (Section 1)
-  const renderSection1 = () => (
+  // 1. Define the helper
+const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
+
+const renderSection1 = () => (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <FilterBar>
         <div className="flex flex-wrap gap-2">
@@ -185,14 +186,22 @@ export default function SupervisorSummaryDashboard() {
         />
       </FilterBar>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* Grid updated to 5 columns for 10 items */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
+          // --- ROW 1: Early Pipeline ---
+          ["Follow Up", "follow-up", "text-cyan-600", "bg-cyan-50", "border-cyan-200"],
           ["Visit Proposed", "visit-proposed", "text-blue-600", "bg-blue-50", "border-blue-200"],
           ["Visit Confirmed", "visit-confirmed", "text-indigo-600", "bg-indigo-50", "border-indigo-200"],
           ["Virtual Meet", "virtual-meet", "text-purple-600", "bg-purple-50", "border-purple-200"],
           ["Virtual Done", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50", "border-fuchsia-200"],
+          
+          // --- ROW 2: Outcomes & Negative ---
           ["Visit Done", "visit-done", "text-orange-600", "bg-orange-50", "border-orange-200"],
           ["Booking", "booking-done", "text-emerald-600", "bg-emerald-50", "border-emerald-200"],
+          ["SDOW", "sdow", "text-amber-600", "bg-amber-50", "border-amber-200"],
+          ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50", "border-rose-200"],
+          ["Lost", "lost", "text-slate-600", "bg-slate-50", "border-slate-200"],
         ].map(([label, code, color, border]) => (
           <div key={code} className={`bg-white rounded-xl border ${border} p-3 shadow-sm hover:shadow-md transition-all`}>
              <div className="flex justify-between items-start mb-2">
@@ -200,14 +209,15 @@ export default function SupervisorSummaryDashboard() {
              </div>
              <div className="flex items-end gap-1">
                 <span className={`text-3xl font-bold tracking-tight ${color}`}>
-                    {getCount(sec1Data, code)}
+                   {/* 2. Used getCount here */}
+                   {getCount(sec1Data, code)}
                 </span>
              </div>
           </div>
         ))}
       </div>
     </div>
-  );
+);
 
   // 5. TRUE MATRIX TABLE (Boxed, Grid Lines, Compact)
   const MatrixTable = ({ rows, data, isPipeline }: any) => {
