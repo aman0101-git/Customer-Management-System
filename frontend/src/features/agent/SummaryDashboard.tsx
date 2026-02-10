@@ -74,6 +74,7 @@ export default function SummaryDashboard() {
   const [loading, setLoading] = useState(false);
 
   // --- DATE LOGIC ---
+  // Calculates ranges based on Monday Start (weekStartsOn: 1)
   const getDatesFromPeriod = (p: string) => {
     const now = new Date();
     let start = now;
@@ -123,7 +124,7 @@ export default function SummaryDashboard() {
     try {
       const ts = Date.now();
       
-      // SECTION 1
+      // SECTION 1: VISITS & BOOKINGS
       if (activeTab === 0) {
         const { startDate, endDate } = getDatesFromPeriod(period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -132,7 +133,7 @@ export default function SummaryDashboard() {
         setSec1Data(res.data || {});
       }
 
-      // SECTION 2
+      // SECTION 2: PIPELINE DISCIPLINE
       if (activeTab === 1) {
         const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -141,7 +142,7 @@ export default function SummaryDashboard() {
         setSec2Data(Array.isArray(res.data) ? res.data : []);
       }
 
-      // SECTION 3
+      // SECTION 3: STATUS COUNTS
       if (activeTab === 2) {
         const { startDate, endDate } = getDatesFromPeriod(sec3Period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -194,16 +195,22 @@ export default function SummaryDashboard() {
     </div>
   );
 
-/* ---------------- BOX STYLE MATRIX TABLE ---------------- */
+  /* ---------------- BOX STYLE MATRIX TABLE ---------------- */
   const MatrixTable = ({ 
     rows, 
     data, 
     totalLabel = "Total", 
     isPipeline = false 
   }: any) => {
+    // CORRECTED MAPPING: Matches Backend WEEKDAY()+1 (Mon=1 ... Sun=7)
     const days = [
-      { label: "Mon", sql: 2 }, { label: "Tue", sql: 3 }, { label: "Wed", sql: 4 },
-      { label: "Thu", sql: 5 }, { label: "Fri", sql: 6 }, { label: "Sat", sql: 7 }, { label: "Sun", sql: 1 },
+      { label: "Mon", sql: 1 }, 
+      { label: "Tue", sql: 2 }, 
+      { label: "Wed", sql: 3 },
+      { label: "Thu", sql: 4 }, 
+      { label: "Fri", sql: 5 }, 
+      { label: "Sat", sql: 6 }, 
+      { label: "Sun", sql: 7 },
     ];
 
     const colTotals: Record<number, number> = {};
@@ -231,13 +238,16 @@ export default function SummaryDashboard() {
                     <td className="p-2 font-medium text-slate-700 capitalize border border-slate-300">{row.label}</td>
                     {days.map((d) => {
                       let c = 0;
+                      // Finds the count for this status and day
                       const record = data.find((item: any) => item.status_code === row.code && item.day_num === d.sql);
                       
                       if (isPipeline && record) {
+                         // Pipeline Mode Logic (Fresh/Repeated)
                          const fresh = Number(record.fresh) || 0;
                          const repeated = Number(record.repeated) || 0;
                          c = (mode === "fresh") ? fresh : (mode === "repeated") ? repeated : (fresh + repeated);
                       } else if (record) {
+                         // Standard Count Logic
                          c = Number(record.count) || 0;
                       }
 
@@ -249,7 +259,6 @@ export default function SummaryDashboard() {
                           key={d.label} 
                           className={`p-2 text-center border border-slate-300 ${c > 0 ? "text-blue-600 font-bold bg-blue-50/50" : "text-slate-300"}`}
                         >
-                          {/* CHANGED: Removed ternary check. Just show 'c'. If 0, it shows 0. */}
                           {c}
                         </td>
                       );

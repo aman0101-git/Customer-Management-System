@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import axios from "axios"; // <--- CHANGED: Using standard axios like your Summary Dashboard
+import axios from "axios"; 
 import { AppShell } from "@/components/ui/app-shell";
 import { format, isBefore, isToday, startOfDay, parseISO } from "date-fns";
 import { 
@@ -59,7 +59,6 @@ export default function SupervisorFollowUpPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // CHANGED: Use axios.get with the specific route we created
       const res = await axios.get(`/api/supervisor/follow-ups`, {
         params: { agentId: selectedAgent, projectId: selectedProject }
       });
@@ -67,14 +66,17 @@ export default function SupervisorFollowUpPage() {
       // Categorize Data locally
       const todayStart = startOfDay(new Date());
       const processed = (res.data || []).map((item: any) => {
-        const fDate = parseISO(item.follow_up_date);
+        // FIX: Parse the combined 'scheduled_at' timestamp from backend
+        // This ensures both Date and Time are respected
+        const fDate = parseISO(item.scheduled_at); 
         const itemDateStart = startOfDay(fDate);
+        
         let category = 'future';
         
         if (isBefore(itemDateStart, todayStart)) category = 'past';
         else if (isToday(itemDateStart)) category = 'today';
         
-        return { ...item, category };
+        return { ...item, category, parsedDate: fDate };
       });
 
       setData(processed);
@@ -254,22 +256,24 @@ export default function SupervisorFollowUpPage() {
                         </span>
                       </td>
 
-                      {/* Follow Up */}
+                      {/* Follow Up - FIXED SECTION */}
                       <td className="px-6 py-3">
-                         <div className="flex items-center gap-2">
-                            <span className={`font-semibold ${item.category === 'past' ? 'text-red-600' : 'text-slate-700'}`}>
-                               {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
-                            </span>
-                            <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                               {format(parseISO(item.follow_up_date), "h:mm a")}
-                            </span>
-                         </div>
+                          <div className="flex items-center gap-2">
+                             <span className={`font-semibold ${item.category === 'past' ? 'text-red-600' : 'text-slate-700'}`}>
+                                {/* Using the combined parsedDate for accurate date */}
+                                {format(item.parsedDate, "dd MMM yyyy")}
+                             </span>
+                             <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                {/* Using the combined parsedDate for accurate time */}
+                                {format(item.parsedDate, "h:mm a")}
+                             </span>
+                          </div>
                       </td>
 
-                       {/* Last Updated */}
-                       <td className="px-6 py-3 text-xs text-slate-500">
-                          {format(parseISO(item.updated_at), "dd MMM, HH:mm")}
-                       </td>
+                        {/* Last Updated */}
+                        <td className="px-6 py-3 text-xs text-slate-500">
+                           {format(parseISO(item.updated_at), "dd MMM, HH:mm")}
+                        </td>
                     </tr>
                   ))}
                 </tbody>

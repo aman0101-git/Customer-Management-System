@@ -131,9 +131,11 @@ export default function CustomerResolvePage() {
   });
 
   useEffect(() => {
-    if (pageState === "CREATE" && projects.length > 0 && !form.project) {
+    // Only auto-select if there is exactly ONE project
+    if (pageState === "CREATE" && projects.length === 1 && !form.project) {
       setForm(prev => ({ ...prev, project: String(projects[0].id) }));
     }
+    // If projects.length > 1, we do nothing. 
   }, [projects, pageState]);
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -457,18 +459,26 @@ export default function CustomerResolvePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-project" className="text-slate-600 font-medium ml-1">Project <span className="text-rose-500">*</span></Label>
+                    <Label htmlFor="form-project" className="text-slate-600 font-medium ml-1">
+                      Project <span className="text-rose-500">*</span>
+                    </Label>
                     <select
                       id="form-project"
                       name="project"
-                      value={form.project}
+                      value={form.project} // This must be "" initially to show the default option
                       onChange={handleFormChange}
                       required
                       className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm"
                     >
-                      <option value="">Select project</option>
-                      {projects.map(p => (
-                        <option key={p.id} value={String(p.id)}>{p.name}</option> 
+                      {/* Add 'disabled' to prevent selecting it again (makes it a true placeholder).
+                        Remove 'disabled' if you want them to be able to unselect.
+                      */}
+                      <option value="" disabled>Select project</option>
+                      
+                      {projects.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </option>
                       ))}
                     </select>
                   </div>

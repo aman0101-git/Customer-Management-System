@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { AppShell } from "@/components/ui/app-shell";
 import {
   format,
   startOfWeek,
@@ -12,7 +13,6 @@ import {
   subDays,
 } from "date-fns";
 import { Loader2, Calendar, Filter, Briefcase, Layers, Users, ChevronDown } from "lucide-react";
-import { AppShell } from "@/components/ui/app-shell";
 
 /* ---------------- COMPACT UI HELPERS ---------------- */
 
@@ -92,6 +92,7 @@ export default function SupervisorSummaryDashboard() {
   const [loading, setLoading] = useState(false);
 
   // --- Date Calculation Helper ---
+  // Ensuring weekStartsOn: 1 (Monday)
   const getDatesFromPeriod = (p: string) => {
     const now = new Date();
     let start = now, end = now;
@@ -210,7 +211,8 @@ export default function SupervisorSummaryDashboard() {
 
   // 5. TRUE MATRIX TABLE (Boxed, Grid Lines, Compact)
   const MatrixTable = ({ rows, data, isPipeline }: any) => {
-    const days = [ {l:"Mon",n:2}, {l:"Tue",n:3}, {l:"Wed",n:4}, {l:"Thu",n:5}, {l:"Fri",n:6}, {l:"Sat",n:7}, {l:"Sun",n:1} ];
+    // FIX: Updated `n` values to match Backend WEEKDAY()+1 (Mon=1, Sun=7)
+    const days = [ {l:"Mon",n:1}, {l:"Tue",n:2}, {l:"Wed",n:3}, {l:"Thu",n:4}, {l:"Fri",n:5}, {l:"Sat",n:6}, {l:"Sun",n:7} ];
     let grandTotal = 0; const colTotals: any = {1:0,2:0,3:0,4:0,5:0,6:0,7:0};
     
     return (
