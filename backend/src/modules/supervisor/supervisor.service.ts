@@ -228,11 +228,11 @@ export async function getSupervisorStatusCounts(
   return rows;
 }
 
-// 5. Follow-up Discipline: Fetch Team Follow-ups
 export async function getSupervisorTeamFollowUps(
   supervisorId: number,
   filterAgentId: string,
-  projectId: string
+  projectId: string,
+  status: string // 1. Add status argument
 ) {
   const params: any[] = [supervisorId];
 
@@ -245,8 +245,15 @@ export async function getSupervisorTeamFollowUps(
 
   let projectFilter = "";
   if (projectId && projectId !== "all") {
-    projectFilter = " AND c.project_id = ? "; // Changed from ac.project_id to c.project_id
+    projectFilter = " AND c.project_id = ? "; 
     params.push(projectId);
+  }
+
+  // 2. Build Status Filter SQL
+  let statusFilter = "";
+  if (status && status !== "all") {
+    statusFilter = " AND ac.status_code = ? ";
+    params.push(status);
   }
 
   const query = `
@@ -274,6 +281,7 @@ export async function getSupervisorTeamFollowUps(
       AND (ac.final_status != 'COMPLETED' OR ac.final_status IS NULL)
       ${agentFilter}
       ${projectFilter}
+      ${statusFilter}  -- 3. Inject Status Filter
     ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC
   `;
 

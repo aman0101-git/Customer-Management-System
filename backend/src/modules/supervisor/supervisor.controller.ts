@@ -4,12 +4,13 @@ import * as Service from "./supervisor.service.js";
 export async function getFollowUps(req: Request, res: Response) {
   try {
     const supervisorId = (req as any).user.id;
-    const { agentId, projectId } = req.query;
+    const { agentId, projectId, status } = req.query;
 
     const data = await Service.getSupervisorTeamFollowUps(
       supervisorId,
       (agentId as string) || "all",
-      (projectId as string) || "all"
+      (projectId as string) || "all",
+      (status as string) || "all",
     );
 
     return res.json(data);
