@@ -1,20 +1,6 @@
 import { db } from "../../config/db.js";
 
 // Helper: Get SQL condition to filter by Agents
-// If filterAgentId is "all", it selects ALL agents under this supervisor.
-// If filterAgentId is specific, it validates that the agent belongs to this supervisor.
-
-export async function getSupervisorProjects(supervisorId: number) {
-  const [rows]: any = await db.query(
-    `SELECT id, name 
-     FROM projects 
-     WHERE created_by = ? AND is_active = 1 
-     ORDER BY created_at DESC`,
-    [supervisorId]
-  );
-  return rows;
-}
-
 const getAgentCondition = (supervisorId: number, filterAgentId: string) => {
   if (filterAgentId && filterAgentId !== "all") {
     return {
@@ -29,6 +15,17 @@ const getAgentCondition = (supervisorId: number, filterAgentId: string) => {
   }
 };
 
+export async function getSupervisorProjects(supervisorId: number) {
+  const [rows]: any = await db.query(
+    `SELECT id, name 
+     FROM projects 
+     WHERE created_by = ? AND is_active = 1 
+     ORDER BY created_at DESC`,
+    [supervisorId]
+  );
+  return rows;
+}
+
 // 1. Get List of Agents for the Dropdown
 export async function getAssociates(supervisorId: number) {
   const [rows]: any = await db.query(
@@ -38,7 +35,11 @@ export async function getAssociates(supervisorId: number) {
   return rows;
 }
 
-// 2. Section 1: Visits & Bookings (Cards)
+// ---------------- DASHBOARD FUNCTIONS ---------------- //
+
+// 1. VISITS & BOOKINGS (Cards)
+// Rule: VC, VP, VMC, VM -> Follow Up Date.
+// Rule: BD, VD -> Done Date.
 export async function getSupervisorVisitsBooking(
   supervisorId: number,
   filterAgentId: string,
@@ -55,7 +56,7 @@ export async function getSupervisorVisitsBooking(
     params.push(projectId);
   }
 
-  // Double the params for the two date checks in SQL
+  // Double params for the two date checks
   const fullParams = [...params, startDate, endDate, startDate, endDate];
 
   const [rows]: any = await db.query(
@@ -69,17 +70,18 @@ export async function getSupervisorVisitsBooking(
       ${agentCondition.sql}
       ${projectFilter}
       AND (
-        -- Scenario A: Active Statuses (Based on Assignment Date)
+        -- Scenario A: Pipeline Statuses (Based on Follow Up Date)
         (
           ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet', 'virtual-meet-confirmed')
-          AND DATE(ac.assigned_at) BETWEEN ? AND ?
+          AND ac.follow_up_date IS NOT NULL
+          AND DATE(ac.follow_up_date) BETWEEN ? AND ?
         )
         OR
-        -- Scenario B: Done Statuses (Based on Done Date)
+        -- Scenario B: Result Statuses (Based on Done Date)
         (
           ac.status_code IN ('visit-done','booking-done','lost')
           AND ac.done_date IS NOT NULL
-          AND ac.done_date BETWEEN ? AND ?
+          AND DATE(ac.done_date) BETWEEN ? AND ?
         )
       )
     ) t
@@ -93,36 +95,55 @@ export async function getSupervisorVisitsBooking(
   return result;
 }
 
-// 3. Section 2: Pipeline Discipline (Matrix)
+// 2. PIPELINE DISCIPLINE (Matrix)
+// Rule: Week starts Mon=1 (WEEKDAY + 1)
+// Logic: Uses Logs to determine Fresh vs Repeated (Consistent with Agent Side)
 export async function getSupervisorPipeline(
   supervisorId: number,
   filterAgentId: string,
-  projectId: string, // <--- NEW ARGUMENT
+  projectId: string,
   startDate: string,
   endDate: string
 ) {
   const agentCondition = getAgentCondition(supervisorId, filterAgentId);
   const params: any[] = [...agentCondition.params];
 
-  // NEW: Add Project Filter Logic
   let projectFilter = "";
   if (projectId && projectId !== "all") {
     projectFilter = " AND c.project_id = ? ";
     params.push(projectId);
   }
 
-  // Add Date Params at the end
+  // Add Date Params
   params.push(startDate, endDate);
 
   const [rows]: any = await db.query(
     `
     SELECT 
         ac.status_code,
-        DAYOFWEEK(ac.follow_up_date) AS day_num,
-        SUM(CASE WHEN DATE(first_log.first_time) = DATE(ac.follow_up_date) THEN 1 ELSE 0 END) AS fresh,
-        SUM(CASE WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1 ELSE 0 END) AS repeated
+        -- Alignment: MySQL WEEKDAY() is 0(Mon)-6(Sun). Add 1 to make it 1(Mon)-7(Sun).
+        (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
+        
+        -- FRESH LOGIC: Scheduled date is the SAME DAY it became that status (checked via logs)
+        SUM(
+            CASE 
+                WHEN DATE(first_log.first_time) = DATE(ac.follow_up_date) THEN 1
+                ELSE 0
+            END
+        ) AS fresh,
+
+        -- REPEATED LOGIC: Scheduled date is AFTER the day it first became that status
+        SUM(
+            CASE 
+                WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1
+                ELSE 0
+            END
+        ) AS repeated
+
     FROM agent_customers ac
-    JOIN customers c ON c.id = ac.customer_id  -- <--- NEW JOIN to check Project
+    JOIN customers c ON c.id = ac.customer_id
+    
+    -- Join LOGS to calculate "First Time" dynamically
     JOIN (
         SELECT 
             agent_customer_id,
@@ -132,13 +153,17 @@ export async function getSupervisorPipeline(
         WHERE action_type IN ('CREATE', 'EDIT', 'STATUS_CHANGE')
         GROUP BY agent_customer_id, JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code'))
     ) first_log 
-    ON first_log.agent_customer_id = ac.id AND first_log.status_code = ac.status_code
+    ON first_log.agent_customer_id = ac.id 
+    AND first_log.status_code = ac.status_code
+
     WHERE 1=1
       ${agentCondition.sql}
-      ${projectFilter}  -- <--- APPLY FILTER
+      ${projectFilter}
       AND ac.follow_up_date BETWEEN ? AND ?
       AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed')
-    GROUP BY ac.status_code, DAYOFWEEK(ac.follow_up_date)
+    
+    -- Group by CORRECTED day_num
+    GROUP BY ac.status_code, day_num
     `,
     params
   );
@@ -146,7 +171,9 @@ export async function getSupervisorPipeline(
   return rows;
 }
 
-// 4. Section 3: Total Status Counts (Matrix)
+// 3. TOTAL STATUS COUNTS (Matrix)
+// Rule: BD/VD -> Done Date. Others -> Created/Assigned Date.
+// Rule: Week starts Mon=1.
 export async function getSupervisorStatusCounts(
   supervisorId: number,
   filterAgentId: string,
@@ -163,16 +190,17 @@ export async function getSupervisorStatusCounts(
     params.push(projectId);
   }
 
-  // Add date params
+  // Add date params (Twice)
   params.push(startDate, endDate, startDate, endDate);
 
   const query = `
     SELECT 
         ac.status_code, 
+        -- FIX: Use WEEKDAY() + 1. Mon=0 becomes 1. Sun=6 becomes 7.
         CASE 
             WHEN ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date IS NOT NULL 
-                THEN DAYOFWEEK(ac.done_date)
-            ELSE DAYOFWEEK(c.updated_at)
+                THEN (WEEKDAY(ac.done_date) + 1)
+            ELSE (WEEKDAY(ac.assigned_at) + 1) -- Use Assigned At for Input Volume
         END as day_num,
         COUNT(*) AS count
     FROM agent_customers ac
@@ -181,9 +209,17 @@ export async function getSupervisorStatusCounts(
       ${agentCondition.sql}
       ${projectFilter}
       AND (
-        (ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date BETWEEN ? AND ?)
+        -- Logic: If Done/Booked, check Done Date
+        (
+          ac.status_code IN ('visit-done', 'booking-done') 
+          AND ac.done_date BETWEEN ? AND ?
+        )
         OR
-        (ac.status_code NOT IN ('visit-done', 'booking-done') AND c.updated_at BETWEEN ? AND ?)
+        -- Logic: If anything else, check Assigned Date
+        (
+          ac.status_code NOT IN ('visit-done', 'booking-done') 
+          AND ac.assigned_at BETWEEN ? AND ?
+        )
       )
     GROUP BY ac.status_code, day_num
   `;
@@ -198,7 +234,6 @@ export async function getSupervisorTeamFollowUps(
   filterAgentId: string,
   projectId: string
 ) {
-  // Base params
   const params: any[] = [supervisorId];
 
   // Dynamic Filters
@@ -210,32 +245,27 @@ export async function getSupervisorTeamFollowUps(
 
   let projectFilter = "";
   if (projectId && projectId !== "all") {
-    // Note: Filtering by the project assigned in the tracking table
-    projectFilter = " AND ac.project_id = ? ";
+    projectFilter = " AND c.project_id = ? "; // Changed from ac.project_id to c.project_id
     params.push(projectId);
   }
 
-  // LOGIC FIXES:
-  // 1. Join 'customers' (c) to get name/contact.
-  // 2. Select c.name/c.contact explicitly.
-  // 3. Apply strict filters: is_active=1, status!='lost', final_status!='COMPLETED'.
-  
   const query = `
     SELECT 
       ac.id AS agent_customer_id,
       c.name AS customer_name,      
-      c.contact AS contact_number,  
+      c.contact AS contact_number,   
       c.location,
       ac.status_code,
       ac.follow_up_date,
       ac.follow_up_time,
+      TIMESTAMP(ac.follow_up_date, ac.follow_up_time) AS scheduled_at, 
       c.updated_at,
       ac.remark,
       p.name as project_name,
       CONCAT(u.first_name, ' ', u.last_name) as agent_name
     FROM agent_customers ac
     JOIN users u ON ac.agent_id = u.id
-    JOIN customers c ON ac.customer_id = c.id    -- Fixed: JOIN added
+    JOIN customers c ON ac.customer_id = c.id    
     LEFT JOIN projects p ON c.project_id = p.id
     WHERE u.supervisor_id = ? 
       AND ac.is_active = 1

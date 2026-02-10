@@ -313,6 +313,9 @@ export async function getCustomerRemarkHistory(agentCustomerId: number) {
 
 // --- DASHBOARD ANALYTICS ---
 
+// 1. VISITS & BOOKINGS (Cards)
+// Rule: VC, VP, VMC, VM -> Follow Up Date.
+// Rule: BD, VD -> Done Date.
 export async function getDashboardVisitsBooking(
   agentId: number,
   projectId: string,
@@ -327,6 +330,9 @@ export async function getDashboardVisitsBooking(
     params.push(projectId);
   }
 
+  // Double params for the two date checks
+  const fullParams = [...params, startDate, endDate, startDate, endDate];
+
   const [rows]: any = await db.query(
     `
     SELECT status_code, COUNT(*) AS count
@@ -337,26 +343,24 @@ export async function getDashboardVisitsBooking(
       WHERE ac.agent_id = ?
       ${filter}
       AND (
+        -- Scenario A: Pipeline Statuses (Based on Follow Up Date)
         (
-          ac.status_code IN (
-            'visit-proposed',
-            'visit-confirmed',
-            'virtual-meet',
-            'virtual-meet-confirmed'
-          )
-          AND DATE(ac.assigned_at) BETWEEN ? AND ?
+          ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet', 'virtual-meet-confirmed')
+          AND ac.follow_up_date IS NOT NULL
+          AND DATE(ac.follow_up_date) BETWEEN ? AND ?
         )
         OR
+        -- Scenario B: Result Statuses (Based on Done Date)
         (
           ac.status_code IN ('visit-done','booking-done','lost')
           AND ac.done_date IS NOT NULL
-          AND ac.done_date BETWEEN ? AND ?
+          AND DATE(ac.done_date) BETWEEN ? AND ?
         )
       )
     ) t
     GROUP BY status_code
     `,
-    [...params, startDate, endDate, startDate, endDate]
+    fullParams
   );
 
   const result: Record<string, number> = {};
@@ -365,6 +369,9 @@ export async function getDashboardVisitsBooking(
   return result;
 }
 
+// 2. PIPELINE DISCIPLINE (Matrix)
+// Rule: Week starts Mon=1 (WEEKDAY + 1)
+// Rule: Logic kept as is (Log based) for now.
 export async function getDashboardPipeline(
   agentId: number,
   startDate: string,
@@ -375,7 +382,8 @@ export async function getDashboardPipeline(
     `
     SELECT 
         ac.status_code,
-        DAYOFWEEK(ac.follow_up_date) AS day_num,
+        -- Alignment: MySQL WEEKDAY() is 0(Mon)-6(Sun). Add 1 to make it 1(Mon)-7(Sun).
+        (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
         
         -- STRICT FRESH: Status Created Date == Follow Up Date
         SUM(
@@ -385,7 +393,7 @@ export async function getDashboardPipeline(
             END
         ) AS fresh,
 
-        -- STRICT REPEATED: Status Created Date < Follow Up Date (Even by 1 day)
+        -- STRICT REPEATED: Status Created Date < Follow Up Date
         SUM(
             CASE 
                 WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1
@@ -395,7 +403,7 @@ export async function getDashboardPipeline(
 
     FROM agent_customers ac
     
-    -- Subquery to find the "Inception Date"
+    -- Subquery to find the "Inception Date" using Logs
     JOIN (
         SELECT 
             agent_customer_id,
@@ -410,13 +418,10 @@ export async function getDashboardPipeline(
 
     WHERE ac.agent_id = ?
       AND ac.follow_up_date BETWEEN ? AND ?
-      AND ac.status_code IN (
-        'visit-proposed', 
-        'visit-confirmed', 
-        'virtual-meet-confirmed'
-      )
+      AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed')
     
-    GROUP BY ac.status_code, DAYOFWEEK(ac.follow_up_date)
+    -- Group by the CORRECTED day_num
+    GROUP BY ac.status_code, day_num
     `,
     [agentId, startDate, endDate]
   );
@@ -424,57 +429,56 @@ export async function getDashboardPipeline(
   return rows;
 }
 
+// 3. TOTAL STATUS COUNTS (Matrix)
+// Rule: BD/VD -> Done Date. Others -> Assigned Date.
+// Rule: Week starts Mon=1 (WEEKDAY + 1).
 export async function getDashboardStatusCounts(
   agentId: number,
   projectId: string,
   startDate: string,
   endDate: string
 ) {
-  let query = `
+  let filter = "";
+  const params: any[] = [agentId];
+
+  if (projectId && projectId !== "all") {
+    filter += " AND c.project_id = ?";
+    params.push(projectId);
+  }
+
+  // Add date params (Twice)
+  params.push(startDate, endDate, startDate, endDate);
+
+  const query = `
     SELECT 
         ac.status_code, 
-        -- NEW LOGIC: Determine Day based on 'Work Done' date, not 'Future' date
+        -- FIX: Use WEEKDAY() + 1. Mon=0 becomes 1. Sun=6 becomes 7.
         CASE 
-            -- 1. If it's a Done status, strictly use the Done Date
             WHEN ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date IS NOT NULL 
-                THEN DAYOFWEEK(ac.done_date)
-            
-            -- 2. For all active statuses (VP, VC, etc.), use the Last Updated timestamp
-            -- This captures when the agent actually changed the status to VP/VC
-            ELSE DAYOFWEEK(c.updated_at)
+                THEN (WEEKDAY(ac.done_date) + 1)
+            ELSE (WEEKDAY(ac.assigned_at) + 1) -- Using Assigned At as "Creation" for Agent
         END as day_num,
         COUNT(*) AS count
     FROM agent_customers ac
     JOIN customers c ON ac.customer_id = c.id
     WHERE ac.agent_id = ?
       AND ac.is_active = 1
-  `;
-  
-  const params: any[] = [agentId];
-
-  if (projectId && projectId !== "all") {
-    query += " AND c.project_id = ?";
-    params.push(projectId);
-  }
-
-  // UPDATED FILTER: Only count rows where the "Work Date" falls in our range
-  query += `
-    AND (
-       (
-         ac.status_code IN ('visit-done', 'booking-done') 
-         AND ac.done_date BETWEEN ? AND ?
-       )
-       OR
-       (
-         ac.status_code NOT IN ('visit-done', 'booking-done')
-         AND c.updated_at BETWEEN ? AND ?
-       )
-    )
+      ${filter}
+      AND (
+        -- Logic: If Done/Booked, check Done Date
+        (
+          ac.status_code IN ('visit-done', 'booking-done') 
+          AND ac.done_date BETWEEN ? AND ?
+        )
+        OR
+        -- Logic: If anything else, check Assigned Date
+        (
+          ac.status_code NOT IN ('visit-done', 'booking-done')
+          AND ac.assigned_at BETWEEN ? AND ?
+        )
+      )
     GROUP BY ac.status_code, day_num
   `;
-
-  // We pass the start/end date twice (once for done_date check, once for updated_at check)
-  params.push(startDate, endDate, startDate, endDate);
 
   const [rows]: any = await db.query(query, params);
   return rows;
@@ -492,6 +496,8 @@ export async function getAgentProjects(agentId: number) {
   );
   return rows;
 }
+
+// ... existing imports
 
 export async function getAgentFollowUps(agentId: number) {
   // Logic:
