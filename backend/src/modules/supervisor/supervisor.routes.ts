@@ -7,5 +7,6 @@ const router = Router();
 // Route: /api/supervisor/summary-dashboard
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/follow-ups", authenticate, Controller.getFollowUps);
+router.get("/export", authenticate, Controller.exportSupervisorData);
 
 export default router;

@@ -307,3 +307,82 @@ export async function getSupervisorTeamFollowUps(
   const [rows] = await db.query(query, params);
   return rows;
 }
+
+// NEW: Export Data Service
+export async function getExportData(
+  supervisorId: number,
+  agentId: string,
+  projectId: string,
+  status: string,
+  startDate: string,
+  endDate: string
+) {
+  const params: any[] = [supervisorId];
+
+  // 1. Base Query with DATE_FORMAT
+  let sql = `
+    SELECT 
+      c.name AS customer_name,
+      c.contact,
+      c.location,
+      c.pincode,
+      c.profession,
+      c.designation,
+      
+      -- FORMATTING DATES HERE (DD/MM/YYYY)
+      DATE_FORMAT(c.created_at, '%d/%m/%Y') AS created_at, 
+      DATE_FORMAT(c.updated_at, '%d/%m/%Y') AS updated_at,
+      
+      ac.source,
+      ac.rating,
+      ac.budget,
+      ac.configuration,
+      ac.purpose,
+      ac.status_code,
+      
+      -- FORMATTING FOLLOW-UP & DONE DATES
+      DATE_FORMAT(ac.follow_up_date, '%d/%m/%Y') AS follow_up_date,
+      ac.follow_up_time,
+      DATE_FORMAT(ac.done_date, '%d/%m/%Y') AS done_date,
+      
+      ac.remark,
+      ac.final_status,
+      p.name AS project_name,
+      u.first_name AS agent_first_name,
+      u.last_name AS agent_last_name,
+      u.username AS agent_username
+    FROM agent_customers ac
+    JOIN customers c ON ac.customer_id = c.id
+    LEFT JOIN projects p ON c.project_id = p.id
+    JOIN users u ON ac.agent_id = u.id
+    WHERE u.supervisor_id = ? 
+  `;
+
+  // 2. Apply Dynamic Filters
+  
+  if (agentId && agentId !== 'all') {
+    sql += ` AND ac.agent_id = ?`;
+    params.push(agentId);
+  }
+
+  if (projectId && projectId !== 'all') {
+    sql += ` AND c.project_id = ?`;
+    params.push(projectId);
+  }
+
+  if (status && status !== 'all') {
+    sql += ` AND ac.status_code = ?`;
+    params.push(status);
+  }
+
+  // Filter by Date Range (using raw updated_at for filtering, but selecting formatted)
+  if (startDate && endDate) {
+    sql += ` AND DATE(ac.updated_at) BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
+  }
+
+  sql += ` ORDER BY ac.updated_at DESC`;
+
+  const [rows] = await db.query(sql, params);
+  return rows;
+}
