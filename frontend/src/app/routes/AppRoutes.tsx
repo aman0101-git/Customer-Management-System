@@ -13,6 +13,7 @@ import SummaryDashboard from '@/features/agent/SummaryDashboard';
 import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
 import SupervisorSummaryDashboard from '@/features/supervisor/SupervisorSummaryDashboard';
 import SupervisorFollowUpPage from '@/features/supervisor/SupervisorFollowUpPage';
+import SupervisorExportPage from '@/features/supervisor/SupervisorExportPage';
 
 export default function AppRoutes() {
   return (
@@ -123,6 +124,14 @@ export default function AppRoutes() {
         element={
           <RequireAuth role="SUPERVISOR">
             <SupervisorFollowUpPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/export-data"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorExportPage />
           </RequireAuth>
         }
       />

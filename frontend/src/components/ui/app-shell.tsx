@@ -12,7 +12,8 @@ import {
   UserPlus, 
   Briefcase, 
   Settings, 
-  ShieldAlert 
+  ShieldAlert,      
+  FileDown 
 } from "lucide-react";
 import { NavLink, Link } from "react-router-dom";
 
@@ -43,7 +44,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Projects", path: "/supervisor/project-allocation", icon: Briefcase },
     { name: "Follow ups", path: "/supervisor/follow-ups", icon: Clock },
     { name: "Summary", path: "/supervisor/summarydashboard", icon: PieChart },
-    
+    { name: "Exports", path: "/supervisor/export-data", icon: FileDown },
   ];
 
   // Matches concepts in AdminDashboard (assuming you will create routes for these later, 
