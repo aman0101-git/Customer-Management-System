@@ -179,3 +179,31 @@ export async function getFollowUps(req: Request, res: Response) {
     res.status(500).json({ message: "Failed to fetch follow-ups" });
   }
 }
+
+// --- NEW HANDLER ---
+export async function getDrillDownData(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { 
+      projectId, startDate, endDate, 
+      statusCode, section, dayNum 
+    } = req.query;
+
+    const data = await Service.getAgentDrillDown(
+      agentId,
+      (projectId as string) || "all",
+      startDate as string,
+      endDate as string,
+      statusCode as string,
+      section as string,
+      dayNum ? Number(dayNum) : undefined
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Drill Down Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}

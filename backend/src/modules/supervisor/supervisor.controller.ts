@@ -144,3 +144,31 @@ export async function exportSupervisorData(req: Request, res: Response) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// --- NEW HANDLER ---
+export async function getDrillDownData(req: Request, res: Response) {
+  try {
+    const supervisorId = (req as any).user.id;
+    // Extract Query Params
+    const { 
+      agentId, projectId, startDate, endDate, 
+      statusCode, section, dayNum 
+    } = req.query;
+
+    const data = await Service.getSupervisorDrillDown(
+      supervisorId,
+      (agentId as string) || "all",
+      (projectId as string) || "all",
+      startDate as string,
+      endDate as string,
+      statusCode as string,
+      section as string,
+      dayNum ? Number(dayNum) : undefined
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Drill Down Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}

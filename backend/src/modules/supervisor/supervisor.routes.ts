@@ -8,5 +8,6 @@ const router = Router();
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/follow-ups", authenticate, Controller.getFollowUps);
 router.get("/export", authenticate, Controller.exportSupervisorData);
+router.get("/drill-down", authenticate, Controller.getDrillDownData);
 
 export default router;

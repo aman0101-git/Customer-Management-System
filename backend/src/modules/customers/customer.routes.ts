@@ -9,6 +9,7 @@ const router = Router();
 
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/followups", authenticate, Controller.getFollowUps);
+router.get("/drill-down", authenticate, Controller.getDrillDownData);
 
 router.get("/", authenticate, Controller.getAgentCustomers);
 router.post("/search", authenticate, Controller.searchCustomer);

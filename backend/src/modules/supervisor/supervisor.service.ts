@@ -386,3 +386,138 @@ export async function getExportData(
   const [rows] = await db.query(sql, params);
   return rows;
 }
+
+// --- NEW DRILL DOWN FUNCTION ---
+export async function getSupervisorDrillDown(
+  supervisorId: number,
+  filterAgentId: string,
+  projectId: string,
+  startDate: string,
+  endDate: string,
+  statusCode: string,
+  section: string, // 'cards', 'pipeline', 'volume'
+  dayNum?: number
+) {
+  const agentCondition = getAgentCondition(supervisorId, filterAgentId);
+  const params: any[] = [...agentCondition.params];
+
+  // 1. Project Filter
+  let projectFilter = "";
+  if (projectId && projectId !== "all") {
+    projectFilter = " AND c.project_id = ? ";
+    params.push(projectId);
+  }
+
+  // ---------------------------------------------------------
+  // 2. DYNAMIC DATE & STATUS LOGIC
+  // ---------------------------------------------------------
+  let whereClause = "";
+  let orderByCol = "ac.updated_at"; // Default sort
+
+  // --- SCENARIO A: SPECIFIC STATUS (Single Cell Click) ---
+  if (statusCode !== 'all') {
+    let dateCol = "ac.updated_at";
+
+    if (section === 'cards') {
+        if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+        else if (statusCode === 'lost') dateCol = "ac.updated_at";
+        else dateCol = "ac.follow_up_date";
+    } 
+    else if (section === 'pipeline') {
+        dateCol = "ac.follow_up_date";
+    } 
+    else if (section === 'volume') {
+        if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+        else dateCol = "ac.assigned_at";
+    }
+
+    // Add Date Range & Status Params
+    params.push(startDate, endDate);
+    whereClause = ` AND ${dateCol} BETWEEN ? AND ? AND ac.status_code = ? `;
+    params.push(statusCode);
+    
+    // Day Filter
+    if (dayNum) {
+        whereClause += ` AND (WEEKDAY(${dateCol}) + 1) = ? `;
+        params.push(dayNum);
+    }
+    orderByCol = dateCol;
+  } 
+  
+  // --- SCENARIO B: ALL STATUSES (Grand Total / Column Total Click) ---
+  else {
+    if (section === 'pipeline') {
+        // Pipeline always uses follow_up_date
+        // Statuses: VP, VC, VMC (You can adjust this list)
+        const pipelineStatuses = "'visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed'";
+        
+        whereClause = ` 
+            AND ac.status_code IN (${pipelineStatuses})
+            AND ac.follow_up_date BETWEEN ? AND ? 
+        `;
+        params.push(startDate, endDate);
+        
+        if (dayNum) {
+            whereClause += ` AND (WEEKDAY(ac.follow_up_date) + 1) = ? `;
+            params.push(dayNum);
+        }
+        orderByCol = "ac.follow_up_date";
+    } 
+    else if (section === 'volume') {
+        // Volume is tricky: Mixed Date Logic (Done Date OR Assigned At)
+        // We use OR logic to capture both types within the range
+        
+        whereClause = `
+            AND (
+                -- Type 1: Success/Done Items
+                (ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date BETWEEN ? AND ?)
+                OR
+                -- Type 2: Input Items
+                (ac.status_code NOT IN ('visit-done', 'booking-done') AND ac.assigned_at BETWEEN ? AND ?)
+            )
+        `;
+        // We push dates twice (once for done_date, once for assigned_at)
+        params.push(startDate, endDate, startDate, endDate);
+
+        if (dayNum) {
+            // Complex Day Filter: Check Day of DoneDate OR Day of AssignedAt depending on status
+            whereClause += `
+                AND (
+                    CASE 
+                        WHEN ac.status_code IN ('visit-done', 'booking-done') THEN (WEEKDAY(ac.done_date) + 1)
+                        ELSE (WEEKDAY(ac.assigned_at) + 1)
+                    END
+                ) = ?
+            `;
+            params.push(dayNum);
+        }
+        orderByCol = "ac.assigned_at"; // Fallback sort
+    }
+  }
+
+  const sql = `
+    SELECT 
+      c.name AS customer_name,
+      c.contact AS contact,
+      ac.status_code,
+      ac.follow_up_date,
+      ac.follow_up_time,
+      ac.done_date,
+      ac.assigned_at,
+      p.name AS project_name,
+      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+    FROM agent_customers ac
+    JOIN customers c ON c.id = ac.customer_id
+    JOIN projects p ON p.id = c.project_id
+    JOIN users u ON u.id = ac.agent_id
+    WHERE 1=1
+      ${agentCondition.sql}
+      ${projectFilter}
+      ${whereClause}
+    ORDER BY ${orderByCol} DESC
+    LIMIT 200
+  `;
+
+  const [rows] = await db.query(sql, params);
+  return rows;
+}
