@@ -1,32 +1,131 @@
 import { db } from "../../config/db.js";
 import { ResultSetHeader } from "mysql2";
 
-export async function getAllProjectsWithAgentsService() {
-  const [rows] = await db.query(`
-    SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
-      GROUP_CONCAT(u.username) as agents
-    FROM projects p
-    LEFT JOIN user_projects up ON p.id = up.project_id AND up.is_active = 1
-    LEFT JOIN users u ON up.user_id = u.id AND u.role = 'AGENT'
-    WHERE p.is_active = 1
-    GROUP BY p.id
-  `);
+// List all agents, with assignment status for a project
+export async function getProjectAgentsService(projectId: number, supervisorId: number, role?: string) {
+  const query = `
+    SELECT 
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.username,
+      CASE 
+        WHEN up.id IS NOT NULL AND up.is_active = 1 THEN 1 
+        ELSE 0 
+      END AS assigned
+    FROM users u
+    LEFT JOIN user_projects up 
+      ON up.user_id = u.id 
+      AND up.project_id = ?
+    WHERE 
+      u.role = 'AGENT'
+      AND u.is_active = 1
+  `;
+
+  const [rows] = await db.query(query, [projectId]);
   return rows;
 }
 
-export async function createProjectService(data: {
-  name: string;
-  description: string;
-  start_date: string;
-  end_date: string;
-  status: string;
-}) {
+// Assign a single agent to a project
+export async function assignAgentToProjectService(
+  projectId: number,
+  agentId: number,
+  currentUser: any
+) {
+  if (currentUser.role !== "ADMIN") {
+    const [proj]: any = await db.query(
+      `SELECT id FROM projects WHERE id = ? AND created_by = ?`,
+      [projectId, currentUser.id]
+    );
+    if (!proj.length) throw new Error("FORBIDDEN_PROJECT");
+  }
+
+  const [agent]: any = await db.query(
+    `SELECT id FROM users WHERE id = ? AND role='AGENT'`,
+    [agentId]
+  );
+  if (!agent.length) throw new Error("INVALID_AGENT");
+
+  await db.query(
+    `INSERT INTO user_projects (user_id, project_id, assigned_at, is_active)
+      VALUES (?, ?, NOW(), 1)
+      ON DUPLICATE KEY UPDATE is_active=1, assigned_at=NOW()`,
+    [agentId, projectId]
+  );
+}
+
+export async function unassignAgentFromProjectService(projectId: number, userId: number) {
+  await db.query(`
+    UPDATE user_projects SET is_active=0
+    WHERE user_id=? AND project_id=?
+  `, [userId, projectId]);
+}
+
+// FIX: Added logic for AGENT role to fetch their assigned projects
+export async function getAllProjectsWithAgentsService(userId: number, role: string) {
+  let query = "";
+  const params: any[] = [];
+
+  if (role === 'AGENT') {
+    // Agents see projects they are assigned to
+    query = `
+      SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
+             1 as agent_count, -- Dummy count for consistency, or calculate real count if needed
+             up.assigned_at
+      FROM projects p
+      JOIN user_projects up ON p.id = up.project_id
+      WHERE up.user_id = ? AND up.is_active = 1 AND p.is_active = 1
+      ORDER BY up.assigned_at DESC
+    `;
+    params.push(userId);
+  } else {
+    // Supervisors/Admins view
+    // FIX: Changed GROUP_CONCAT(u.username) to COUNT(u.id)
+    query = `
+      SELECT p.id, p.name, p.description, p.start_date, p.end_date, p.status,
+        COUNT(u.id) as agent_count
+      FROM projects p
+      LEFT JOIN user_projects up ON p.id = up.project_id AND up.is_active = 1
+      LEFT JOIN users u ON up.user_id = u.id AND u.role = 'AGENT'
+      WHERE p.is_active = 1
+    `;
+    
+    if (role === 'SUPERVISOR') {
+      query += ` AND p.created_by = ?`;
+      params.push(userId);
+    }
+    
+    query += ` GROUP BY p.id`;
+  }
+
+  const [rows] = await db.query(query, params);
+  return rows;
+}
+
+export async function createProjectService(
+  data: {
+    name: string;
+    description: string;
+    start_date: string;
+    end_date: string;
+    status: string;
+  },
+  createdBy: number
+) {
   const { name, description, start_date, end_date, status } = data;
-  const [result] = await db.query(
-    `INSERT INTO projects (name, description, start_date, end_date, status, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-    [name, description, start_date, end_date, status]
-  ) as [ResultSetHeader, any];
-  return { id: result.insertId, ...data };
+
+  const [result]: any = await db.query(
+    `INSERT INTO projects 
+      (name, description, start_date, end_date, status, is_active, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`,
+    [name, description, start_date, end_date, status, createdBy]
+  );
+
+  return {
+    id: result.insertId,
+    ...data,
+    created_by: createdBy,
+  };
 }
 
 export async function updateProjectService(
@@ -45,17 +144,4 @@ export async function updateProjectService(
     [name, description, start_date, end_date, status, id]
   );
   return { id, ...data };
-}
-
-export async function assignAgentsToProjectService(projectId: number, agentIds: number[]) {
-  // Remove previous assignments
-  await db.query(`UPDATE user_projects SET is_active=0 WHERE project_id=?`, [projectId]);
-  // Assign new agents
-  for (const agentId of agentIds) {
-    await db.query(
-      `INSERT INTO user_projects (user_id, project_id, assigned_at, is_active) VALUES (?, ?, NOW(), 1)`,
-      [agentId, projectId]
-    );
-  }
-  return { projectId, agentIds };
 }

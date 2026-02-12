@@ -3,22 +3,24 @@ import { Request, Response, NextFunction } from "express";
 
 export function authenticate(req: Request, res: Response, next: NextFunction) {
   const token = req.cookies?.token;
-  if (!token) return res.sendStatus(401);
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthenticated" });
+  }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as {
+      userId: number;
+      role: string;
+    };
 
-    if (!decoded || !decoded.userId || !decoded.role) {
-      return res.status(401).json({ message: "Invalid token payload" });
-    }
-
-    (req as any).user = {
-      userId: decoded.userId,
-      role: decoded.role,
+    req.user = {
+      id: decoded.userId,
+      role: decoded.role as any,
     };
 
     next();
-  } catch (err) {
-    return res.sendStatus(401);
+  } catch {
+    return res.status(401).json({ message: "Invalid token" });
   }
 }

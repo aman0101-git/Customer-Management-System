@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from '@/features/auth/LoginPage';
 import RequireAuth from './RequireAuth';
 import AuthLayout from '../layouts/AuthLayout';
@@ -9,17 +9,26 @@ import AgentCustomersPage from '@/features/agent/AgentCustomersPage';
 import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUserPage';
 import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
+import SummaryDashboard from '@/features/agent/SummaryDashboard';
+import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
+import SupervisorSummaryDashboard from '@/features/supervisor/SupervisorSummaryDashboard';
+import SupervisorFollowUpPage from '@/features/supervisor/SupervisorFollowUpPage';
+import SupervisorExportPage from '@/features/supervisor/SupervisorExportPage';
 
 export default function AppRoutes() {
   return (
     <Routes>
       <Route
-        path="/"
+        path="/login"
         element={
           <AuthLayout>
             <LoginPage />
           </AuthLayout>
         }
+      />
+      <Route
+        path="/"
+        element={<Navigate to="/login"/>}
       />
 
       <Route
@@ -31,6 +40,7 @@ export default function AppRoutes() {
         }
       />
 
+      {/* AGENT ROUTES */}
       <Route
         path="/agent/dashboard"
         element={
@@ -47,7 +57,6 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
-      
       <Route
         path="/agent/customers"
         element={
@@ -56,7 +65,27 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
+
+      <Route
+        path="/agent/followups"
+        element={
+          <RequireAuth role="AGENT">
+            <FollowUpDashboard />
+          </RequireAuth>
+        }
+      />
+
+      {/* FIXED: Moved inside RequireAuth role="AGENT" */}
+      <Route 
+        path="/agent/summary" 
+        element={
+          <RequireAuth role="AGENT">
+            <SummaryDashboard />
+          </RequireAuth>
+        } 
+      />
       
+      {/* SUPERVISOR ROUTES */}
       <Route
         path="/supervisor/dashboard"
         element={
@@ -79,6 +108,30 @@ export default function AppRoutes() {
         element={
           <RequireAuth role="SUPERVISOR">
             <ProjectAllocationPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/summarydashboard"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorSummaryDashboard />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/follow-ups"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorFollowUpPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/export-data"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorExportPage />
           </RequireAuth>
         }
       />

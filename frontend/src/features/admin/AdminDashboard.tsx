@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { API_BASE } from "@/apiBase";
+import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
 import {
   Card,
   CardHeader,
@@ -14,27 +14,11 @@ import CreateUserForm from "./CreateUserForm";
 
 export default function AdminDashboard() {
   const [activePanel, setActivePanel] = useState<"CREATE_USER" | "SYSTEM_SETTINGS" | "AUDIT_LOGS" | null>(null);
-
-  const [user, setUser] = useState<{ first_name?: string }>({});
-    useEffect(() => {
-      fetch(`${API_BASE}/auth/me`, {
-        credentials: 'include'
-      })
-        .then(res => {
-          if (!res.ok) throw new Error('Unauthorized');
-          return res.json();
-        })
-        .then(data => setUser(data))
-        .catch(() => setUser({}));
-    }, []);
-  
-    const logout = () => {
-      localStorage.clear();
-      window.location.href = "/";
-    };
-
+  const { user, loading } = useAuth();
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired. Please log in again.</div>;
   return (
-    <AppShell sidebar={null} user={user} onLogout={logout}>
+    <AppShell sidebar={null}>
       {/* Dashboard Actions */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card

@@ -3,36 +3,49 @@ import * as Service from "./customer.service.js";
 
 // Get merged customer + agent_customer for edit
 export async function getAgentCustomerById(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id; // Type is number | undefined
   const agentCustomerId = Number(req.params.id);
-  if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+
+  // This check is your "Type Guard"
+  if (agentId === undefined) { 
+    return res.status(401).json({ message: "Unauthorized" }); 
+  }
+
   if (!agentCustomerId) return res.status(400).json({ message: "Missing id" });
-  const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId);
+
+  // Add the '!' after agentId to assert it is a number
+  const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId!);
+  
   if (!result) return res.status(404).json({ message: "Not found" });
-  res.json(result);
+
+  const history = await Service.getCustomerRemarkHistory(agentCustomerId);
+  res.json({ ...result, history });
 }
+
 // Mark agent customer as completed
 export async function completeAgentCustomer(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id;
 
   if (!agentId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
   const agentCustomerId = Number(req.params.id);
+
   try {
     const result = await Service.completeAgentCustomer(agentCustomerId, agentId);
     if (result === "FORBIDDEN") {
       return res.status(403).json({ message: "Not allowed" });
     }
     return res.json({ success: true });
-  } catch (err) {
+  } catch {
     return res.status(500).json({ message: "Failed to complete customer" });
   }
 }
+
 // Get all customers assigned to logged-in agent
 export async function getAgentCustomers(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id;
 
   if (!agentId) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -48,11 +61,12 @@ export async function getAgentCustomers(req: Request, res: Response) {
 }
 
 export async function searchCustomer(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id;
 
   if (!agentId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
+
   const { phone } = req.body;
 
   if (!phone || !/^\d{10}$/.test(phone)) {
@@ -65,16 +79,16 @@ export async function searchCustomer(req: Request, res: Response) {
     return res.json({ status: "NOT_FOUND" });
   }
 
-  // Return full data if found so frontend can display and edit
   return res.json({ status: "FOUND", data: result });
 }
 
 export async function createCustomer(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id;
 
   if (!agentId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
+
   const payload = req.body;
 
   try {
@@ -89,11 +103,12 @@ export async function createCustomer(req: Request, res: Response) {
 }
 
 export async function updateAgentCustomer(req: Request, res: Response) {
-  const agentId = (req as any).user?.userId;
+  const agentId = req.user?.id;
 
   if (!agentId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
+
   const agentCustomerId = Number(req.params.agentCustomerId);
 
   const updated = await Service.updateAgentCustomer(
@@ -107,4 +122,88 @@ export async function updateAgentCustomer(req: Request, res: Response) {
   }
 
   return res.json(updated);
+}
+
+export async function getSummaryDashboard(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    const { section, projectId, period, timeFilter, startDate, endDate } = req.query;
+
+    // Helper to calculate dates if standard period (Today, This Week) is passed
+    // You can also handle this on frontend and pass exact dates. 
+    // Assuming Frontend passes exact YYYY-MM-DD strings for start/end to keep backend simple.
+    
+    const start = startDate as string;
+    const end = endDate as string;
+
+    if (section === "1") {
+      // Visits and Booking
+      const data = await Service.getDashboardVisitsBooking(agentId, projectId as string, start, end);
+      return res.json(data);
+    } 
+    else if (section === "2") {
+      const data = await Service.getDashboardPipeline(
+        agentId,
+        start,
+        end,
+        req.query.mode as string || "all"
+      );
+      return res.json(data);
+    }
+    else if (section === "3") {
+      // Status Counts
+      const data = await Service.getDashboardStatusCounts(agentId, projectId as string, start, end);
+      return res.json(data);
+    }
+    else if (section === "projects") {
+      // Filter list
+      const data = await Service.getAgentProjects(agentId);
+      return res.json(data);
+    }
+
+    return res.status(400).json({ message: "Invalid section" });
+
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+export async function getFollowUps(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    const data = await Service.getAgentFollowUps(agentId);
+    res.json(data);
+  } catch (error) {
+    console.error("Follow-up fetch error:", error);
+    res.status(500).json({ message: "Failed to fetch follow-ups" });
+  }
+}
+
+// --- NEW HANDLER ---
+export async function getDrillDownData(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { 
+      projectId, startDate, endDate, 
+      statusCode, section, dayNum 
+    } = req.query;
+
+    const data = await Service.getAgentDrillDown(
+      agentId,
+      (projectId as string) || "all",
+      startDate as string,
+      endDate as string,
+      statusCode as string,
+      section as string,
+      dayNum ? Number(dayNum) : undefined
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Drill Down Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 }

@@ -52,14 +52,20 @@ export async function createUser(
   if (!rows.length) throw new Error('Requesting user not found');
   const requesterRole = rows[0].role;
 
+  // Determine Supervisor ID
+  let supervisorId: number | null = null;
+
   if (requesterRole === 'ADMIN') {
-  // Admin can create any role
+    // Admin can create any role. 
+    // If Admin creates an AGENT, supervisorId remains NULL unless you pass it explicitly (logic not added here).
   } else if (requesterRole === 'SUPERVISOR') {
     if (role !== 'AGENT') {
       const err: any = new Error('Supervisors can only create agents');
       err.status = 403;
       throw err;
     }
+    // FIX: Link the new agent to this supervisor
+    supervisorId = adminId;
   } else {
     const err: any = new Error('Forbidden');
     err.status = 403;
@@ -68,10 +74,11 @@ export async function createUser(
 
   const hash = await bcrypt.hash(password, 10);
 
+  // FIX: Added supervisor_id to INSERT statement
   await db.query(
     `INSERT INTO users 
-     (first_name, last_name, username, password_hash, role)
-     VALUES (?, ?, ?, ?, ?)`,
-    [firstName, lastName, username, hash, role]
+      (first_name, last_name, username, password_hash, role, supervisor_id)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+    [firstName, lastName, username, hash, role, supervisorId]
   );
 }

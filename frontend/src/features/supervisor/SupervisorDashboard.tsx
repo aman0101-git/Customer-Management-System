@@ -1,32 +1,16 @@
-import { useEffect, useState } from "react";
-import { API_BASE } from "@/apiBase";
+import { useAuth } from "@/context/AuthContext";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
 import { useNavigate } from "react-router-dom";
+import { FileSpreadsheet } from "lucide-react";
 
 export default function SupervisorDashboard() {
-  const [user, setUser] = useState<{ first_name?: string }>({});
-  useEffect(() => {
-    fetch(`${API_BASE}/auth/me`, {
-      credentials: 'include'
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('Unauthorized');
-        return res.json();
-      })
-      .then(data => setUser(data))
-      .catch(() => setUser({}));
-  }, []);
-
-  const logout = () => {
-    localStorage.clear();
-    window.location.href = "/";
-  };
-
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
-
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <div>Session expired. Please log in again.</div>;
   return (
-    <AppShell sidebar={null} user={user} onLogout={logout}>
+    <AppShell sidebar={null}>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 w-full px-6">
         <Card
           accent="purple"
@@ -40,30 +24,48 @@ export default function SupervisorDashboard() {
             </CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="blue" className="cursor-pointer" onClick={() => navigate("/supervisor/project-allocation") }>
+        <Card accent="pink" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/supervisor/project-allocation") }>
           <CardHeader>
             <CardTitle>👥 Project Allocation</CardTitle>
             <CardDescription>Create projects and allocate to agents</CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="pink" className="cursor-pointer" onClick={() => {}}>
-          <CardHeader>
-            <CardTitle>📍 Visits Monitoring</CardTitle>
-            <CardDescription>Track visits across agents</CardDescription>
-          </CardHeader>
-        </Card>
-        <Card accent="yellow" className="cursor-pointer" onClick={() => {}}>
+        <Card 
+          accent="yellow" 
+          className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" 
+          onClick={() => navigate("/supervisor/follow-ups")} 
+        >
           <CardHeader>
             <CardTitle>⏰ Follow-up Discipline</CardTitle>
             <CardDescription>Overdue and upcoming follow-ups</CardDescription>
           </CardHeader>
         </Card>
-        <Card accent="green" className="cursor-pointer" onClick={() => {}}>
+        <Card accent="blue" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/supervisor/summarydashboard")}>
+          <CardHeader>
+            <CardTitle>📊 Summary Dashboards</CardTitle>
+            <CardDescription>Quick view of Agents’s activity</CardDescription>
+          </CardHeader>
+        </Card>
+        <Card 
+          accent="green"
+          className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" 
+          onClick={() => navigate("/supervisor/export-data")} 
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5" /> 
+              Export Data
+            </CardTitle>
+            <CardDescription>Download CSV/Excel reports</CardDescription>
+          </CardHeader>
+        </Card>
+  
+        {/* <Card accent="green" className="cursor-pointer" onClick={() => {}}>
           <CardHeader>
             <CardTitle>🕒 Attendance Monitoring</CardTitle>
             <CardDescription>Login / logout and work hours</CardDescription>
           </CardHeader>
-        </Card>
+        </Card> */}
       </div>
     </AppShell>
   );

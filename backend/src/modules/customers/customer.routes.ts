@@ -7,12 +7,16 @@ const router = Router();
 
 // Agent APIs
 
-// My Customers List (base path)
+router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
+router.get("/followups", authenticate, Controller.getFollowUps);
+router.get("/drill-down", authenticate, Controller.getDrillDownData);
+
 router.get("/", authenticate, Controller.getAgentCustomers);
-router.get("/:id", authenticate, Controller.getAgentCustomerById);
-router.patch("/:id/complete", authenticate, Controller.completeAgentCustomer);
 router.post("/search", authenticate, Controller.searchCustomer);
 router.post("/", authenticate, Controller.createCustomer);
+
+router.get("/:id", authenticate, Controller.getAgentCustomerById);
+router.patch("/:id/complete", authenticate, Controller.completeAgentCustomer);
 router.put("/:agentCustomerId", authenticate, Controller.updateAgentCustomer);
 
 export default router;

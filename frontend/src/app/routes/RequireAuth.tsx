@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { getRole } from '@/features/auth/auth.store';
 import type { UserRole } from '@/contracts/auth';
+import { useAuth } from '@/context/AuthContext';
 
 export default function RequireAuth({
   role,
@@ -10,10 +10,11 @@ export default function RequireAuth({
   role: UserRole;
   children: ReactNode;
 }) {
-  const userRole = getRole();
+  const { user, loading } = useAuth();
 
-  if (!userRole) return <Navigate to="/" replace />;
-  if (userRole !== role) return <Navigate to="/" replace />;
+  if (loading) return <div>Loading...</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== role) return <Navigate to="/unauthorized" replace />;
 
   return children;
 }
