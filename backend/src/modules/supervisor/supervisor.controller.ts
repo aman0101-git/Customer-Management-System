@@ -172,3 +172,21 @@ export async function getDrillDownData(req: Request, res: Response) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// --- NEW SEARCH HANDLER ---
+export async function searchCustomers(req: Request, res: Response) {
+  try {
+    const { q } = req.query;
+
+    if (!q || typeof q !== "string" || q.trim() === "") {
+      return res.status(400).json({ message: "Search term is required" });
+    }
+
+    const data = await Service.searchGlobalCustomers(q.trim());
+    return res.json(data);
+    
+  } catch (error) {
+    console.error("Global Customer Search Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}

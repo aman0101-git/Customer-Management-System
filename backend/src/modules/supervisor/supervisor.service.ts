@@ -521,3 +521,34 @@ export async function getSupervisorDrillDown(
   const [rows] = await db.query(sql, params);
   return rows;
 }
+
+// --- NEW GLOBAL SEARCH FUNCTION ---
+export async function searchGlobalCustomers(searchTerm: string) {
+  // Use wildcards for partial matching (e.g., typing "9876" finds "9876543210")
+  const likeTerm = `%${searchTerm}%`;
+
+  const query = `
+    SELECT 
+      c.id AS customer_id,
+      c.name AS customer_name,
+      c.contact,
+      ac.status_code,
+      ac.follow_up_date,
+      ac.follow_up_time,
+      p.name AS project_name,
+      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+    FROM customers c
+    -- Join active assignments
+    LEFT JOIN agent_customers ac ON c.id = ac.customer_id AND ac.is_active = 1
+    -- Join project details
+    LEFT JOIN projects p ON c.project_id = p.id
+    -- Join agent details
+    LEFT JOIN users u ON ac.agent_id = u.id
+    WHERE c.name LIKE ? OR c.contact LIKE ?
+    ORDER BY c.updated_at DESC
+    LIMIT 50 -- Limit results to prevent crashing the browser on broad searches
+  `;
+
+  const [rows] = await db.query(query, [likeTerm, likeTerm]);
+  return rows;
+}
