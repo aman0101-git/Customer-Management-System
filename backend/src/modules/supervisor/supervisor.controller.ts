@@ -173,16 +173,20 @@ export async function getDrillDownData(req: Request, res: Response) {
   }
 }
 
-// --- NEW SEARCH HANDLER ---
+// --- UPDATED SEARCH HANDLER ---
 export async function searchCustomers(req: Request, res: Response) {
   try {
     const { q } = req.query;
+    const searchTerm = q as string;
 
-    if (!q || typeof q !== "string" || q.trim() === "") {
-      return res.status(400).json({ message: "Search term is required" });
+    // Strict regex to check for exactly 10 digits
+    const isTenDigits = /^\d{10}$/.test(searchTerm);
+
+    if (!searchTerm || !isTenDigits) {
+      return res.status(400).json({ message: "Exact 10-digit contact number is required" });
     }
 
-    const data = await Service.searchGlobalCustomers(q.trim());
+    const data = await Service.searchGlobalCustomers(searchTerm);
     return res.json(data);
     
   } catch (error) {

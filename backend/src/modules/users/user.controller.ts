@@ -1,12 +1,23 @@
 import { Request, Response } from "express";
 import * as Service from "./user.service.js";
 
-// Get All Users (Updated with Count)
+// Get All Users (Updated with Count & Security Filter)
 export async function getAllUsersWithProjects(req: Request, res: Response) {
   try {
-    const users = await Service.getAllUsersWithProjectsService();
+    // 1. Extract the logged-in user from the request
+    const currentUser = (req as any).user; 
+
+    // 2. Reject if no user is found in the session
+    if (!currentUser) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // 3. Pass the user to the service so it can filter by supervisor_id
+    const users = await Service.getAllUsersWithProjectsService(currentUser);
+    
     res.json(users);
   } catch (err) {
+    console.error("Fetch users error:", err);
     res.status(500).json({ error: "Failed to fetch users" });
   }
 }

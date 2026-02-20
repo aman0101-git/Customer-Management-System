@@ -522,11 +522,8 @@ export async function getSupervisorDrillDown(
   return rows;
 }
 
-// --- NEW GLOBAL SEARCH FUNCTION ---
-export async function searchGlobalCustomers(searchTerm: string) {
-  // Use wildcards for partial matching (e.g., typing "9876" finds "9876543210")
-  const likeTerm = `%${searchTerm}%`;
-
+// --- UPDATED GLOBAL SEARCH FUNCTION (EXACT 10-DIGIT CONTACT) ---
+export async function searchGlobalCustomers(contactNumber: string) {
   const query = `
     SELECT 
       c.id AS customer_id,
@@ -544,11 +541,11 @@ export async function searchGlobalCustomers(searchTerm: string) {
     LEFT JOIN projects p ON c.project_id = p.id
     -- Join agent details
     LEFT JOIN users u ON ac.agent_id = u.id
-    WHERE c.name LIKE ? OR c.contact LIKE ?
+    WHERE c.contact = ? 
     ORDER BY c.updated_at DESC
-    LIMIT 50 -- Limit results to prevent crashing the browser on broad searches
   `;
 
-  const [rows] = await db.query(query, [likeTerm, likeTerm]);
+  // Pass the exact string directly without wildcards
+  const [rows] = await db.query(query, [contactNumber]);
   return rows;
 }
