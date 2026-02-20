@@ -3,7 +3,8 @@ import { AppShell } from "@/components/ui/app-shell";
 import CreateUserForm from "../admin/CreateUserForm";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { Users, UserPlus, Search, ShieldCheck, Briefcase, MoreVertical, X, Filter, Power, FolderCog } from "lucide-react";
-import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer"; // Import the new drawer
+import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer";
+import { useAuth } from "@/context/AuthContext"; // 1. Import useAuth
 
 type User = {
   id: number;
@@ -11,8 +12,9 @@ type User = {
   last_name: string;
   username: string;
   role: string;
-  project_count: number; // Updated type
-  is_active: number; // Updated type (1 or 0)
+  project_count: number;
+  is_active: number;
+  supervisor_id: number; // 2. Add supervisor_id to the type
 };
 
 // UI Helper: Avatar Generator
@@ -38,6 +40,7 @@ const RoleBadge = ({ role }: { role: string }) => {
 };
 
 export default function SupervisorCreateUserPage() {
+  const { user } = useAuth(); // 3. Get the current logged-in supervisor
   const [agents, setAgents] = useState<User[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -52,18 +55,28 @@ export default function SupervisorCreateUserPage() {
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   const loadAgents = () => {
+    if (!user?.id) return;
+
     fetch(`${API_BASE}/api/users`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       })
       .then((users: User[]) => {
-        setAgents(users.filter(u => u.role?.toUpperCase() === 'AGENT'));
+        // FIX: The backend is already filtering by supervisor_id! 
+        // We just ensure we are only displaying agents.
+        const myAgents = users.filter(u => u.role?.toUpperCase() === 'AGENT');
+        setAgents(myAgents);
       })
       .catch(err => console.error("Failed to load users:", err));
   };
-
-  useEffect(() => { loadAgents(); }, []);
+  
+  // 5. Add user?.id as a dependency so it loads when the user session is ready
+  useEffect(() => { 
+    if (user?.id) {
+      loadAgents(); 
+    }
+  }, [user?.id]); 
 
   // Handle Deactivation / Activation
   const handleToggleStatus = async (agent: User) => {
@@ -100,7 +113,7 @@ export default function SupervisorCreateUserPage() {
     return () => window.removeEventListener("click", handleClickOutside);
   }, []);
 
-  // Filter logic
+  // Filter logic for search bar
   const filteredAgents = agents.filter(agent => 
     agent.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     agent.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -119,10 +132,10 @@ export default function SupervisorCreateUserPage() {
                 <div className="p-2 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-200">
                   <Users className="w-6 h-6 text-white" />
                 </div>
-                Agent Management
+                My Team Management
               </h2>
               <p className="text-sm text-slate-500 font-medium mt-1 ml-1">
-                Monitor performance and manage agent access credentials.
+                Monitor performance and manage credentials for your assigned agents.
               </p>
             </div>
             <button
@@ -142,7 +155,7 @@ export default function SupervisorCreateUserPage() {
               </div>
               <input 
                 type="text" 
-                placeholder="Search by name or username..." 
+                placeholder="Search your agents by name or username..." 
                 className="w-full h-10 outline-none text-sm text-slate-700 placeholder:text-slate-400"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -155,7 +168,7 @@ export default function SupervisorCreateUserPage() {
             </div>
             
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Agents</span>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">My Agents</span>
               <span className="text-2xl font-black text-indigo-600">{agents.length}</span>
             </div>
           </div>

@@ -24,23 +24,28 @@ export default function GlobalCustomerSearch() {
 
   // Debounced Search Logic
   useEffect(() => {
+    const cleanSearchTerm = searchTerm.trim();
+    // Only trigger if it is exactly 10 digits
+    const isTenDigits = /^\d{10}$/.test(cleanSearchTerm);
+
     const delayDebounceFn = setTimeout(async () => {
-      if (searchTerm.trim().length > 2 && user) {
+      if (isTenDigits && user) {
         setLoading(true);
         setHasSearched(true);
         try {
-          const res = await axios.get(`/api/supervisor/customers/search?q=${searchTerm}`);
+          const res = await axios.get(`/api/supervisor/customers/search?q=${cleanSearchTerm}`);
           setResults(res.data || []);
         } catch (error) {
           console.error("Search failed", error);
+          setResults([]); // Clear on error
         } finally {
           setLoading(false);
         }
-      } else if (searchTerm.trim().length === 0) {
+      } else if (cleanSearchTerm.length !== 10) {
         setResults([]);
         setHasSearched(false);
       }
-    }, 500);
+    }, 400); // Slightly faster debounce since they are typing a specific number
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, user]);
@@ -77,10 +82,15 @@ export default function GlobalCustomerSearch() {
             <Search className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by customer name or 10-digit contact number..."
+              maxLength={10} // Prevent typing more than 10 characters
+              placeholder="Enter exact 10-digit contact number..."
               className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 outline-none transition-all"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                // Only allow numeric input
+                const value = e.target.value.replace(/\D/g, "");
+                setSearchTerm(value);
+              }}
             />
             {loading && (
               <div className="absolute right-3 top-2.5">
