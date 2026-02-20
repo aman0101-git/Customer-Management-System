@@ -45,6 +45,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Follow ups", path: "/supervisor/follow-ups", icon: Clock },
     { name: "Summary", path: "/supervisor/summarydashboard", icon: PieChart },
     { name: "Exports", path: "/supervisor/export-data", icon: FileDown },
+    { name: "Search", path: "/supervisor/customer-search", icon: Search },
   ];
 
   // Matches concepts in AdminDashboard (assuming you will create routes for these later, 
