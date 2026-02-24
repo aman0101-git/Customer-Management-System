@@ -231,13 +231,13 @@ export async function getSupervisorStatusCounts(
         -- Logic: If Done/Booked, check Done Date
         (
           ac.status_code IN ('visit-done', 'booking-done') 
-          AND ac.done_date BETWEEN ? AND ?
+          AND DATE(ac.done_date) BETWEEN ? AND ?  -- ADDED DATE() HERE
         )
         OR
         -- Logic: If anything else, check Assigned Date
         (
           ac.status_code NOT IN ('visit-done', 'booking-done') 
-          AND ac.assigned_at BETWEEN ? AND ?
+          AND DATE(ac.assigned_at) BETWEEN ? AND ? -- ADDED DATE() HERE
         )
       )
     GROUP BY ac.status_code, day_num
