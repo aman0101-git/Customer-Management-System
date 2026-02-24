@@ -10,7 +10,8 @@ import {
   ArrowLeft, 
   User, 
   Briefcase, 
-  Edit2 
+  Edit2,
+  X
 } from "lucide-react";
 
 export default function GlobalCustomerSearch() {
@@ -21,6 +22,17 @@ export default function GlobalCustomerSearch() {
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Modal States
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<any>(null);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  
+  // Form States
+  const [selectedAgentId, setSelectedAgentId] = useState<string>("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
 
   // Debounced Search Logic
   useEffect(() => {
@@ -57,6 +69,51 @@ export default function GlobalCustomerSearch() {
     if (status.includes('proposed') || status.includes('fresh')) return "bg-blue-100 text-blue-700 border-blue-200";
     if (status.includes('lost')) return "bg-red-100 text-red-700 border-red-200";
     return "bg-slate-100 text-slate-600 border-slate-200";
+  };
+
+  const openEditModal = async (customer: any) => {
+    setEditingCustomer(customer);
+    setSelectedAgentId(""); // <-- Reset dropdown
+    setSelectedProjectId(""); // <-- Reset dropdown
+    setIsEditModalOpen(true);
+    
+    if (agents.length === 0) {
+      try {
+        const [agentsRes, projectsRes] = await Promise.all([
+          axios.get("/api/users"), 
+          axios.get("/api/supervisor/summary-dashboard?section=projects") 
+        ]);
+        setAgents(agentsRes.data.filter((u: any) => u.role === 'AGENT' && u.is_active === 1));
+        setProjects(projectsRes.data);
+      } catch (err) {
+        console.error("Failed to load options");
+      }
+    }
+  };
+
+  const handleSaveReassignment = async () => {
+    if (!selectedAgentId || !selectedProjectId) {
+      alert("Please select both an Agent and a Project.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await axios.put(`/api/supervisor/customers/${editingCustomer.customer_id}/reassign`, {
+        new_agent_id: selectedAgentId,
+        new_project_id: selectedProjectId
+      });
+      
+      setIsEditModalOpen(false);
+      alert("Customer successfully transferred!");
+      
+      // Re-trigger the search to refresh the row
+      setSearchTerm(searchTerm + " "); // Hack to re-trigger useEffect debounce
+    } catch (error) {
+      alert("Failed to reassign customer.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -185,12 +242,10 @@ export default function GlobalCustomerSearch() {
                       {/* Actions */}
                       <td className="px-6 py-3 text-right">
                         <button 
-                          disabled
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-400 bg-slate-50 border border-slate-200 rounded-md cursor-not-allowed opacity-60"
-                          title="Editing coming in next update"
+                          onClick={() => openEditModal(item)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
-                          Edit
+                          <Edit2 className="w-3.5 h-3.5" /> Edit
                         </button>
                       </td>
                     </tr>
@@ -200,6 +255,94 @@ export default function GlobalCustomerSearch() {
             </div>
           )}
         </div>
+        {/* === EDIT CUSTOMER MODAL === */}
+        {isEditModalOpen && editingCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <h3 className="text-lg font-bold text-slate-900">Reassign Lead</h3>
+                <button 
+                  onClick={() => setIsEditModalOpen(false)} 
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              {/* Modal Body */}
+              <div className="p-6 space-y-5">
+                {/* Customer Info Read-Only */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Customer
+                  </label>
+                  <div className="text-slate-900 bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-200 font-medium">
+                    {editingCustomer.customer_name} <span className="text-slate-500 font-normal">({editingCustomer.contact})</span>
+                  </div>
+                </div>
+
+                {/* Project Dropdown */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Assign Project
+                  </label>
+                  <select 
+                    className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    value={selectedProjectId}
+                    onChange={(e) => setSelectedProjectId(e.target.value)}
+                  >
+                    <option value="" disabled>-- Select Project --</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Agent Dropdown */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Assign Agent
+                  </label>
+                  <select 
+                    className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                    value={selectedAgentId}
+                    onChange={(e) => setSelectedAgentId(e.target.value)}
+                  >
+                    <option value="" disabled>-- Select Agent --</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.first_name} {a.last_name} (@{a.username})</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
+                  <strong>Note:</strong> Reassigning will close the current pipeline and reset the follow-up schedule so the new agent gets a clean slate.
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <button 
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSaveReassignment}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+                  disabled={isSaving || !selectedAgentId || !selectedProjectId}
+                >
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSaving ? "Transferring..." : "Confirm Transfer"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </AppShell>
   );
