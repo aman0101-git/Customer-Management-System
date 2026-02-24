@@ -549,3 +549,106 @@ export async function searchGlobalCustomers(contactNumber: string) {
   const [rows] = await db.query(query, [contactNumber]);
   return rows;
 }
+
+// --- NEW: SOFT TRANSFER REASSIGNMENT TRANSACTION ---
+export async function reassignCustomerTransaction(
+  customerId: number,
+  newAgentId: number,
+  newProjectId: number,
+  supervisorId: number
+) {
+  // 1. Get a dedicated connection from the pool for the transaction
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // Step 1: Update the global Customer Project
+    await connection.query(
+      `UPDATE customers SET project_id = ? WHERE id = ?`,
+      [newProjectId, customerId]
+    );
+
+    // Step 2: Find the currently active assignment (to close it)
+    const [oldAssignments]: any = await connection.query(
+      `SELECT * FROM agent_customers WHERE customer_id = ? AND is_active = 1`,
+      [customerId]
+    );
+    const oldAssignment = oldAssignments[0];
+
+    // Step 3: Close the old assignment
+    if (oldAssignment) {
+      // If the old agent is exactly the same as the new agent, we don't need to close it!
+      if (oldAssignment.agent_id === newAgentId) {
+         await connection.commit();
+         connection.release();
+         return true; // Exit early, just updated the project.
+      }
+
+      await connection.query(
+        `UPDATE agent_customers SET is_active = 0, status_code = 'transferred' WHERE id = ?`,
+        [oldAssignment.id]
+      );
+    }
+
+    // Step 4: Open the new assignment (Handles Unique Key Constraint)
+    // We copy over basic static info (budget, purpose) but reset the status and dates.
+    const [newResult]: any = await connection.query(
+      `INSERT INTO agent_customers 
+        (agent_id, customer_id, source, rating, budget, configuration, purpose, status_code, remark, is_active) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'Transferred by Supervisor', 1)
+       ON DUPLICATE KEY UPDATE 
+        is_active = 1, 
+        status_code = 'pending',
+        follow_up_date = NULL,
+        follow_up_time = NULL,
+        done_date = NULL,
+        assigned_at = CURRENT_TIMESTAMP`,
+      [
+        newAgentId,
+        customerId,
+        oldAssignment?.source || null,
+        oldAssignment?.rating || 'Cold',
+        oldAssignment?.budget || null,
+        oldAssignment?.configuration || null,
+        oldAssignment?.purpose || null
+      ]
+    );
+
+    // Get the ID of the new (or updated) row
+    let newAgentCustomerId = newResult.insertId;
+    if (newAgentCustomerId === 0) {
+      // If it updated an existing row, insertId is 0, so we manually fetch it
+      const [existingRow]: any = await connection.query(
+        `SELECT id FROM agent_customers WHERE agent_id = ? AND customer_id = ?`,
+        [newAgentId, customerId]
+      );
+      newAgentCustomerId = existingRow[0].id;
+    }
+
+    // Step 5: Create the Audit Log
+    const oldVal = oldAssignment 
+      ? JSON.stringify({ agent_id: oldAssignment.agent_id, project_id: oldAssignment.project_id }) 
+      : null;
+    const newVal = JSON.stringify({ agent_id: newAgentId, project_id: newProjectId });
+
+    await connection.query(
+      `INSERT INTO agent_customer_logs 
+       (agent_customer_id, agent_id, action_type, old_value, new_value) 
+       VALUES (?, ?, 'EDIT', ?, ?)`,
+      [newAgentCustomerId, supervisorId, oldVal, newVal]
+    );
+
+    // Commit all changes
+    await connection.commit();
+    return true;
+
+  } catch (error) {
+    // If ANY query fails, rollback the entire transaction
+    await connection.rollback();
+    throw error;
+  } finally {
+    // Always release the connection back to the pool
+    connection.release();
+  }
+}

@@ -194,3 +194,28 @@ export async function searchCustomers(req: Request, res: Response) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// --- NEW: REASSIGN CUSTOMER HANDLER ---
+export async function reassignCustomer(req: Request, res: Response) {
+  try {
+    const customerId = Number(req.params.id);
+    const supervisorId = (req as any).user?.id;
+    const { new_agent_id, new_project_id } = req.body;
+
+    if (!supervisorId || !new_agent_id || !new_project_id) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    await Service.reassignCustomerTransaction(
+      customerId, 
+      Number(new_agent_id), 
+      Number(new_project_id), 
+      supervisorId
+    );
+
+    res.json({ success: true, message: "Customer successfully transferred." });
+  } catch (error) {
+    console.error("Reassignment Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
