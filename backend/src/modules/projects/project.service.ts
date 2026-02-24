@@ -1,14 +1,15 @@
 import { db } from "../../config/db.js";
 import { ResultSetHeader } from "mysql2";
 
-// List all agents, with assignment status for a project
+// 1. UPDATED: List all agents, strictly filtered by supervisor
 export async function getProjectAgentsService(projectId: number, supervisorId: number, role?: string) {
-  const query = `
+  let query = `
     SELECT 
       u.id,
       u.first_name,
       u.last_name,
       u.username,
+      u.supervisor_id,
       CASE 
         WHEN up.id IS NOT NULL AND up.is_active = 1 THEN 1 
         ELSE 0 
@@ -21,9 +22,24 @@ export async function getProjectAgentsService(projectId: number, supervisorId: n
       u.role = 'AGENT'
       AND u.is_active = 1
   `;
+  
+  const params: any[] = [projectId];
 
-  const [rows] = await db.query(query, [projectId]);
-  return rows;
+  // THE LOCK: Only filter by supervisor_id if the user is a Supervisor
+  if (role?.toUpperCase() === 'SUPERVISOR') {
+    query += ` AND u.supervisor_id = ?`;
+    params.push(supervisorId);
+  }
+
+  query += ` ORDER BY u.first_name ASC`;
+
+  const [rows]: any = await db.query(query, params);
+  
+  // Convert MySQL 1/0 into proper true/false booleans for React
+  return rows.map((row: any) => ({
+    ...row,
+    assigned: row.assigned === 1
+  }));
 }
 
 // Assign a single agent to a project
