@@ -508,7 +508,7 @@ export async function getSupervisorDrillDown(
       CONCAT(u.first_name, ' ', u.last_name) AS agent_name
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
-    JOIN projects p ON p.id = c.project_id
+    LEFT JOIN projects p ON p.id = c.project_id
     JOIN users u ON u.id = ac.agent_id
     WHERE 1=1
       ${agentCondition.sql}
@@ -581,8 +581,9 @@ export async function reassignCustomerTransaction(
       // If the old agent is exactly the same as the new agent, we don't need to close it!
       if (oldAssignment.agent_id === newAgentId) {
          await connection.commit();
-         connection.release();
-         return true; // Exit early, just updated the project.
+         // ✅ FIX: Removed connection.release() from here. 
+         // The finally block at the bottom will automatically release it when we return!
+         return true; 
       }
 
       await connection.query(
@@ -648,7 +649,7 @@ export async function reassignCustomerTransaction(
     await connection.rollback();
     throw error;
   } finally {
-    // Always release the connection back to the pool
+    // ✅ This block is guaranteed to run, safely returning the connection to the pool exactly once.
     connection.release();
   }
 }
