@@ -319,7 +319,7 @@ export async function getExportData(
 ) {
   const params: any[] = [supervisorId];
 
-  // 1. Base Query with DATE_FORMAT
+  // 1. Base Query (Returning raw dates for ExcelJS to format safely)
   let sql = `
     SELECT 
       c.name AS customer_name,
@@ -329,9 +329,8 @@ export async function getExportData(
       c.profession,
       c.designation,
       
-      -- FORMATTING DATES HERE (DD/MM/YYYY)
-      DATE_FORMAT(c.created_at, '%d/%m/%Y') AS created_at, 
-      DATE_FORMAT(c.updated_at, '%d/%m/%Y') AS updated_at,
+      c.created_at, 
+      c.updated_at,
       
       ac.source,
       ac.rating,
@@ -340,10 +339,9 @@ export async function getExportData(
       ac.purpose,
       ac.status_code,
       
-      -- FORMATTING FOLLOW-UP & DONE DATES
-      DATE_FORMAT(ac.follow_up_date, '%d/%m/%Y') AS follow_up_date,
+      ac.follow_up_date,
       ac.follow_up_time,
-      DATE_FORMAT(ac.done_date, '%d/%m/%Y') AS done_date,
+      ac.done_date,
       
       ac.remark,
       ac.final_status,
@@ -359,7 +357,6 @@ export async function getExportData(
   `;
 
   // 2. Apply Dynamic Filters
-  
   if (agentId && agentId !== 'all') {
     sql += ` AND ac.agent_id = ?`;
     params.push(agentId);
@@ -375,7 +372,6 @@ export async function getExportData(
     params.push(status);
   }
 
-  // Filter by Date Range (using raw updated_at for filtering, but selecting formatted)
   if (startDate && endDate) {
     sql += ` AND DATE(ac.updated_at) BETWEEN ? AND ?`;
     params.push(startDate, endDate);

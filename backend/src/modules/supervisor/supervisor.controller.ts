@@ -63,13 +63,14 @@ export async function getSummaryDashboard(req: Request, res: Response) {
 }
 
 // NEW: Export Controller
+// NEW: Export Controller
 export async function exportSupervisorData(req: Request, res: Response) {
   try {
     const supervisorId = (req as any).user.id;
     const { format, agentId, projectId, status, startDate, endDate } = req.query;
 
     // 1. Fetch Data
-    const rows: any = await Service.getExportData(
+    let rows: any = await Service.getExportData(
       supervisorId,
       (agentId as string) || 'all',
       (projectId as string) || 'all',
@@ -82,11 +83,22 @@ export async function exportSupervisorData(req: Request, res: Response) {
       return res.status(404).json({ message: "No data found for the selected criteria" });
     }
 
+    // CSV Fallback: Format dates strictly as DD/MM/YYYY for CSV output
+    if (format === 'csv') {
+      rows = rows.map((r: any) => ({
+        ...r,
+        created_at: r.created_at ? new Date(r.created_at).toLocaleDateString('en-GB') : '',
+        updated_at: r.updated_at ? new Date(r.updated_at).toLocaleDateString('en-GB') : '',
+        follow_up_date: r.follow_up_date ? new Date(r.follow_up_date).toLocaleDateString('en-GB') : '',
+        done_date: r.done_date ? new Date(r.done_date).toLocaleDateString('en-GB') : ''
+      }));
+    }
+
     // 2. Setup Workbook
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Export Data');
 
-    // 3. Define Columns (Matches the SQL query aliases)
+    // 3. Define Columns (Locking dates to dd/mm/yyyy for Excel)
     worksheet.columns = [
       { header: 'Customer Name', key: 'customer_name', width: 20 },
       { header: 'Contact', key: 'contact', width: 15 },
@@ -94,17 +106,21 @@ export async function exportSupervisorData(req: Request, res: Response) {
       { header: 'Pin Code', key: 'pincode', width: 10 },
       { header: 'Profession', key: 'profession', width: 15 },
       { header: 'Designation', key: 'designation', width: 15 },
-      { header: 'Created At', key: 'created_at', width: 18 },
-      { header: 'Updated At', key: 'updated_at', width: 18 },
+      
+      { header: 'Created At', key: 'created_at', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
+      { header: 'Updated At', key: 'updated_at', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
+      
       { header: 'Source', key: 'source', width: 12 },
       { header: 'Rating', key: 'rating', width: 10 },
       { header: 'Budget', key: 'budget', width: 12 },
       { header: 'Configuration', key: 'configuration', width: 12 },
       { header: 'Purpose', key: 'purpose', width: 15 },
       { header: 'Status', key: 'status_code', width: 18 },
-      { header: 'Follow-up Date', key: 'follow_up_date', width: 15 },
+      
+      { header: 'Follow-up Date', key: 'follow_up_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
       { header: 'Follow-up Time', key: 'follow_up_time', width: 12 },
-      { header: 'Done Date', key: 'done_date', width: 15 },
+      { header: 'Done Date', key: 'done_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
+      
       { header: 'Remark', key: 'remark', width: 30 },
       { header: 'Final Status', key: 'final_status', width: 15 },
       { header: 'Project', key: 'project_name', width: 18 },
@@ -126,7 +142,7 @@ export async function exportSupervisorData(req: Request, res: Response) {
       };
     });
 
-    // 6. Send Response based on format
+    // 6. Send Response
     if (format === 'csv') {
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', 'attachment; filename=export.csv');
