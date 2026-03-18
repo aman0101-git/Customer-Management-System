@@ -3,6 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { AppShell } from "@/components/ui/app-shell";
+import { 
+  ChartNoAxesCombined, 
+  Users,  
+  AlarmClock
+} from "lucide-react";
 
 export default function AgentDashboard() {
   const { user, loading } = useAuth();
@@ -25,21 +30,21 @@ export default function AgentDashboard() {
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 w-full px-6">
         <Card accent="blue" className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" onClick={() => navigate("/agent/customers") }>
           <CardHeader>
-            <CardTitle>🏠 My Customers</CardTitle>
+            <CardTitle> <Users/> My Customers</CardTitle>
             <CardDescription>View and manage your customers</CardDescription>
           </CardHeader>
         </Card>
 
         <Card accent="yellow" className="cursor-pointer" onClick={() => navigate("/agent/followups") }>
           <CardHeader>
-            <CardTitle>⏰ My Follow-ups</CardTitle>
+            <CardTitle> <AlarmClock /> My Follow-ups</CardTitle>
             <CardDescription>Your scheduled follow-ups</CardDescription>
           </CardHeader>
         </Card>
 
         <Card accent="purple" className="cursor-pointer" onClick={() => navigate("/agent/summary") }>
           <CardHeader>
-            <CardTitle>📊 Summary Dashboards</CardTitle>
+            <CardTitle><ChartNoAxesCombined /> Summary Dashboards</CardTitle>
             <CardDescription>Quick view of today’s activity</CardDescription>
           </CardHeader>
         </Card>

@@ -9,5 +9,7 @@ router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/follow-ups", authenticate, Controller.getFollowUps);
 router.get("/export", authenticate, Controller.exportSupervisorData);
 router.get("/drill-down", authenticate, Controller.getDrillDownData);
+router.get("/customers/search", authenticate, Controller.searchCustomers);
+router.put("/customers/:id/reassign", authenticate, Controller.reassignCustomer);
 
 export default router;

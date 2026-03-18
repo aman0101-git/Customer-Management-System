@@ -98,7 +98,12 @@ export default function SupervisorSummaryDashboard() {
     else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
     else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
 
-    return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
+    // FIX: Explicitly append time boundaries so MySQL includes the entire final day 
+    // instead of stopping at Midnight (00:00:00) of the end date.
+    return { 
+      startDate: format(start, "yyyy-MM-dd") + " 00:00:00", 
+      endDate: format(end, "yyyy-MM-dd") + " 23:59:59" 
+    };
   };
 
   // --- DRILL DOWN HANDLER ---

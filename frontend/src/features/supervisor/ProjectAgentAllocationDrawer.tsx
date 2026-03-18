@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { Users, UserPlus, UserMinus, User, X, CheckCircle2 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext"; // 1. Added useAuth import
 
 interface Agent {
   id: number;
@@ -8,6 +9,8 @@ interface Agent {
   last_name: string;
   username: string;
   assigned: boolean;
+  supervisor_id: number; // 2. Added supervisor_id to the type
+  role?: string;
 }
 
 interface Project {
@@ -24,13 +27,15 @@ export default function ProjectAgentAllocationDrawer({
   onClose: () => void;
   project: Project | null;
 }) {
+  const { user } = useAuth(); // 3. Get the logged-in user
   const [agents, setAgents] = useState<Agent[]>([]);
   const [assigning, setAssigning] = useState<number | null>(null);
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
   const refreshAgents = () => {
-    if (project?.id) {
+    // Only fetch if we have both a project and a logged-in user
+    if (project?.id && user?.id) {
       fetch(`${API_BASE}/api/projects/${project.id}/agents`, {
         credentials: "include",
       })
@@ -38,7 +43,22 @@ export default function ProjectAgentAllocationDrawer({
           if (!res.ok) throw new Error("Unauthorized");
           return res.json();
         })
-        .then(setAgents)
+        .then((allAgents: Agent[]) => {
+          // 4. APPLY THE DOUBLE-LOCK SECURITY FILTER
+          const currentUserId = Number(user.id);
+          const currentUserRole = user.role?.toUpperCase();
+
+          const myAgents = allAgents.filter(a => {
+            // If logged in as SUPERVISOR, the agent's supervisor_id MUST match exactly
+            if (currentUserRole === 'SUPERVISOR') {
+              return Number(a.supervisor_id) === currentUserId;
+            }
+            // If Admin, they see everyone
+            return true;
+          });
+
+          setAgents(myAgents);
+        })
         .catch(() => setAgents([]));
     }
   };
@@ -47,7 +67,7 @@ export default function ProjectAgentAllocationDrawer({
     if (open) {
       refreshAgents();
     }
-  }, [open, project?.id]);
+  }, [open, project?.id, user?.id]); // Added user?.id as a dependency
 
   const handleAssign = async (agentId: number) => {
     setAssigning(agentId);
@@ -80,7 +100,6 @@ export default function ProjectAgentAllocationDrawer({
 
   return (
     <Drawer open={open} onOpenChange={open => { if (!open) onClose(); }}>
-      {/* Expanded Width to 4xl for better grid view */}
       <DrawerContent className="max-w-4xl ml-auto h-full rounded-l-2xl border-l border-slate-200 shadow-2xl bg-slate-50 flex flex-col focus:outline-none">
         
         {/* Header */}

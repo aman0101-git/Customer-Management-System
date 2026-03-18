@@ -231,13 +231,13 @@ export async function getSupervisorStatusCounts(
         -- Logic: If Done/Booked, check Done Date
         (
           ac.status_code IN ('visit-done', 'booking-done') 
-          AND ac.done_date BETWEEN ? AND ?
+          AND DATE(ac.done_date) BETWEEN ? AND ?  -- ADDED DATE() HERE
         )
         OR
         -- Logic: If anything else, check Assigned Date
         (
           ac.status_code NOT IN ('visit-done', 'booking-done') 
-          AND ac.assigned_at BETWEEN ? AND ?
+          AND DATE(ac.assigned_at) BETWEEN ? AND ? -- ADDED DATE() HERE
         )
       )
     GROUP BY ac.status_code, day_num
@@ -319,7 +319,7 @@ export async function getExportData(
 ) {
   const params: any[] = [supervisorId];
 
-  // 1. Base Query with DATE_FORMAT
+  // 1. Base Query (Returning raw dates for ExcelJS to format safely)
   let sql = `
     SELECT 
       c.name AS customer_name,
@@ -329,9 +329,8 @@ export async function getExportData(
       c.profession,
       c.designation,
       
-      -- FORMATTING DATES HERE (DD/MM/YYYY)
-      DATE_FORMAT(c.created_at, '%d/%m/%Y') AS created_at, 
-      DATE_FORMAT(c.updated_at, '%d/%m/%Y') AS updated_at,
+      c.created_at, 
+      c.updated_at,
       
       ac.source,
       ac.rating,
@@ -340,10 +339,9 @@ export async function getExportData(
       ac.purpose,
       ac.status_code,
       
-      -- FORMATTING FOLLOW-UP & DONE DATES
-      DATE_FORMAT(ac.follow_up_date, '%d/%m/%Y') AS follow_up_date,
+      ac.follow_up_date,
       ac.follow_up_time,
-      DATE_FORMAT(ac.done_date, '%d/%m/%Y') AS done_date,
+      ac.done_date,
       
       ac.remark,
       ac.final_status,
@@ -359,7 +357,6 @@ export async function getExportData(
   `;
 
   // 2. Apply Dynamic Filters
-  
   if (agentId && agentId !== 'all') {
     sql += ` AND ac.agent_id = ?`;
     params.push(agentId);
@@ -375,7 +372,6 @@ export async function getExportData(
     params.push(status);
   }
 
-  // Filter by Date Range (using raw updated_at for filtering, but selecting formatted)
   if (startDate && endDate) {
     sql += ` AND DATE(ac.updated_at) BETWEEN ? AND ?`;
     params.push(startDate, endDate);
@@ -508,7 +504,7 @@ export async function getSupervisorDrillDown(
       CONCAT(u.first_name, ' ', u.last_name) AS agent_name
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
-    JOIN projects p ON p.id = c.project_id
+    LEFT JOIN projects p ON p.id = c.project_id
     JOIN users u ON u.id = ac.agent_id
     WHERE 1=1
       ${agentCondition.sql}
@@ -520,4 +516,136 @@ export async function getSupervisorDrillDown(
 
   const [rows] = await db.query(sql, params);
   return rows;
+}
+
+// --- UPDATED GLOBAL SEARCH FUNCTION (EXACT 10-DIGIT CONTACT) ---
+export async function searchGlobalCustomers(contactNumber: string) {
+  const query = `
+    SELECT 
+      c.id AS customer_id,
+      c.name AS customer_name,
+      c.contact,
+      ac.status_code,
+      ac.follow_up_date,
+      ac.follow_up_time,
+      p.name AS project_name,
+      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+    FROM customers c
+    -- Join active assignments
+    LEFT JOIN agent_customers ac ON c.id = ac.customer_id AND ac.is_active = 1
+    -- Join project details
+    LEFT JOIN projects p ON c.project_id = p.id
+    -- Join agent details
+    LEFT JOIN users u ON ac.agent_id = u.id
+    WHERE c.contact = ? 
+    ORDER BY c.updated_at DESC
+  `;
+
+  // Pass the exact string directly without wildcards
+  const [rows] = await db.query(query, [contactNumber]);
+  return rows;
+}
+
+// --- NEW: SOFT TRANSFER REASSIGNMENT TRANSACTION ---
+export async function reassignCustomerTransaction(
+  customerId: number,
+  newAgentId: number,
+  newProjectId: number,
+  supervisorId: number
+) {
+  // 1. Get a dedicated connection from the pool for the transaction
+  const connection = await db.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // Step 1: Update the global Customer Project
+    await connection.query(
+      `UPDATE customers SET project_id = ? WHERE id = ?`,
+      [newProjectId, customerId]
+    );
+
+    // Step 2: Find the currently active assignment (to close it)
+    const [oldAssignments]: any = await connection.query(
+      `SELECT * FROM agent_customers WHERE customer_id = ? AND is_active = 1`,
+      [customerId]
+    );
+    const oldAssignment = oldAssignments[0];
+
+    // Step 3: Close the old assignment
+    if (oldAssignment) {
+      // If the old agent is exactly the same as the new agent, we don't need to close it!
+      if (oldAssignment.agent_id === newAgentId) {
+         await connection.commit();
+         // ✅ FIX: Removed connection.release() from here. 
+         // The finally block at the bottom will automatically release it when we return!
+         return true; 
+      }
+
+      await connection.query(
+        `UPDATE agent_customers SET is_active = 0, status_code = 'transferred' WHERE id = ?`,
+        [oldAssignment.id]
+      );
+    }
+
+    // Step 4: Open the new assignment (Handles Unique Key Constraint)
+    // We copy over basic static info (budget, purpose) but reset the status and dates.
+    const [newResult]: any = await connection.query(
+      `INSERT INTO agent_customers 
+        (agent_id, customer_id, source, rating, budget, configuration, purpose, status_code, remark, is_active) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'Transferred by Supervisor', 1)
+       ON DUPLICATE KEY UPDATE 
+        is_active = 1, 
+        status_code = 'pending',
+        follow_up_date = NULL,
+        follow_up_time = NULL,
+        done_date = NULL,
+        assigned_at = CURRENT_TIMESTAMP`,
+      [
+        newAgentId,
+        customerId,
+        oldAssignment?.source || null,
+        oldAssignment?.rating || 'Cold',
+        oldAssignment?.budget || null,
+        oldAssignment?.configuration || null,
+        oldAssignment?.purpose || null
+      ]
+    );
+
+    // Get the ID of the new (or updated) row
+    let newAgentCustomerId = newResult.insertId;
+    if (newAgentCustomerId === 0) {
+      // If it updated an existing row, insertId is 0, so we manually fetch it
+      const [existingRow]: any = await connection.query(
+        `SELECT id FROM agent_customers WHERE agent_id = ? AND customer_id = ?`,
+        [newAgentId, customerId]
+      );
+      newAgentCustomerId = existingRow[0].id;
+    }
+
+    // Step 5: Create the Audit Log
+    const oldVal = oldAssignment 
+      ? JSON.stringify({ agent_id: oldAssignment.agent_id, project_id: oldAssignment.project_id }) 
+      : null;
+    const newVal = JSON.stringify({ agent_id: newAgentId, project_id: newProjectId });
+
+    await connection.query(
+      `INSERT INTO agent_customer_logs 
+       (agent_customer_id, agent_id, action_type, old_value, new_value) 
+       VALUES (?, ?, 'EDIT', ?, ?)`,
+      [newAgentCustomerId, supervisorId, oldVal, newVal]
+    );
+
+    // Commit all changes
+    await connection.commit();
+    return true;
+
+  } catch (error) {
+    // If ANY query fails, rollback the entire transaction
+    await connection.rollback();
+    throw error;
+  } finally {
+    // ✅ This block is guaranteed to run, safely returning the connection to the pool exactly once.
+    connection.release();
+  }
 }
