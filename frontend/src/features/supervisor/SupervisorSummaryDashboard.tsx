@@ -133,7 +133,10 @@ export default function SupervisorSummaryDashboard() {
           endDate,
           statusCode,
           section,
-          dayNum // If undefined (Total column), backend will fetch range without day filter
+          dayNum, // If undefined (Total column), backend will fetch range without day filter
+          
+          // FIX: Explicitly send the selected mode if we are clicking inside the pipeline matrix
+          mode: section === 'pipeline' ? mode : undefined 
         }
       });
       setModalData(res.data);
