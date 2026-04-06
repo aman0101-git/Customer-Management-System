@@ -242,7 +242,7 @@ export async function updateAgentCustomer(
       finalStatus, 
       followUpDate, 
       followUpTime, 
-      doneDate, // NEW FIELD
+      doneDate, 
       data.remark,
       data.leadRating || data.lead_rating || data.rating,
       data.config || data.configuration,
@@ -284,10 +284,16 @@ export async function updateAgentCustomer(
   );
   const newValue = newRows[0] ? { ...newRows[0] } : null;
 
+  // --- NEW LOGIC: DYNAMIC ACTION TYPE ---
+  let actionType = 'EDIT';
+  if (oldValue && oldValue.status_code !== newValue.status_code) {
+      actionType = 'STATUS_CHANGE';
+  }
+
   await db.query(
     `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
-     VALUES (?, ?, 'EDIT', ?, ?)` ,
-    [agentCustomerId, agentId, JSON.stringify(oldValue), JSON.stringify(newValue)]
+     VALUES (?, ?, ?, ?, ?)` ,
+    [agentCustomerId, agentId, actionType, JSON.stringify(oldValue), JSON.stringify(newValue)]
   );
 
   return newValue;
@@ -398,45 +404,49 @@ export async function getDashboardPipeline(
     `
     SELECT 
         ac.status_code,
-        -- Alignment: MySQL WEEKDAY() is 0(Mon)-6(Sun). Add 1 to make it 1(Mon)-7(Sun).
         (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
         
-        -- STRICT FRESH: Status Created Date == Follow Up Date
         SUM(
             CASE 
-                WHEN DATE(first_log.first_time) = DATE(ac.follow_up_date) THEN 1
+                WHEN IFNULL(followup_history.unique_dates, 1) <= 1 THEN 1
                 ELSE 0
             END
         ) AS fresh,
 
-        -- STRICT REPEATED: Status Created Date < Follow Up Date
         SUM(
             CASE 
-                WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1
+                WHEN followup_history.unique_dates > 1 THEN 1
                 ELSE 0
             END
         ) AS repeated
 
     FROM agent_customers ac
+    JOIN customers c ON c.id = ac.customer_id
     
-    -- Subquery to find the "Inception Date" using Logs
-    JOIN (
+    LEFT JOIN (
         SELECT 
-            agent_customer_id,
-            JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code')) AS status_code,
-            MIN(created_at) AS first_time
-        FROM agent_customer_logs
-        WHERE action_type IN ('CREATE', 'EDIT', 'STATUS_CHANGE')
-        GROUP BY agent_customer_id, JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code'))
-    ) first_log 
-    ON first_log.agent_customer_id = ac.id 
-    AND first_log.status_code = ac.status_code
+            acl.agent_customer_id, 
+            COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+        FROM agent_customer_logs acl
+        JOIN (
+            SELECT 
+                agent_customer_id, 
+                MAX(created_at) AS last_status_change_at
+            FROM agent_customer_logs
+            WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+            GROUP BY agent_customer_id
+        ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                        AND acl.created_at >= latest_status.last_status_change_at
+        
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != ''
+        GROUP BY acl.agent_customer_id
+    ) followup_history ON followup_history.agent_customer_id = ac.id 
 
     WHERE ac.agent_id = ?
       AND ac.follow_up_date BETWEEN ? AND ?
       AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed')
     
-    -- Group by the CORRECTED day_num
     GROUP BY ac.status_code, day_num
     `,
     [agentId, startDate, endDate]
@@ -448,6 +458,7 @@ export async function getDashboardPipeline(
 // 3. TOTAL STATUS COUNTS (Matrix)
 // Rule: BD/VD -> Done Date. Others -> Assigned Date.
 // Rule: Week starts Mon=1 (WEEKDAY + 1).
+// 3. TOTAL STATUS COUNTS (Matrix)
 export async function getDashboardStatusCounts(
   agentId: number,
   projectId: string,
@@ -468,11 +479,10 @@ export async function getDashboardStatusCounts(
   const query = `
     SELECT 
         ac.status_code, 
-        -- FIX: Use WEEKDAY() + 1. Mon=0 becomes 1. Sun=6 becomes 7.
         CASE 
             WHEN ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date IS NOT NULL 
                 THEN (WEEKDAY(ac.done_date) + 1)
-            ELSE (WEEKDAY(ac.assigned_at) + 1) -- Using Assigned At as "Creation" for Agent
+            ELSE (WEEKDAY(ac.assigned_at) + 1) 
         END as day_num,
         COUNT(*) AS count
     FROM agent_customers ac
@@ -481,16 +491,14 @@ export async function getDashboardStatusCounts(
       AND ac.is_active = 1
       ${filter}
       AND (
-        -- Logic: If Done/Booked, check Done Date
         (
           ac.status_code IN ('visit-done', 'booking-done') 
-          AND ac.done_date BETWEEN ? AND ?
+          AND DATE(ac.done_date) BETWEEN ? AND ?  -- FIXED: Added DATE()
         )
         OR
-        -- Logic: If anything else, check Assigned Date
         (
           ac.status_code NOT IN ('visit-done', 'booking-done')
-          AND ac.assigned_at BETWEEN ? AND ?
+          AND DATE(ac.assigned_at) BETWEEN ? AND ? -- FIXED: Added DATE()
         )
       )
     GROUP BY ac.status_code, day_num
@@ -547,32 +555,27 @@ export async function getAgentFollowUps(agentId: number) {
   return rows;
 }
 
-// --- NEW DRILL DOWN FUNCTION FOR AGENT ---
+// --- DRILL DOWN FUNCTION FOR AGENT ---
 export async function getAgentDrillDown(
   agentId: number,
   projectId: string,
   startDate: string,
   endDate: string,
   statusCode: string,
-  section: string, // 'cards', 'pipeline', 'volume'
-  dayNum?: number // Optional: 1 (Mon) - 7 (Sun)
+  section: string,
+  dayNum?: number
 ) {
   const params: any[] = [agentId];
 
-  // 1. Project Filter
   let projectFilter = "";
   if (projectId && projectId !== "all") {
     projectFilter = " AND c.project_id = ? ";
     params.push(projectId);
   }
 
-  // ---------------------------------------------------------
-  // 2. DYNAMIC DATE & STATUS LOGIC
-  // ---------------------------------------------------------
   let whereClause = "";
-  let orderByCol = "ac.updated_at"; // Default sort
+  let orderByCol = "ac.updated_at";
 
-  // --- SCENARIO A: SPECIFIC STATUS (Single Cell Click) ---
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
 
@@ -589,29 +592,23 @@ export async function getAgentDrillDown(
         else dateCol = "ac.assigned_at";
     }
 
-    // Add Date Range & Status Params
     params.push(startDate, endDate);
-    whereClause = ` AND ${dateCol} BETWEEN ? AND ? AND ac.status_code = ? `;
+    whereClause = ` AND DATE(${dateCol}) BETWEEN ? AND ? AND ac.status_code = ? `; // FIXED: Added DATE()
     params.push(statusCode);
     
-    // Day Filter
     if (dayNum) {
         whereClause += ` AND (WEEKDAY(${dateCol}) + 1) = ? `;
         params.push(dayNum);
     }
     orderByCol = dateCol;
   } 
-  
-  // --- SCENARIO B: ALL STATUSES (Grand Total / Column Total Click) ---
   else {
     if (section === 'pipeline') {
-        // Pipeline always uses follow_up_date
         const pipelineStatuses = "'visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed'";
-        
         whereClause = ` 
             AND ac.status_code IN (${pipelineStatuses})
-            AND ac.follow_up_date BETWEEN ? AND ? 
-        `;
+            AND DATE(ac.follow_up_date) BETWEEN ? AND ? 
+        `; // FIXED: Added DATE()
         params.push(startDate, endDate);
         
         if (dayNum) {
@@ -621,16 +618,13 @@ export async function getAgentDrillDown(
         orderByCol = "ac.follow_up_date";
     } 
     else if (section === 'volume') {
-        // Volume: Mixed Date Logic (Done Date OR Assigned At)
         whereClause = `
             AND (
-                -- Type 1: Success/Done Items
-                (ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date BETWEEN ? AND ?)
+                (ac.status_code IN ('visit-done', 'booking-done') AND DATE(ac.done_date) BETWEEN ? AND ?)
                 OR
-                -- Type 2: Input Items
-                (ac.status_code NOT IN ('visit-done', 'booking-done') AND ac.assigned_at BETWEEN ? AND ?)
+                (ac.status_code NOT IN ('visit-done', 'booking-done') AND DATE(ac.assigned_at) BETWEEN ? AND ?)
             )
-        `;
+        `; // FIXED: Added DATE()
         params.push(startDate, endDate, startDate, endDate);
 
         if (dayNum) {
@@ -648,6 +642,41 @@ export async function getAgentDrillDown(
     }
   }
 
+  let dynamicJoin = "";
+  let pipelineLeadTypeCol = " 'N/A' AS pipeline_lead_type "; 
+
+  if (section === 'pipeline') {
+      pipelineLeadTypeCol = `
+          CASE 
+              WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
+                  IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
+              ELSE 'N/A'
+          END AS pipeline_lead_type
+      `;
+
+      dynamicJoin = `
+        LEFT JOIN (
+            SELECT 
+                acl.agent_customer_id, 
+                COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+            FROM agent_customer_logs acl
+            JOIN (
+                SELECT 
+                    agent_customer_id, 
+                    MAX(created_at) AS last_status_change_at
+                FROM agent_customer_logs
+                WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+                GROUP BY agent_customer_id
+            ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                            AND acl.created_at >= latest_status.last_status_change_at
+            
+            WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+              AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != '' 
+            GROUP BY acl.agent_customer_id
+        ) followup_history ON followup_history.agent_customer_id = ac.id
+      `;
+  }
+
   const sql = `
     SELECT 
       c.name AS customer_name,
@@ -657,10 +686,12 @@ export async function getAgentDrillDown(
       ac.follow_up_time,
       ac.done_date,
       ac.assigned_at,
-      p.name AS project_name
+      p.name AS project_name,
+      ${pipelineLeadTypeCol}
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
     JOIN projects p ON p.id = c.project_id
+    ${dynamicJoin}
     WHERE ac.agent_id = ?
       ${projectFilter}
       ${whereClause}
