@@ -44,14 +44,19 @@ type CustomerForm = {
   [key: string]: string; 
 };
 
-// Helper to safe-format YYYY-MM-DD
-
+// Helper to safe-format YYYY-MM-DD in LOCAL time (prevents IST timezone shift)
 const formatDateForInput = (dateStr: string | null | undefined) => {
   if (!dateStr) return "";
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
-    return d.toISOString().split("T")[0];
+    
+    // Extract local year, month, and day
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0"); // +1 because months are 0-11
+    const day = String(d.getDate()).padStart(2, "0");
+    
+    return `${year}-${month}-${day}`;
   } catch {
     return "";
   }
