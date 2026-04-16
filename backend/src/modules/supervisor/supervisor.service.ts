@@ -116,7 +116,7 @@ export async function getSupervisorVisitsBooking(
 
 // 2. PIPELINE DISCIPLINE (Matrix)
 // Rule: Week starts Mon=1 (WEEKDAY + 1)
-// Logic: Uses Logs to determine Fresh vs Repeated (Consistent with Agent Side)
+// Logic: "Reset Clock" - Counts DISTINCT follow-up dates strictly AFTER the most recent status change
 export async function getSupervisorPipeline(
   supervisorId: number,
   filterAgentId: string,
@@ -133,28 +133,24 @@ export async function getSupervisorPipeline(
     params.push(projectId);
   }
 
-  // Add Date Params
   params.push(startDate, endDate);
 
   const [rows]: any = await db.query(
     `
     SELECT 
         ac.status_code,
-        -- Alignment: MySQL WEEKDAY() is 0(Mon)-6(Sun). Add 1 to make it 1(Mon)-7(Sun).
         (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
         
-        -- FRESH LOGIC: Scheduled date is the SAME DAY it became that status (checked via logs)
         SUM(
             CASE 
-                WHEN DATE(first_log.first_time) = DATE(ac.follow_up_date) THEN 1
+                WHEN IFNULL(followup_history.unique_dates, 1) <= 1 THEN 1
                 ELSE 0
             END
         ) AS fresh,
 
-        -- REPEATED LOGIC: Scheduled date is AFTER the day it first became that status
         SUM(
             CASE 
-                WHEN DATE(first_log.first_time) < DATE(ac.follow_up_date) THEN 1
+                WHEN followup_history.unique_dates > 1 THEN 1
                 ELSE 0
             END
         ) AS repeated
@@ -162,18 +158,25 @@ export async function getSupervisorPipeline(
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
     
-    -- Join LOGS to calculate "First Time" dynamically
-    JOIN (
+    LEFT JOIN (
         SELECT 
-            agent_customer_id,
-            JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code')) AS status_code,
-            MIN(created_at) AS first_time
-        FROM agent_customer_logs
-        WHERE action_type IN ('CREATE', 'EDIT', 'STATUS_CHANGE')
-        GROUP BY agent_customer_id, JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.status_code'))
-    ) first_log 
-    ON first_log.agent_customer_id = ac.id 
-    AND first_log.status_code = ac.status_code
+            acl.agent_customer_id, 
+            COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+        FROM agent_customer_logs acl
+        JOIN (
+            SELECT 
+                agent_customer_id, 
+                MAX(created_at) AS last_status_change_at
+            FROM agent_customer_logs
+            WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+            GROUP BY agent_customer_id
+        ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                        AND acl.created_at >= latest_status.last_status_change_at
+        
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != ''
+        GROUP BY acl.agent_customer_id
+    ) followup_history ON followup_history.agent_customer_id = ac.id 
 
     WHERE 1=1
       ${agentCondition.sql}
@@ -181,7 +184,6 @@ export async function getSupervisorPipeline(
       AND ac.follow_up_date BETWEEN ? AND ?
       AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed')
     
-    -- Group by CORRECTED day_num
     GROUP BY ac.status_code, day_num
     `,
     params
@@ -315,11 +317,11 @@ export async function getExportData(
   projectId: string,
   status: string,
   startDate: string,
-  endDate: string
+  endDate: string,
+  mode: string = 'all'
 ) {
   const params: any[] = [supervisorId];
 
-  // 1. Base Query (Returning raw dates for ExcelJS to format safely)
   let sql = `
     SELECT 
       c.name AS customer_name,
@@ -348,15 +350,42 @@ export async function getExportData(
       p.name AS project_name,
       u.first_name AS agent_first_name,
       u.last_name AS agent_last_name,
-      u.username AS agent_username
+      u.username AS agent_username,
+
+      CASE 
+          WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
+              IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
+          ELSE 'N/A'
+      END AS pipeline_lead_type
+
     FROM agent_customers ac
     JOIN customers c ON ac.customer_id = c.id
     LEFT JOIN projects p ON c.project_id = p.id
     JOIN users u ON ac.agent_id = u.id
+
+    LEFT JOIN (
+        SELECT 
+            acl.agent_customer_id, 
+            COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+        FROM agent_customer_logs acl
+        JOIN (
+            SELECT 
+                agent_customer_id, 
+                MAX(created_at) AS last_status_change_at
+            FROM agent_customer_logs
+            WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+            GROUP BY agent_customer_id
+        ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                        AND acl.created_at >= latest_status.last_status_change_at
+        
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != ''
+        GROUP BY acl.agent_customer_id
+    ) followup_history ON followup_history.agent_customer_id = ac.id 
+
     WHERE u.supervisor_id = ? 
   `;
 
-  // 2. Apply Dynamic Filters
   if (agentId && agentId !== 'all') {
     sql += ` AND ac.agent_id = ?`;
     params.push(agentId);
@@ -377,13 +406,19 @@ export async function getExportData(
     params.push(startDate, endDate);
   }
 
+  if (mode === 'fresh') {
+      sql += ` AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') AND IFNULL(followup_history.unique_dates, 1) <= 1 `;
+  } else if (mode === 'repeated') {
+      sql += ` AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') AND followup_history.unique_dates > 1 `;
+  }
+
   sql += ` ORDER BY ac.updated_at DESC`;
 
   const [rows] = await db.query(sql, params);
   return rows;
 }
 
-// --- NEW DRILL DOWN FUNCTION ---
+// --- DRILL DOWN FUNCTION FOR SUPERVISOR ---
 export async function getSupervisorDrillDown(
   supervisorId: number,
   filterAgentId: string,
@@ -392,25 +427,21 @@ export async function getSupervisorDrillDown(
   endDate: string,
   statusCode: string,
   section: string, // 'cards', 'pipeline', 'volume'
-  dayNum?: number
+  dayNum?: number,
+  mode?: string // NEW: 'all', 'fresh', 'repeated'
 ) {
   const agentCondition = getAgentCondition(supervisorId, filterAgentId);
   const params: any[] = [...agentCondition.params];
 
-  // 1. Project Filter
   let projectFilter = "";
   if (projectId && projectId !== "all") {
     projectFilter = " AND c.project_id = ? ";
     params.push(projectId);
   }
 
-  // ---------------------------------------------------------
-  // 2. DYNAMIC DATE & STATUS LOGIC
-  // ---------------------------------------------------------
   let whereClause = "";
-  let orderByCol = "ac.updated_at"; // Default sort
+  let orderByCol = "ac.updated_at"; 
 
-  // --- SCENARIO A: SPECIFIC STATUS (Single Cell Click) ---
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
 
@@ -427,30 +458,24 @@ export async function getSupervisorDrillDown(
         else dateCol = "ac.assigned_at";
     }
 
-    // Add Date Range & Status Params
     params.push(startDate, endDate);
-    whereClause = ` AND ${dateCol} BETWEEN ? AND ? AND ac.status_code = ? `;
+    whereClause = ` AND DATE(${dateCol}) BETWEEN ? AND ? AND ac.status_code = ? `; // FIXED: Added DATE()
     params.push(statusCode);
     
-    // Day Filter
     if (dayNum) {
         whereClause += ` AND (WEEKDAY(${dateCol}) + 1) = ? `;
         params.push(dayNum);
     }
     orderByCol = dateCol;
   } 
-  
-  // --- SCENARIO B: ALL STATUSES (Grand Total / Column Total Click) ---
   else {
     if (section === 'pipeline') {
-        // Pipeline always uses follow_up_date
-        // Statuses: VP, VC, VMC (You can adjust this list)
         const pipelineStatuses = "'visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed'";
         
         whereClause = ` 
             AND ac.status_code IN (${pipelineStatuses})
-            AND ac.follow_up_date BETWEEN ? AND ? 
-        `;
+            AND DATE(ac.follow_up_date) BETWEEN ? AND ? 
+        `; // FIXED: Added DATE()
         params.push(startDate, endDate);
         
         if (dayNum) {
@@ -460,23 +485,16 @@ export async function getSupervisorDrillDown(
         orderByCol = "ac.follow_up_date";
     } 
     else if (section === 'volume') {
-        // Volume is tricky: Mixed Date Logic (Done Date OR Assigned At)
-        // We use OR logic to capture both types within the range
-        
         whereClause = `
             AND (
-                -- Type 1: Success/Done Items
-                (ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date BETWEEN ? AND ?)
+                (ac.status_code IN ('visit-done', 'booking-done') AND DATE(ac.done_date) BETWEEN ? AND ?)
                 OR
-                -- Type 2: Input Items
-                (ac.status_code NOT IN ('visit-done', 'booking-done') AND ac.assigned_at BETWEEN ? AND ?)
+                (ac.status_code NOT IN ('visit-done', 'booking-done') AND DATE(ac.assigned_at) BETWEEN ? AND ?)
             )
-        `;
-        // We push dates twice (once for done_date, once for assigned_at)
+        `; // FIXED: Added DATE()
         params.push(startDate, endDate, startDate, endDate);
 
         if (dayNum) {
-            // Complex Day Filter: Check Day of DoneDate OR Day of AssignedAt depending on status
             whereClause += `
                 AND (
                     CASE 
@@ -487,8 +505,49 @@ export async function getSupervisorDrillDown(
             `;
             params.push(dayNum);
         }
-        orderByCol = "ac.assigned_at"; // Fallback sort
+        orderByCol = "ac.assigned_at"; 
     }
+  }
+
+  let dynamicJoin = "";
+  let pipelineLeadTypeCol = " 'N/A' AS pipeline_lead_type "; 
+
+  if (section === 'pipeline') {
+      pipelineLeadTypeCol = `
+          CASE 
+              WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
+                  IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
+              ELSE 'N/A'
+          END AS pipeline_lead_type
+      `;
+
+      dynamicJoin = `
+        LEFT JOIN (
+            SELECT 
+                acl.agent_customer_id, 
+                COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+            FROM agent_customer_logs acl
+            JOIN (
+                SELECT 
+                    agent_customer_id, 
+                    MAX(created_at) AS last_status_change_at
+                FROM agent_customer_logs
+                WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+                GROUP BY agent_customer_id
+            ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                            AND acl.created_at >= latest_status.last_status_change_at
+            
+            WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+              AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != '' -- FIXED: Added missing 'acl.' prefix
+            GROUP BY acl.agent_customer_id
+        ) followup_history ON followup_history.agent_customer_id = ac.id
+      `;
+
+      if (mode === 'fresh') {
+          whereClause += ` AND IFNULL(followup_history.unique_dates, 1) <= 1 `;
+      } else if (mode === 'repeated') {
+          whereClause += ` AND followup_history.unique_dates > 1 `;
+      }
   }
 
   const sql = `
@@ -501,11 +560,15 @@ export async function getSupervisorDrillDown(
       ac.done_date,
       ac.assigned_at,
       p.name AS project_name,
-      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+      CONCAT(u.first_name, ' ', u.last_name) AS agent_name,
+      ${pipelineLeadTypeCol}
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
     LEFT JOIN projects p ON p.id = c.project_id
     JOIN users u ON u.id = ac.agent_id
+    
+    ${dynamicJoin}
+    
     WHERE 1=1
       ${agentCondition.sql}
       ${projectFilter}

@@ -16,13 +16,14 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
   const handleExportCSV = () => {
     if (!data || data.length === 0) return;
 
-    // Header row
+    // NEW: Added "Lead Type" to headers
     const headers = [
       "Customer",
       "Contact",
       "Agent",
       "Project",
       "Status",
+      "Lead Type", 
       "Date"
     ];
 
@@ -48,6 +49,10 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
         escapeCSV(row.agent_name || "-"),
         escapeCSV(row.project_name || "-"),
         escapeCSV(row.status_code ? row.status_code.replace(/-/g, " ").toUpperCase() : "-"),
+        
+        // NEW: Added Lead Type to the export row
+        escapeCSV(row.pipeline_lead_type && row.pipeline_lead_type !== 'N/A' ? row.pipeline_lead_type : "-"),
+        
         escapeCSV(dateText)
       ].join(",");
     });
@@ -76,7 +81,7 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
         <DialogHeader className="flex flex-row items-center justify-between border-b pb-2">
           <DialogTitle className="capitalize text-slate-800">
             {title} Details
@@ -100,7 +105,7 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
             <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden border-slate-200">
+          <div className="border rounded-lg overflow-hidden border-slate-200 mt-2">
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-xs">
                 <tr>
@@ -109,6 +114,10 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
                   <th className="p-3 whitespace-nowrap">Agent</th>
                   <th className="p-3 whitespace-nowrap">Project</th>
                   <th className="p-3 whitespace-nowrap">Status</th>
+                  
+                  {/* NEW: Table Header */}
+                  <th className="p-3 whitespace-nowrap text-center">Lead Type</th>
+                  
                   <th className="p-3 whitespace-nowrap">Date</th>
                 </tr>
               </thead>
@@ -116,7 +125,7 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
               <tbody className="divide-y divide-slate-100">
                 {data.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-500 italic">
+                    <td colSpan={7} className="p-6 text-center text-slate-500 italic">
                       No records found.
                     </td>
                   </tr>
@@ -145,6 +154,21 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
                         <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
                           {row.status_code?.replace(/-/g, " ")}
                         </span>
+                      </td>
+
+                      {/* NEW: Lead Type Table Cell */}
+                      <td className="p-3 whitespace-nowrap text-center">
+                        {row.pipeline_lead_type && row.pipeline_lead_type !== 'N/A' ? (
+                          <span className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
+                            row.pipeline_lead_type === 'Fresh'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}>
+                            {row.pipeline_lead_type}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300 font-medium">-</span>
+                        )}
                       </td>
 
                       <td className="p-3 text-slate-600 text-xs whitespace-nowrap">
