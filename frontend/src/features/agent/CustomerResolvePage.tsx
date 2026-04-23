@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { MessageCircle } from "lucide-react";
 
 // Types for state
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -25,7 +26,7 @@ const STATUS_OPTIONS = [
 
 type CustomerForm = {
   name: string;
-  project: string; 
+  project: string;
   location: string;
   pincode: string;
   source: string;
@@ -39,9 +40,9 @@ type CustomerForm = {
   finalStatus: string;
   followUpDate: string;
   followUpTime: string;
-  doneDate: string; // NEW FIELD
+  doneDate: string;
   remark: string;
-  [key: string]: string; 
+  [key: string]: string;
 };
 
 // Helper to safe-format YYYY-MM-DD in LOCAL time (prevents IST timezone shift)
@@ -50,12 +51,11 @@ const formatDateForInput = (dateStr: string | null | undefined) => {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
-    
-    // Extract local year, month, and day
+
     const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0"); // +1 because months are 0-11
+    const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
-    
+
     return `${year}-${month}-${day}`;
   } catch {
     return "";
@@ -68,11 +68,11 @@ const formatDateDisplay = (dateStr: string | null | undefined) => {
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "-";
-    
+
     const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0"); // Month is 0-indexed
+    const month = String(d.getMonth() + 1).padStart(2, "0");
     const year = d.getFullYear();
-    
+
     return `${day}/${month}/${year}`;
   } catch {
     return "-";
@@ -97,7 +97,16 @@ export default function CustomerResolvePage() {
   const navigate = useNavigate();
 
   // History State
-  const [history, setHistory] = useState<{date: string, remark: string}[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+
+  // WhatsApp State for CREATE flow only
+  const [whatsappAfterCreate, setWhatsappAfterCreate] = useState(true);
+  const [whatsappSending, setWhatsappSending] = useState(false);
+  const [whatsappStatus, setWhatsappStatus] = useState<{
+    type: "idle" | "loading" | "success" | "error";
+    message?: string;
+  }>({ type: "idle" });
+
   const [projects, setProjects] = useState<any[]>([]);
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -131,16 +140,14 @@ export default function CustomerResolvePage() {
     finalStatus: "PENDING",
     followUpDate: "",
     followUpTime: "",
-    doneDate: "", // NEW
+    doneDate: "",
     remark: "",
   });
 
   useEffect(() => {
-    // Only auto-select if there is exactly ONE project
     if (pageState === "CREATE" && projects.length === 1 && !form.project) {
       setForm(prev => ({ ...prev, project: String(projects[0].id) }));
     }
-    // If projects.length > 1, we do nothing. 
   }, [projects, pageState]);
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -151,15 +158,12 @@ export default function CustomerResolvePage() {
       setSearching(true);
       setCustomer(null);
 
-      const res = await fetch(
-        `${API_BASE}/api/agent/customers/search`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ phone }),
-        }
-      );
+      const res = await fetch(`${API_BASE}/api/agent/customers/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone }),
+      });
 
       if (!res.ok) {
         setPageState("SEARCH");
@@ -190,13 +194,13 @@ export default function CustomerResolvePage() {
           if (found) {
             setCustomer(found);
             setPageState("EDIT");
-            
+
             setHistory(found.history || []);
 
             const status = found.status_code || "";
             setForm({
               name: found.name || "",
-              project: found.project_id != null ? String(found.project_id) : "", 
+              project: found.project_id != null ? String(found.project_id) : "",
               location: found.location || "",
               pincode: found.pincode || "",
               source: found.source || "",
@@ -210,8 +214,8 @@ export default function CustomerResolvePage() {
               finalStatus: found.final_status || getFinalStatus(status),
               followUpDate: formatDateForInput(found.follow_up_date),
               followUpTime: found.follow_up_time || "",
-              doneDate: formatDateForInput(found.done_date), // Load Done Date
-              remark: "", 
+              doneDate: formatDateForInput(found.done_date),
+              remark: "",
             });
             setPhone(found.phone || found.contact || "");
           }
@@ -221,12 +225,12 @@ export default function CustomerResolvePage() {
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    
+
     if (name === "status") {
-      setForm(f => ({ 
-        ...f, 
+      setForm(f => ({
+        ...f,
         [name]: value,
-        finalStatus: getFinalStatus(value) 
+        finalStatus: getFinalStatus(value),
       }));
     } else {
       setForm(f => ({ ...f, [name]: value }));
@@ -243,41 +247,94 @@ export default function CustomerResolvePage() {
 
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
-    // Explicitly send payload logic handled by backend now, but we send everything
+    setWhatsappStatus({ type: "idle" });
+
     const payload = {
       ...form,
-      project_id: form.project, 
+      project_id: form.project,
       contact: phone,
       status_code: form.status,
       follow_up_date: form.followUpDate,
       follow_up_time: form.followUpTime,
-      done_date: form.doneDate, // Send to backend
+      done_date: form.doneDate,
     };
 
     try {
       if (isCreate) {
-        await fetch(`${API_BASE}/api/agent/customers`, {
+        const createRes = await fetch(`${API_BASE}/api/agent/customers`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify(payload),
         });
-        navigate("/agent/dashboard");
-      } else if (isEdit && customer) {
-        await fetch(
-          `${API_BASE}/api/agent/customers/${customer.id}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify(payload)
+
+        const createData = await createRes.json();
+
+        if (!createRes.ok) {
+          throw new Error(createData?.message || "Failed to create customer");
+        }
+
+        const customerId = createData?.data?.customer_id ?? createData?.data?.id;
+
+        if (!customerId) {
+          throw new Error("Invalid response: missing customer_id");
+        }
+
+        if (whatsappAfterCreate) {
+          setWhatsappSending(true);
+          setWhatsappStatus({ type: "loading", message: "Sending WhatsApp message..." });
+
+          try {
+            const waRes = await fetch(`${API_BASE}/api/agent/whatsapp/send-manual`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                customerId,
+                triggerEvent: "INITIAL",
+              }),
+            });
+
+            const waData = await waRes.json().catch(() => null);
+
+            if (waRes.ok) {
+              if (waData?.data?.whatsappUrl) {
+                window.open(waData.data.whatsappUrl, "_blank");
+              }
+              setWhatsappStatus({ type: "success", message: "WhatsApp message prepared successfully." });
+            } else {
+              setWhatsappStatus({
+                type: "error",
+                message: `WhatsApp error: ${waData?.message || "Unable to prepare WhatsApp message"}`,
+              });
+              console.warn("WhatsApp sending failed:", waData);
+            }
+          } catch (waErr) {
+            setWhatsappStatus({ type: "error", message: "Failed to send WhatsApp message" });
+            console.error("WhatsApp error:", waErr);
+          } finally {
+            setWhatsappSending(false);
           }
-        );
+        }
+
+        setTimeout(() => navigate("/agent/dashboard"), 500);
+      } else if (isEdit && customer) {
+        const updateRes = await fetch(`${API_BASE}/api/agent/customers/${customer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        });
+
+        if (!updateRes.ok) {
+          throw new Error("Failed to update customer");
+        }
+
         navigate("/agent/dashboard");
       }
-    } catch (err) {
-      console.error("Create/Edit failed", err);
+    } catch (err: any) {
+      console.error("Error:", err);
+      alert(`Error: ${err.message || "An error occurred"}`);
     }
   };
 
@@ -331,8 +388,8 @@ export default function CustomerResolvePage() {
                     autoComplete="off"
                   />
                 </div>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={phone.length !== 10 || searching}
                   className="h-11 px-6 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-all flex items-center gap-2"
                 >
@@ -347,85 +404,92 @@ export default function CustomerResolvePage() {
           </form>
         )}
 
-        {/* FOUND UI */}
         {pageState === "FOUND" && (
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6 animate-in zoom-in-95 duration-200">
-             <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
-               <h3 className="font-bold text-slate-800 tracking-tight">Customer Profile</h3>
-               <span className="flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider">
-                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                 Record Found
-               </span>
-             </div>
+            <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
+              <h3 className="font-bold text-slate-800 tracking-tight">Customer Profile</h3>
+              <span className="flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                Record Found
+              </span>
+            </div>
 
-             <div className="p-6">
-                <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
-                        <p className="text-sm font-bold text-slate-800 mt-1">{ownerName}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
-                        <p className="text-sm font-bold text-slate-800 mt-1">{getProjectName()}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
-                        <p className="text-sm font-bold text-slate-800 mt-1">{customer?.name || "-"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Contact Number</Label>
-                        <p className="text-sm font-mono font-bold text-slate-800 mt-1">{customer?.contact || "-"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Location</Label>
-                        <p className="text-sm font-medium text-slate-700 mt-1">{customer?.location || "-"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Created At</Label>
-                        <p className="text-sm font-medium text-slate-700 mt-1">{formatDateDisplay(customer?.created_at) || "-"}</p>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
-                        <div className="mt-1">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold uppercase border border-slate-200 inline-block">
-                            {customer?.status_code || "-"}
-                          </span>
-                        </div>
-                      </div>
-                      <div>
-                        <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Final Status</Label>
-                        <div className="mt-1">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border inline-block ${customer?.final_status === 'COMPLETED' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                            {customer?.final_status || "PENDING"}
-                          </span>
-                        </div>
-                      </div>
-                      {/* Show Done Date in Profile if it exists */}
-                      {customer?.done_date && (
-                        <div>
-                          <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Done Date</Label>
-                          <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateDisplay(customer.done_date)}</p>
-                        </div>
-                      )}
-                      {/* Show Follow Up if not done */}
-                      {!customer?.done_date && (
-                        <div>
-                          <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
-                          <p className="text-sm font-semibold text-slate-700 mt-1">
-                            {formatDateDisplay(customer?.follow_up_date) || "Not Set"} 
-                            <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
-                          </p>
-                        </div>
-                      )}
-                   </div>
+            <div className="p-6">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{ownerName}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{getProjectName()}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{customer?.name || "-"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Contact Number</Label>
+                    <p className="text-sm font-mono font-bold text-slate-800 mt-1">{customer?.contact || "-"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Location</Label>
+                    <p className="text-sm font-medium text-slate-700 mt-1">{customer?.location || "-"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Created At</Label>
+                    <p className="text-sm font-medium text-slate-700 mt-1">{formatDateDisplay(customer?.created_at) || "-"}</p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
+                    <div className="mt-1">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold uppercase border border-slate-200 inline-block">
+                        {customer?.status_code || "-"}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Final Status</Label>
+                    <div className="mt-1">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border inline-block ${
+                          customer?.final_status === "COMPLETED"
+                            ? "bg-green-100 text-green-700 border-green-200"
+                            : "bg-slate-100 text-slate-700 border-slate-200"
+                        }`}
+                      >
+                        {customer?.final_status || "PENDING"}
+                      </span>
+                    </div>
+                  </div>
+                  {customer?.done_date && (
+                    <div>
+                      <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Done Date</Label>
+                      <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateDisplay(customer.done_date)}</p>
+                    </div>
+                  )}
+                  {!customer?.done_date && (
+                    <div>
+                      <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
+                      <p className="text-sm font-semibold text-slate-700 mt-1">
+                        {formatDateDisplay(customer?.follow_up_date) || "Not Set"}
+                        <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
+                      </p>
+                    </div>
+                  )}
                 </div>
+              </div>
 
-                <div className="flex gap-3 pt-4 border-t border-slate-100">
-                    <Button onClick={() => navigate(`/agent/customers/resolve?edit=${customer.id}`)} variant="outline">Edit Details</Button>
-                    <Button onClick={() => navigate("/agent/dashboard")} className="bg-indigo-600 hover:bg-indigo-700 shadow-md">Go Back</Button>
-                </div>
-             </div>
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
+                <Button onClick={() => navigate(`/agent/customers/resolve?edit=${customer.id}`)} variant="outline">
+                  Edit Details
+                </Button>
+                <Button onClick={() => navigate("/agent/dashboard")} className="bg-indigo-600 hover:bg-indigo-700 shadow-md">
+                  Go Back
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -436,7 +500,9 @@ export default function CustomerResolvePage() {
             </div>
             <h3 className="text-lg font-semibold text-slate-800">No customer found</h3>
             <p className="text-slate-500 mt-1 mb-6 text-sm">We couldn't find any records associated with this phone number.</p>
-            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2 rounded-lg" onClick={() => setPageState("CREATE")}>Create New Profile</Button>
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2 rounded-lg" onClick={() => setPageState("CREATE")}>
+              Create New Profile
+            </Button>
           </div>
         )}
 
@@ -444,7 +510,7 @@ export default function CustomerResolvePage() {
           <div className="bg-white rounded-xl border border-slate-200 shadow-xl mb-6 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="bg-slate-900 px-6 py-4 flex items-center justify-between">
               <h2 className="text-white font-bold text-lg flex items-center gap-2">
-                <div className={`w-2 h-6 rounded-full ${isCreate ? 'bg-blue-500' : 'bg-amber-500'}`} />
+                <div className={`w-2 h-6 rounded-full ${isCreate ? "bg-blue-500" : "bg-amber-500"}`} />
                 {isCreate ? "Create New Customer" : "Update Customer Details"}
               </h2>
             </div>
@@ -459,7 +525,9 @@ export default function CustomerResolvePage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <div className="space-y-1.5 opacity-80">
-                    <Label className="text-slate-600 font-medium ml-1">Owner <span className="text-rose-500">*</span></Label>
+                    <Label className="text-slate-600 font-medium ml-1">
+                      Owner <span className="text-rose-500">*</span>
+                    </Label>
                     <Input value={ownerName} disabled className="h-11 bg-slate-50 border-slate-200 cursor-not-allowed" />
                   </div>
 
@@ -470,16 +538,14 @@ export default function CustomerResolvePage() {
                     <select
                       id="form-project"
                       name="project"
-                      value={form.project} // This must be "" initially to show the default option
+                      value={form.project}
                       onChange={handleFormChange}
                       required
                       className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm"
                     >
-                      {/* Add 'disabled' to prevent selecting it again (makes it a true placeholder).
-                        Remove 'disabled' if you want them to be able to unselect.
-                      */}
-                      <option value="" disabled>Select project</option>
-                      
+                      <option value="" disabled>
+                        Select project
+                      </option>
                       {projects.map((p) => (
                         <option key={p.id} value={String(p.id)}>
                           {p.name}
@@ -489,38 +555,67 @@ export default function CustomerResolvePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-name" className="text-slate-600 font-medium ml-1">Customer Name <span className="text-rose-500">*</span></Label>
-                    <Input id="form-name" name="name" value={form.name} onChange={handleFormChange} required className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm" />
+                    <Label htmlFor="form-name" className="text-slate-600 font-medium ml-1">
+                      Customer Name <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input
+                      id="form-name"
+                      name="name"
+                      value={form.name}
+                      onChange={handleFormChange}
+                      required
+                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
+                    />
                   </div>
+
                   <div className="space-y-1.5 opacity-80">
                     <Label className="text-slate-500 font-medium ml-1">Contact Number</Label>
                     <Input value={phone} disabled className="h-11 bg-slate-50 border-slate-200 font-mono tracking-wider cursor-not-allowed" />
                   </div>
+
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-location" className="text-slate-600 font-medium ml-1">Location <span className="text-rose-500">*</span></Label>
-                    <Input id="form-location" name="location" value={form.location} onChange={handleFormChange} required className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm" />
+                    <Label htmlFor="form-location" className="text-slate-600 font-medium ml-1">
+                      Location <span className="text-rose-500">*</span>
+                    </Label>
+                    <Input
+                      id="form-location"
+                      name="location"
+                      value={form.location}
+                      onChange={handleFormChange}
+                      required
+                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
+                    />
                   </div>
+
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-pincode" className="text-slate-600 font-medium ml-1">Pincode</Label>
-                    <Input id="form-pincode" name="pincode" value={form.pincode} onChange={handleFormChange} className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm" />
+                    <Label htmlFor="form-pincode" className="text-slate-600 font-medium ml-1">
+                      Pincode
+                    </Label>
+                    <Input
+                      id="form-pincode"
+                      name="pincode"
+                      value={form.pincode}
+                      onChange={handleFormChange}
+                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
+                    />
                   </div>
                 </div>
               </section>
 
-               <section className="space-y-6">
+              <section className="space-y-6">
                 <div className="flex items-center gap-4">
                   <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">02</span>
                   <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Preferences & Profile</h3>
                   <div className="h-px bg-slate-100 flex-1" />
                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {[
-                    { id: 'form-source', label: 'Source', name: 'source', options: SOURCE_OPTIONS, req: true },
-                    { id: 'form-leadRating', label: 'Lead Rating', name: 'leadRating', options: LEAD_RATING_OPTIONS, req: true },
-                    { id: 'form-budget', label: 'Budget Range', name: 'budget', options: BUDGET_OPTIONS, req: true }, 
-                    { id: 'form-config', label: 'Configuration', name: 'config', options: CONFIG_OPTIONS, req: true }, 
-                    { id: 'form-profession', label: 'Profession', name: 'profession', options: PROFESSION_OPTIONS, req: true }, 
-                    { id: 'form-purpose', label: 'Purpose', name: 'purpose', options: PURPOSE_OPTIONS, req: true }, 
+                    { id: "form-source", label: "Source", name: "source", options: SOURCE_OPTIONS, req: true },
+                    { id: "form-leadRating", label: "Lead Rating", name: "leadRating", options: LEAD_RATING_OPTIONS, req: true },
+                    { id: "form-budget", label: "Budget Range", name: "budget", options: BUDGET_OPTIONS, req: true },
+                    { id: "form-config", label: "Configuration", name: "config", options: CONFIG_OPTIONS, req: true },
+                    { id: "form-profession", label: "Profession", name: "profession", options: PROFESSION_OPTIONS, req: true },
+                    { id: "form-purpose", label: "Purpose", name: "purpose", options: PURPOSE_OPTIONS, req: true },
                   ].map((field) => (
                     <div key={field.id} className="space-y-1.5">
                       <Label htmlFor={field.id} className="text-slate-600 font-medium ml-1">
@@ -535,7 +630,11 @@ export default function CustomerResolvePage() {
                         className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all bg-white shadow-sm"
                       >
                         <option value="">Select {field.label.toLowerCase()}</option>
-                        {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                        {field.options.map(opt => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   ))}
@@ -552,7 +651,11 @@ export default function CustomerResolvePage() {
                       className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all bg-white shadow-sm"
                     >
                       <option value="">Select designation</option>
-                      {DESIGNATION_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {DESIGNATION_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -564,83 +667,174 @@ export default function CustomerResolvePage() {
                   <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Next Action</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                   <div className="space-y-1.5">
-                    <Label htmlFor="form-status" className="text-slate-600 font-medium ml-1">Status <span className="text-rose-500">*</span></Label>
-                    <select id="form-status" name="status" value={form.status} onChange={handleFormChange} required className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="form-status" className="text-slate-600 font-medium ml-1">
+                      Status <span className="text-rose-500">*</span>
+                    </Label>
+                    <select
+                      id="form-status"
+                      name="status"
+                      value={form.status}
+                      onChange={handleFormChange}
+                      required
+                      className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white"
+                    >
                       <option value="">Select status</option>
-                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      {STATUS_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  
+
                   <div className="space-y-1.5 opacity-90">
-                     <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">Final Status</Label>
-                     <Input 
-                       id="form-finalStatus" 
-                       value={form.finalStatus} 
-                       disabled 
-                       className={`h-11 border-slate-200 font-bold tracking-wide ${form.finalStatus === 'COMPLETED' ? 'bg-green-50 text-green-700' : 'bg-slate-100 text-slate-500'}`} 
-                     />
+                    <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">
+                      Final Status
+                    </Label>
+                    <Input
+                      id="form-finalStatus"
+                      value={form.finalStatus}
+                      disabled
+                      className={`h-11 border-slate-200 font-bold tracking-wide ${
+                        form.finalStatus === "COMPLETED" ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
+                      }`}
+                    />
                   </div>
 
-                  {/* DYNAMIC DATE FIELDS LOGIC */}
-                  
-                  {/* SCENARIO 1: NORMAL STATUS (Show Follow Up) */}
                   {showFollowUp && (
                     <>
                       <div className="space-y-1.5 animate-in fade-in duration-300">
-                        <Label htmlFor="form-followUpDate" className="text-slate-600 font-medium ml-1">Follow-up Date <span className="text-rose-500">*</span></Label>
-                        <Input id="form-followUpDate" name="followUpDate" type="date" value={form.followUpDate} onChange={handleFormChange} required className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
+                        <Label htmlFor="form-followUpDate" className="text-slate-600 font-medium ml-1">
+                          Follow-up Date <span className="text-rose-500">*</span>
+                        </Label>
+                        <Input
+                          id="form-followUpDate"
+                          name="followUpDate"
+                          type="date"
+                          value={form.followUpDate}
+                          onChange={handleFormChange}
+                          required
+                          className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm"
+                        />
                       </div>
                       <div className="space-y-1.5 animate-in fade-in duration-300">
-                        <Label htmlFor="form-followUpTime" className="text-slate-600 font-medium ml-1">Follow-up Time <span className="text-rose-500">*</span></Label>
-                        <Input id="form-followUpTime" name="followUpTime" type="time" value={form.followUpTime} onChange={handleFormChange} required className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm" />
+                        <Label htmlFor="form-followUpTime" className="text-slate-600 font-medium ml-1">
+                          Follow-up Time <span className="text-rose-500">*</span>
+                        </Label>
+                        <Input
+                          id="form-followUpTime"
+                          name="followUpTime"
+                          type="time"
+                          value={form.followUpTime}
+                          onChange={handleFormChange}
+                          required
+                          className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm"
+                        />
                       </div>
                     </>
                   )}
 
-                  {/* SCENARIO 2: DONE STATUS (Show Done Date) */}
                   {showDoneDate && (
                     <div className="space-y-1.5 animate-in fade-in duration-300">
-                      <Label htmlFor="form-doneDate" className="text-emerald-700 font-medium ml-1">Done Date <span className="text-rose-500">*</span></Label>
-                      <Input id="form-doneDate" name="doneDate" type="date" value={form.doneDate} onChange={handleFormChange} required className="h-11 border-emerald-200 focus:ring-4 focus:ring-emerald-50 bg-emerald-50/50 shadow-sm" />
+                      <Label htmlFor="form-doneDate" className="text-emerald-700 font-medium ml-1">
+                        Done Date <span className="text-rose-500">*</span>
+                      </Label>
+                      <Input
+                        id="form-doneDate"
+                        name="doneDate"
+                        type="date"
+                        value={form.doneDate}
+                        onChange={handleFormChange}
+                        required
+                        className="h-11 border-emerald-200 focus:ring-4 focus:ring-emerald-50 bg-emerald-50/50 shadow-sm"
+                      />
                     </div>
                   )}
 
-                  {/* SCENARIO 3: LOST (Show Nothing or Disabled Placeholders if preferred, currently hiding all dates as requested) */}
-                   
-                   <div className="col-span-full space-y-1.5">
+                  <div className="col-span-full space-y-1.5">
                     <Label htmlFor="form-remark" className="text-slate-600 font-medium ml-1">
-                       {isEdit ? "Add New Remark Update" : "Special Remarks"}
+                      {isEdit ? "Add New Remark Update" : "Special Remarks"}
                     </Label>
-                    <textarea 
-                       id="form-remark" 
-                       name="remark" 
-                       value={form.remark} 
-                       onChange={handleFormChange} 
-                       rows={3} 
-                       placeholder="Enter details..." 
-                       className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all" 
+                    <textarea
+                      id="form-remark"
+                      name="remark"
+                      value={form.remark}
+                      onChange={handleFormChange}
+                      rows={3}
+                      placeholder="Enter details..."
+                      className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all"
                     />
 
                     {isEdit && history.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-slate-200">
-                        <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-2 block">
-                          Previous Remarks History
+                      <div className="mt-8 pt-6 border-t border-slate-200">
+                        <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-5 block">
+                          Customer Journey Timeline
                         </Label>
-                        <div className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden shadow-inner">
-                          <div className="max-h-40 overflow-y-auto p-4 space-y-3 scrollbar-thin scrollbar-thumb-slate-300">
-                            {history.map((item, idx) => (
-                              <div key={idx} className="bg-white p-3 rounded-md border border-slate-100 shadow-sm transition-hover hover:border-indigo-100">
-                                <div className="flex justify-between items-center mb-1.5">
-                                  <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-                                    {new Date(item.date).toLocaleDateString()} at {new Date(item.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </span>
+                        <div className="border border-slate-200 rounded-xl bg-slate-50 overflow-hidden shadow-inner">
+                          <div className="max-h-72 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-slate-300">
+                            
+                            {/* Vertical Timeline Container */}
+                            <div className="relative border-l-2 border-indigo-200 ml-3 space-y-6">
+                              {history.map((item, idx) => (
+                                <div key={idx} className="relative pl-6">
+                                  
+                                  {/* Timeline Node Dot */}
+                                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center shadow-sm ${
+                                    item.action_type === 'CREATE' ? 'bg-blue-500' :
+                                    item.action_type === 'STATUS_CHANGE' ? 'bg-indigo-500' : 'bg-slate-400'
+                                  }`}></div>
+                                  
+                                  {/* Timeline Card */}
+                                  <div className="bg-white p-3.5 rounded-lg border border-slate-100 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
+                                    <div className="flex justify-between items-start mb-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        
+                                        {/* Action Badges */}
+                                        {item.action_type === 'CREATE' && (
+                                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase border border-blue-100">Lead Created</span>
+                                        )}
+                                        {item.action_type === 'STATUS_CHANGE' && (
+                                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded uppercase border border-indigo-100">Status Changed</span>
+                                        )}
+                                        {item.action_type === 'EDIT' && (
+                                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase border border-slate-200">Remark Added</span>
+                                        )}
+                                        
+                                        {/* Timestamp */}
+                                        <span className="text-[10px] font-semibold text-slate-400">
+                                          {new Date(item.date).toLocaleDateString("en-GB")} @ {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                        </span>
+                                      </div>
+                                    </div>
+
+                                    {/* Status Change Indicator */}
+                                    {item.action_type === 'STATUS_CHANGE' && item.old_status && item.new_status && (
+                                      <div className="flex items-center gap-2 mt-2 mb-2 text-xs font-bold">
+                                        <span className="text-slate-400 line-through capitalize px-2 py-0.5 bg-slate-50 rounded border border-slate-100">{item.old_status.replace(/-/g, ' ')}</span>
+                                        <span className="text-slate-300">→</span>
+                                        <span className="text-emerald-700 capitalize px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200">{item.new_status.replace(/-/g, ' ')}</span>
+                                      </div>
+                                    )}
+
+                                    {/* Initial Status Display */}
+                                    {item.action_type === 'CREATE' && item.new_status && (
+                                      <div className="mt-1.5 mb-2 text-xs font-bold text-blue-700 capitalize flex items-center gap-1.5">
+                                        Initial Status: <span className="bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">{item.new_status.replace(/-/g, ' ')}</span>
+                                      </div>
+                                    )}
+
+                                    {/* Remark Display */}
+                                    {item.remark && (
+                                      <div className="text-sm text-slate-700 leading-relaxed font-medium italic bg-slate-50/70 p-2.5 rounded-md border border-slate-100 mt-2">
+                                        "{item.remark}"
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                                <p className="text-sm text-slate-700 leading-relaxed font-medium italic">
-                                  "{item.remark}"
-                                </p>
-                              </div>
-                            ))}
+                              ))}
+                            </div>
+
                           </div>
                         </div>
                       </div>
@@ -649,9 +843,86 @@ export default function CustomerResolvePage() {
                 </div>
               </section>
 
-              <div className="flex items-center justify-end gap-3 pt-4">
-                <Button type="button" variant="secondary" onClick={handleCancel} className="px-8 h-12 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all font-semibold">Cancel</Button>
-                <Button type="submit" className="px-10 h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-200 transition-all active:scale-95">{isCreate ? "Confirm & Create" : "Save Changes"}</Button>
+              {isCreate && (
+                <section className="bg-green-50 border border-green-200 rounded-xl p-6 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg flex-shrink-0">
+                      <MessageCircle className="w-5 h-5 text-green-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-slate-900 text-sm">Auto-send Welcome Message</h3>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Automatically send the initial WhatsApp message after customer is created.
+                        A message preview will be shown and you can send it directly to WhatsApp.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id="whatsapp-checkbox"
+                      checked={whatsappAfterCreate}
+                      onChange={(e) => setWhatsappAfterCreate(e.target.checked)}
+                      disabled={whatsappSending}
+                      className="w-4 h-4 accent-green-600 cursor-pointer"
+                    />
+                    <label htmlFor="whatsapp-checkbox" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
+                      {whatsappAfterCreate ? "✓ Send WhatsApp on create" : "Don't send WhatsApp"}
+                    </label>
+                  </div>
+
+                  {whatsappStatus.type !== "idle" && (
+                    <div
+                      className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                        whatsappStatus.type === "loading"
+                          ? "bg-blue-100 text-blue-800"
+                          : whatsappStatus.type === "success"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {whatsappStatus.type === "loading" && (
+                        <div className="animate-spin">
+                          <MessageCircle className="w-4 h-4" />
+                        </div>
+                      )}
+                      {whatsappStatus.type === "success" && <span>✓</span>}
+                      {whatsappStatus.type === "error" && <span>⚠</span>}
+                      {whatsappStatus.message}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleCancel}
+                  disabled={whatsappSending}
+                  className="px-8 h-11 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={whatsappSending}
+                  className="px-10 h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-2"
+                >
+                  {whatsappSending ? (
+                    <>
+                      <div className="animate-spin">
+                        <MessageCircle className="w-4 h-4" />
+                      </div>
+                      Processing...
+                    </>
+                  ) : whatsappAfterCreate && isCreate ? (
+                    "Create & Send"
+                  ) : (
+                    isCreate ? "Confirm & Create" : "Save Changes"
+                  )}
+                </Button>
               </div>
             </form>
           </div>

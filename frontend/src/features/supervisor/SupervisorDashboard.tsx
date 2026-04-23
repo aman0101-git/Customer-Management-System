@@ -8,7 +8,8 @@ import {
   FolderKanban, 
   CalendarClock, 
   BarChart3, 
-  Search 
+  Search,
+  MessageCircle
 } from "lucide-react";
 
 export default function SupervisorDashboard() {
@@ -105,6 +106,20 @@ export default function SupervisorDashboard() {
               Global Lead Search
             </CardTitle>
             <CardDescription>Search any customer and view assignment details</CardDescription>
+          </CardHeader>
+        </Card>
+
+        <Card 
+          accent="yellow" 
+          className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" 
+          onClick={() => navigate("/supervisor/whatsapp/templates")} 
+        >
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="w-5 h-5" /> 
+              WhatsApp Templates
+            </CardTitle>
+            <CardDescription>Create and manage WhatsApp message templates</CardDescription>
           </CardHeader>
         </Card>
   

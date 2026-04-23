@@ -16,7 +16,8 @@ import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
 import SupervisorSummaryDashboard from '@/features/supervisor/SupervisorSummaryDashboard';
 import SupervisorFollowUpPage from '@/features/supervisor/SupervisorFollowUpPage';
 import SupervisorExportPage from '@/features/supervisor/SupervisorExportPage';
-import GlobalCustomerSearch from '@/features/supervisor/GlobalCustomerSearch'; // NEW IMPORT
+import GlobalCustomerSearch from '@/features/supervisor/GlobalCustomerSearch';
+import WhatsAppTemplateManagement from '@/features/supervisor/WhatsAppTemplateManagement';
 
 export default function AppRoutes() {
   return (
@@ -143,6 +144,15 @@ export default function AppRoutes() {
         element={
           <RequireAuth role="SUPERVISOR">
             <GlobalCustomerSearch />
+          </RequireAuth>
+        }
+      />
+      
+      <Route
+        path="/supervisor/whatsapp/templates"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <WhatsAppTemplateManagement />
           </RequireAuth>
         }
       />
