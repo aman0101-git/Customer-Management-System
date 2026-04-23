@@ -10,7 +10,8 @@ export const db = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0,
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  keepAliveInitialDelay: 0,
+  charset: "utf8mb4",
 });
 
 db.pool.on('error', (err: any) => {

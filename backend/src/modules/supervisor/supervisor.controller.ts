@@ -120,7 +120,7 @@ export async function exportSupervisorData(req: Request, res: Response) {
       { header: 'Follow-up Date', key: 'follow_up_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
       { header: 'Follow-up Time', key: 'follow_up_time', width: 12 },
       { header: 'Done Date', key: 'done_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
-      
+      { header: 'Full Journey Timeline', key: 'full_history', width: 60, style: { alignment: { wrapText: true } } },
       { header: 'Remark', key: 'remark', width: 30 },
       { header: 'Final Status', key: 'final_status', width: 15 },
       { header: 'Project', key: 'project_name', width: 18 },

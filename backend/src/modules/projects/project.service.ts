@@ -161,3 +161,17 @@ export async function updateProjectService(
   );
   return { id, ...data };
 }
+
+// NEW: Deactivate a project (Soft Delete)
+export async function deactivateProjectService(id: number) {
+  await db.query(
+    `UPDATE projects SET is_active = 0, updated_at = NOW() WHERE id = ?`,
+    [id]
+  );
+  
+  // Optional but recommended: Also deactivate all active agent assignments for this project
+  await db.query(
+    `UPDATE user_projects SET is_active = 0 WHERE project_id = ?`,
+    [id]
+  );
+}

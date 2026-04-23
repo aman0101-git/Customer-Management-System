@@ -6,6 +6,7 @@ import customerRoutes from './modules/customers/customer.routes.js';
 import userRoutes from './modules/users/user.routes.js';
 import projectRoutes from './modules/projects/project.routes.js';
 import supervisorRoutes from "./modules/supervisor/supervisor.routes.js";
+import whatsappRoutes from "./modules/whatsapp/whatsapp.routes.js";
 
 const app = express();
 
@@ -20,5 +21,7 @@ app.use('/api/agent/customers', customerRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/projects', projectRoutes);
 app.use("/api/supervisor", supervisorRoutes);
+app.use("/api/supervisor/whatsapp", whatsappRoutes);
+app.use("/api/agent/whatsapp", whatsappRoutes);
 
 export default app;

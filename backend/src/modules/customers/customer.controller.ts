@@ -86,19 +86,20 @@ export async function createCustomer(req: Request, res: Response) {
   const agentId = req.user?.id;
 
   if (!agentId) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   const payload = req.body;
 
   try {
-    const record = await Service.createAgentCustomer(agentId, payload);
-    return res.status(201).json(record);
+    const result = await Service.createAgentCustomer(agentId, payload);
+    return res.status(201).json(result);
   } catch (err: any) {
+    console.error("Error creating customer:", err);
     if (err.code === "DUPLICATE_ASSIGNMENT") {
-      return res.status(409).json({ message: "Customer already assigned" });
+      return res.status(409).json({ success: false, message: "Customer already assigned" });
     }
-    throw err;
+    return res.status(500).json({ success: false, message: "Failed to create customer" });
   }
 }
 
