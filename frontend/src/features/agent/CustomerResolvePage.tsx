@@ -87,6 +87,26 @@ const getFinalStatus = (statusCode: string) => {
   return "PENDING";
 };
 
+// --- NEW TAB MANAGEMENT LOGIC ---
+// Defined outside the component so the reference persists across React re-renders
+let waWindowRef: Window | null = null;
+
+const openInSingleWhatsAppTab = (url: string) => {
+  // Convert api.whatsapp.com to web.whatsapp.com to prevent domain redirects
+  let directUrl = url;
+  if (directUrl.includes("api.whatsapp.com")) {
+    directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
+  }
+
+  // Open or update the exact same tab
+  waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
+
+  // Bring the tab into focus for the agent
+  if (waWindowRef) {
+    waWindowRef.focus();
+  }
+};
+
 export default function CustomerResolvePage() {
   const { user, loading } = useAuth();
   const [pageState, setPageState] = useState<PageState>("SEARCH");
@@ -299,7 +319,8 @@ export default function CustomerResolvePage() {
 
             if (waRes.ok) {
               if (waData?.data?.whatsappUrl) {
-                window.open(waData.data.whatsappUrl, "_blank");
+                // --- APPLIED FIX ---
+                openInSingleWhatsAppTab(waData.data.whatsappUrl);
               }
               setWhatsappStatus({ type: "success", message: "WhatsApp message prepared successfully." });
             } else {
