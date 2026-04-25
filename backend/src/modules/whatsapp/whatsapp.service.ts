@@ -147,6 +147,8 @@ export interface TemplateVariables {
   customer_name: string;
   agent_name: string;
   project_name: string;
+  follow_up_date?: string; 
+  follow_up_time?: string;
 }
 
 /**
@@ -163,6 +165,8 @@ export function renderTemplateBody(
   rendered = rendered.replace(/{{customer_name}}/g, variables.customer_name || "");
   rendered = rendered.replace(/{{agent_name}}/g, variables.agent_name || "");
   rendered = rendered.replace(/{{project_name}}/g, variables.project_name || "");
+  rendered = rendered.replace(/{{follow_up_date}}/g, variables.follow_up_date || "");
+  rendered = rendered.replace(/{{follow_up_time}}/g, variables.follow_up_time || "");
 
   return rendered;
 }
@@ -326,10 +330,34 @@ export async function prepareManuaWhatsAppMessage(
     throw new Error(`No active template found for project ${customer.project_id} and event ${triggerEvent}`);
   }
 
+  // NEW: Fetch follow-up details from agent_customers table
+  const [agentCustomer]: any = await db.query(
+    "SELECT follow_up_date, follow_up_time FROM agent_customers WHERE agent_id = ? AND customer_id = ? ORDER BY id DESC LIMIT 1",
+    [agentId, customerId]
+  );
+
+  let formattedDate = "";
+  let formattedTime = "";
+
+  if (agentCustomer.length > 0) {
+    const ac = agentCustomer[0];
+    if (ac.follow_up_date) {
+      // Formats date to Indian standard format (DD/MM/YYYY)
+      formattedDate = new Date(ac.follow_up_date).toLocaleDateString('en-IN'); 
+    }
+    if (ac.follow_up_time) {
+      // Usually comes as HH:MM:SS from MySQL. You can format it further if needed.
+      formattedTime = ac.follow_up_time; 
+    }
+  }
+
+  // UPDATED: Pass the new variables to the renderer
   const renderedMessage = renderTemplateBody(template.template_body, {
     customer_name: customer.name,
     agent_name: agentName,
     project_name: project.name,
+    follow_up_date: formattedDate,
+    follow_up_time: formattedTime,
   });
 
   if (!validateRenderedMessage(renderedMessage)) {

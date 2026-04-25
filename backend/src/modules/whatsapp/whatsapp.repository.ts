@@ -149,10 +149,6 @@ export async function updateTemplate(
     fields.push("is_active = ?");
     values.push(data.is_active);
   }
-  if (data.updated_by !== undefined) {
-    fields.push("updated_by = ?");
-    values.push(data.updated_by);
-  }
 
   if (fields.length === 0) return true;
 
