@@ -108,8 +108,8 @@ export async function listTemplatesByProject(projectId: number): Promise<WhatsAp
 /**
  * List all templates globally (Supervisor)
  */
-export async function listAllTemplates(): Promise<any[]> {
-  const templates = await Repository.getAllTemplates();
+export async function listAllTemplates(userId?: number, role?: string): Promise<any[]> {
+  const templates = await Repository.getAllTemplates(userId, role);
   return templates.map(template => ({
     ...template,
     variables_json: normalizeVariablesJson(template.variables_json),
@@ -266,7 +266,7 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 
   const encodedMessage = encodeURIComponent(message);
 
-  return `https://wa.me/${formattedPhone}?text=${encodedMessage}`;
+  return `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodedMessage}&type=phone_number&app_absent=0`;
 }
 
 /**

@@ -102,13 +102,24 @@ export async function getTemplatesByProject(projectId: number): Promise<WhatsApp
 /**
  * Get all templates (for admin/supervisor list view)
  */
-export async function getAllTemplates(): Promise<WhatsAppTemplate[]> {
-  const [rows]: any = await db.query(
-    `SELECT t.*, p.name as project_name 
+export async function getAllTemplates(userId?: number, role?: string): Promise<WhatsAppTemplate[]> {
+  let query = `
+     SELECT t.*, p.name as project_name 
      FROM whatsapp_templates t
-     LEFT JOIN projects p ON t.project_id = p.id
-     ORDER BY p.name, t.trigger_event, t.created_at DESC`
-  );
+     JOIN projects p ON t.project_id = p.id
+  `;
+  
+  const queryParams: any[] = [];
+
+  // Filter out templates so supervisors only see their own projects
+  if (role === 'SUPERVISOR' && userId) {
+    query += ` WHERE p.created_by = ?`;
+    queryParams.push(userId);
+  }
+
+  query += ` ORDER BY p.name, t.trigger_event, t.created_at DESC`;
+
+  const [rows]: any = await db.query(query, queryParams);
   return rows;
 }
 

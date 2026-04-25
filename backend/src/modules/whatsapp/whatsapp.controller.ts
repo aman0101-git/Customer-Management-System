@@ -14,12 +14,17 @@ import * as Repository from "./whatsapp.repository.js";
 export async function listTemplates(req: Request, res: Response) {
   try {
     const { projectId } = req.query;
+    
+    // Extract the logged-in user's details from the auth middleware
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
 
     let templates;
     if (projectId) {
       templates = await Service.listTemplatesByProject(Number(projectId));
     } else {
-      templates = await Service.listAllTemplates();
+      // Pass the user context down to filter templates globally
+      templates = await Service.listAllTemplates(userId, userRole);
     }
 
     res.json({
