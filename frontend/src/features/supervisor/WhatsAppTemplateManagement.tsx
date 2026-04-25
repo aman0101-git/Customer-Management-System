@@ -48,6 +48,8 @@ const TEMPLATE_VARIABLES = [
   { name: "customer_name", description: "Customer's full name" },
   { name: "agent_name", description: "Agent's full name" },
   { name: "project_name", description: "Project name" },
+  { name: "follow_up_date", description: "Follow-up date" },
+  { name: "follow_up_time", description: "Follow-up time" },
 ];
 
 export default function WhatsAppTemplateManagement() {
@@ -74,6 +76,8 @@ export default function WhatsAppTemplateManagement() {
     customer_name: "John Doe",
     agent_name: "Agent Smith",
     project_name: "Sunset Heights",
+    follow_up_date: "15/03/2023",
+    follow_up_time: "10:30:00",
   });
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
