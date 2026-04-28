@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay } from "date-fns";
+import { format, isBefore, isToday, startOfDay, addDays, parseISO, isEqual } from "date-fns";
 import {
   Loader2,
   Phone,
@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Briefcase,
   MessageCircle,
+  CheckCircle2,
 } from "lucide-react";
 
 // --- NEW TAB MANAGEMENT LOGIC ---
@@ -44,7 +45,7 @@ export default function FollowUpDashboard() {
   const navigate = useNavigate();
 
   const [data, setData] = useState<any[]>([]);
-  const [filter, setFilter] = useState<"all" | "past" | "today" | "future">("all");
+  const [filter, setFilter] = useState<"all" | "past" | "today" | "needs-d1" | "needs-d3" | "future">("all");
   const [loading, setLoading] = useState(true);
   const [whatsappLoading, setWhatsappLoading] = useState<number | null>(null);
   const [eventSelectionOpen, setEventSelectionOpen] = useState<number | null>(null);
@@ -93,6 +94,21 @@ export default function FollowUpDashboard() {
       if (response.data?.data?.whatsappUrl) {
         // --- APPLIED FIX ---
         openInSingleWhatsAppTab(response.data.data.whatsappUrl);
+
+        // OPTIMISTIC UI UPDATE: Immediately update the row with sent flag
+        const flagMap: any = {
+          "REMINDER_D3": "d3_sent",
+          "REMINDER_D1": "d1_sent",
+          "FOLLOWUP_DAY": "followup_msg_sent",
+        };
+
+        setData((prevData) =>
+          prevData.map((item) =>
+            item.customer_id === customerId || item.id === customerId
+              ? { ...item, [flagMap[triggerEvent]]: 1 }
+              : item
+          )
+        );
       }
     } catch (error: any) {
       const message = error.response?.data?.message || error.message || "Failed to send WhatsApp";
@@ -105,14 +121,31 @@ export default function FollowUpDashboard() {
 
   // --- CATEGORIZATION LOGIC ---
   const todayStart = startOfDay(new Date());
+  const tomorrowStart = startOfDay(addDays(new Date(), 1));
+  const in3DaysStart = startOfDay(addDays(new Date(), 3));
 
   const categorized = data.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
 
     let category = "future";
-    if (isBefore(itemDateStart, todayStart)) category = "past";
-    else if (isToday(itemDateStart)) category = "today";
+
+    // Priority: Overdue checks first
+    if (isBefore(itemDateStart, todayStart)) {
+      category = "past";
+    }
+    // Today
+    else if (isToday(itemDateStart)) {
+      category = "today";
+    }
+    // Tomorrow and D-1 reminder not sent
+    else if (isEqual(itemDateStart, tomorrowStart) && !item.d1_sent) {
+      category = "needs-d1";
+    }
+    // In 3 days and D-3 reminder not sent
+    else if (isEqual(itemDateStart, in3DaysStart) && !item.d3_sent) {
+      category = "needs-d3";
+    }
 
     return { ...item, category };
   });
@@ -120,6 +153,8 @@ export default function FollowUpDashboard() {
   const counts = {
     past: categorized.filter((i) => i.category === "past").length,
     today: categorized.filter((i) => i.category === "today").length,
+    needsD1: categorized.filter((i) => i.category === "needs-d1").length,
+    needsD3: categorized.filter((i) => i.category === "needs-d3").length,
     future: categorized.filter((i) => i.category === "future").length,
   };
 
@@ -145,6 +180,22 @@ export default function FollowUpDashboard() {
           iconBg: "bg-orange-100 text-orange-600",
           dateColor: "text-orange-600",
           label: "Due Today",
+        };
+      case "needs-d1":
+        return {
+          border: "border-l-blue-500",
+          badge: "bg-blue-50 text-blue-700 border-blue-200",
+          iconBg: "bg-blue-100 text-blue-600",
+          dateColor: "text-blue-600",
+          label: "Needs D-1",
+        };
+      case "needs-d3":
+        return {
+          border: "border-l-purple-500",
+          badge: "bg-purple-50 text-purple-700 border-purple-200",
+          iconBg: "bg-purple-100 text-purple-600",
+          dateColor: "text-purple-600",
+          label: "Needs D-3",
         };
       default:
         return {
@@ -184,7 +235,7 @@ export default function FollowUpDashboard() {
         </div>
 
         {/* KPI CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-10">
           <div
             onClick={() => setFilter(filter === "past" ? "all" : "past")}
             className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
@@ -254,6 +305,78 @@ export default function FollowUpDashboard() {
             </div>
             <div className="mt-4 text-xs font-medium text-orange-600 bg-orange-50 inline-block px-2 py-1 rounded">
               Focus here first
+            </div>
+          </div>
+
+          <div
+            onClick={() => setFilter(filter === "needs-d1" ? "all" : "needs-d1")}
+            className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
+              filter === "needs-d1"
+                ? "bg-white border-blue-200 shadow-md ring-2 ring-blue-100"
+                : "bg-white border-slate-200 shadow-sm hover:border-blue-200 hover:shadow-md"
+            }`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                  Needs D-1
+                </p>
+                <h3
+                  className={`text-4xl font-bold mt-2 ${
+                    filter === "needs-d1" ? "text-blue-600" : "text-slate-800"
+                  }`}
+                >
+                  {counts.needsD1}
+                </h3>
+              </div>
+              <div
+                className={`p-3 rounded-xl ${
+                  filter === "needs-d1"
+                    ? "bg-blue-100 text-blue-600"
+                    : "bg-slate-50 text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-500"
+                }`}
+              >
+                <Clock className="w-6 h-6" />
+              </div>
+            </div>
+            <div className="mt-4 text-xs font-medium text-blue-600 bg-blue-50 inline-block px-2 py-1 rounded">
+              Send reminder tomorrow
+            </div>
+          </div>
+
+          <div
+            onClick={() => setFilter(filter === "needs-d3" ? "all" : "needs-d3")}
+            className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
+              filter === "needs-d3"
+                ? "bg-white border-purple-200 shadow-md ring-2 ring-purple-100"
+                : "bg-white border-slate-200 shadow-sm hover:border-purple-200 hover:shadow-md"
+            }`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                  Needs D-3
+                </p>
+                <h3
+                  className={`text-4xl font-bold mt-2 ${
+                    filter === "needs-d3" ? "text-purple-600" : "text-slate-800"
+                  }`}
+                >
+                  {counts.needsD3}
+                </h3>
+              </div>
+              <div
+                className={`p-3 rounded-xl ${
+                  filter === "needs-d3"
+                    ? "bg-purple-100 text-purple-600"
+                    : "bg-slate-50 text-slate-400 group-hover:bg-purple-50 group-hover:text-purple-500"
+                }`}
+              >
+                <Calendar className="w-6 h-6" />
+              </div>
+            </div>
+            <div className="mt-4 text-xs font-medium text-purple-600 bg-purple-50 inline-block px-2 py-1 rounded">
+              Send 3-day reminder
             </div>
           </div>
 
@@ -355,6 +478,23 @@ export default function FollowUpDashboard() {
                         <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 uppercase font-semibold">
                           {customer.status_code?.replace(/-/g, " ")}
                         </span>
+
+                        {/* SENT INDICATORS */}
+                        {customer.d3_sent && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-green-100 text-green-700 border border-green-200 uppercase font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> D-3 Sent
+                          </span>
+                        )}
+                        {customer.d1_sent && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-green-100 text-green-700 border border-green-200 uppercase font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> D-1 Sent
+                          </span>
+                        )}
+                        {customer.followup_msg_sent && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-green-100 text-green-700 border border-green-200 uppercase font-bold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Follow-up Sent
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">

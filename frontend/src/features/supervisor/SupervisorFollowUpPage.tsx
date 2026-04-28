@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios"; 
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay, parseISO } from "date-fns";
+import { format, isBefore, isToday, startOfDay, parseISO, addDays, isEqual } from "date-fns";
 import { 
   Loader2, 
   Calendar, 
@@ -11,7 +11,7 @@ import {
   Briefcase,
   User,
   ArrowLeft,
-  CheckCircle2 // Import Icon for status
+  CheckCircle2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -34,7 +34,7 @@ export default function SupervisorFollowUpPage() {
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedProject, setSelectedProject] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all'); // 2. New State
-  const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'future'>('all');
+  const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'needs-d1' | 'needs-d3' | 'future'>('all');
   const [loading, setLoading] = useState(true);
 
   // Initial Load
@@ -76,13 +76,18 @@ export default function SupervisorFollowUpPage() {
       });
       
       const todayStart = startOfDay(new Date());
+      const tomorrowStart = startOfDay(addDays(new Date(), 1));
+      const in3DaysStart = startOfDay(addDays(new Date(), 3));
+
       const processed = (res.data || []).map((item: any) => {
-        const fDate = parseISO(item.scheduled_at); 
+        const fDate = parseISO(item.follow_up_date); 
         const itemDateStart = startOfDay(fDate);
         
         let category = 'future';
         if (isBefore(itemDateStart, todayStart)) category = 'past';
         else if (isToday(itemDateStart)) category = 'today';
+        else if (isEqual(itemDateStart, tomorrowStart) && !item.d1_sent) category = 'needs-d1';
+        else if (isEqual(itemDateStart, in3DaysStart) && !item.d3_sent) category = 'needs-d3';
         
         return { ...item, category, parsedDate: fDate };
       });
@@ -99,6 +104,8 @@ export default function SupervisorFollowUpPage() {
   const counts = {
     past: data.filter(i => i.category === 'past').length,
     today: data.filter(i => i.category === 'today').length,
+    needsD1: data.filter(i => i.category === 'needs-d1').length,
+    needsD3: data.filter(i => i.category === 'needs-d3').length,
     future: data.filter(i => i.category === 'future').length
   };
 
@@ -111,6 +118,8 @@ export default function SupervisorFollowUpPage() {
     switch(category) {
       case 'past': return "bg-red-50/60 hover:bg-red-100 border-l-4 border-l-red-500";
       case 'today': return "bg-orange-50/60 hover:bg-orange-100 border-l-4 border-l-orange-500";
+      case 'needs-d1': return "bg-blue-50/60 hover:bg-blue-100 border-l-4 border-l-blue-500";
+      case 'needs-d3': return "bg-purple-50/60 hover:bg-purple-100 border-l-4 border-l-purple-500";
       default: return "hover:bg-slate-50 border-l-4 border-l-transparent";
     }
   };
@@ -184,7 +193,7 @@ export default function SupervisorFollowUpPage() {
         </div>
 
         {/* KPI CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
           {/* Overdue */}
           <div 
             onClick={() => setTimeFilter(timeFilter === 'past' ? 'all' : 'past')}
@@ -210,6 +219,34 @@ export default function SupervisorFollowUpPage() {
                 <h2 className="text-3xl font-bold text-orange-600 mt-1">{counts.today}</h2>
               </div>
               <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Clock className="w-5 h-5"/></div>
+            </div>
+          </div>
+
+          {/* Needs D-1 */}
+          <div 
+            onClick={() => setTimeFilter(timeFilter === 'needs-d1' ? 'all' : 'needs-d1')}
+            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'needs-d1' ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-100' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md'}`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Needs D-1</p>
+                <h2 className="text-3xl font-bold text-blue-600 mt-1">{counts.needsD1}</h2>
+              </div>
+              <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><Clock className="w-5 h-5"/></div>
+            </div>
+          </div>
+
+          {/* Needs D-3 */}
+          <div 
+            onClick={() => setTimeFilter(timeFilter === 'needs-d3' ? 'all' : 'needs-d3')}
+            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'needs-d3' ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-100' : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-md'}`}
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Needs D-3</p>
+                <h2 className="text-3xl font-bold text-purple-600 mt-1">{counts.needsD3}</h2>
+              </div>
+              <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Calendar className="w-5 h-5"/></div>
             </div>
           </div>
 
@@ -246,6 +283,7 @@ export default function SupervisorFollowUpPage() {
                     <th className="px-6 py-3">Contact</th>
                     <th className="px-6 py-3">Project</th>
                     <th className="px-6 py-3">Status</th>
+                    <th className="px-6 py-3">Reminders Sent</th>
                     <th className="px-6 py-3">Follow Up Date</th>
                     <th className="px-6 py-3">Updated</th>
                   </tr>
@@ -278,6 +316,32 @@ export default function SupervisorFollowUpPage() {
                         <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
                           {item.status_code?.replace(/-/g, ' ')}
                         </span>
+                      </td>
+
+                      {/* Reminders Sent */}
+                      <td className="px-6 py-3">
+                        <div className="flex gap-2 flex-wrap">
+                          {item.d3_sent && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> D-3
+                            </span>
+                          )}
+                          {item.d1_sent && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> D-1
+                            </span>
+                          )}
+                          {item.followup_msg_sent && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3" /> F/U
+                            </span>
+                          )}
+                          {!item.d3_sent && !item.d1_sent && !item.followup_msg_sent && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 font-bold">
+                              None
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Follow Up - FIXED SECTION */}
