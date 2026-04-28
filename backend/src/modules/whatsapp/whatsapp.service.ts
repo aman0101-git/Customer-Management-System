@@ -343,7 +343,7 @@ export async function prepareManuaWhatsAppMessage(
   }
 
   const agent = agents[0];
-  const agentName = `${agent.first_name} ${agent.last_name}`.trim();
+  const agentName = `${agent.first_name}`.trim();
 
   const [projects]: any = await db.query(
     "SELECT id, name FROM projects WHERE id = ?",

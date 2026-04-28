@@ -274,6 +274,7 @@ export async function getSupervisorTeamFollowUps(
       c.name AS customer_name,      
       c.contact AS contact_number,   
       c.location,
+      u.first_name AS agent_first_name,
       ac.status_code,
       ac.follow_up_date,
       ac.follow_up_time,

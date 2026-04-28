@@ -214,7 +214,7 @@ export async function previewTemplate(req: Request, res: Response) {
     );
 
     const agent = agents[0];
-    const agentName = agent ? `${agent.first_name} ${agent.last_name}`.trim() : "Agent";
+    const agentName = agent ? `${agent.first_name}`.trim() : "Agent";
 
     // Fetch project data
     const [projects]: any = await db.query(
