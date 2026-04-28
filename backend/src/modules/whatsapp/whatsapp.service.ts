@@ -274,6 +274,38 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 }
 
 /**
+ * Mark reminder as sent in agent_customers table
+ * OPTIMISTIC TRACKING: Called when link is generated, before user actually sends
+ */
+export async function markReminderAsSent(
+  agentId: number,
+  customerId: number,
+  triggerEvent: string
+): Promise<void> {
+  let updateField = "";
+  
+  switch (triggerEvent) {
+    case "REMINDER_D3":
+      updateField = "d3_sent";
+      break;
+    case "REMINDER_D1":
+      updateField = "d1_sent";
+      break;
+    case "FOLLOWUP_DAY":
+      updateField = "followup_msg_sent";
+      break;
+    default:
+      // For other events like INITIAL or CHAT, don't track
+      return;
+  }
+
+  await db.query(
+    `UPDATE agent_customers SET ${updateField} = 1 WHERE agent_id = ? AND customer_id = ?`,
+    [agentId, customerId]
+  );
+}
+
+/**
  * Prepare and send manual WhatsApp message
  */
 export async function prepareManuaWhatsAppMessage(
@@ -382,6 +414,10 @@ export async function prepareManuaWhatsAppMessage(
     message_preview: renderedMessage,
     status: "MANUAL_TRIGGERED",
   });
+
+  // OPTIMISTIC TRACKING: Mark reminder as sent immediately when link is generated
+  // User will open the link after this returns
+  await markReminderAsSent(agentId, customerId, triggerEvent);
 
   return {
     whatsappUrl,

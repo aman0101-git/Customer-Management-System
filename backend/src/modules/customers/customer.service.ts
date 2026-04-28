@@ -241,24 +241,36 @@ export async function updateAgentCustomer(
   const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
   const finalStatus = calculateFinalStatus(data.status_code);
 
-  await db.query(
-    `UPDATE agent_customers
-     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
-     WHERE id = ?`,
-    [
-      data.status_code,
-      finalStatus, 
-      followUpDate, 
-      followUpTime, 
-      doneDate, 
-      data.remark,
-      data.leadRating || data.lead_rating || data.rating,
-      data.config || data.configuration,
-      data.budget,
-      data.purpose,
-      agentCustomerId,
-    ]
-  );
+  // Check if follow_up_date has changed (for reschedule reset logic)
+  const dateHasChanged = oldValue && 
+    (oldValue.follow_up_date !== followUpDate || oldValue.follow_up_time !== followUpTime);
+
+  // Build UPDATE query with optional reminder reset
+  let updateQuery = `UPDATE agent_customers
+     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?`;
+  
+  const updateParams: any[] = [
+    data.status_code,
+    finalStatus, 
+    followUpDate, 
+    followUpTime, 
+    doneDate, 
+    data.remark,
+    data.leadRating || data.lead_rating || data.rating,
+    data.config || data.configuration,
+    data.budget,
+    data.purpose,
+  ];
+
+  // RESCHEDULE RESET: If follow_up_date changed, reset reminder flags to restart the queue
+  if (dateHasChanged && followUpDate) {
+    updateQuery += `, d3_sent = 0, d1_sent = 0, followup_msg_sent = 0`;
+  }
+
+  updateQuery += ` WHERE id = ?`;
+  updateParams.push(agentCustomerId);
+
+  await db.query(updateQuery, updateParams);
 
   const [agentRow]: any = await db.query(
     `SELECT customer_id FROM agent_customers WHERE id = ?`,
@@ -572,6 +584,9 @@ export async function getAgentFollowUps(agentId: number) {
             ac.follow_up_date, 
             ac.follow_up_time,
             ac.remark,
+            ac.d3_sent,
+            ac.d1_sent,
+            ac.followup_msg_sent,
             c.name, 
             c.contact, 
             c.location,
