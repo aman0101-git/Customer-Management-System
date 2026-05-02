@@ -282,7 +282,7 @@ export async function prepareManualWhatsAppMessage(
   phone: string;
   logId: number;
 }> {
-  // BULLETPROOF LOOKUP: Checks if the passed ID is the customer_id OR the agent_customer_id
+  // 1. BULLETPROOF LOOKUP: Finds true customer ID
   const [customers]: any = await db.query(
     `SELECT c.id, c.name, c.contact, c.project_id 
      FROM customers c 
@@ -296,13 +296,15 @@ export async function prepareManualWhatsAppMessage(
   }
 
   const customer = customers[0];
+  const actualCustomerId = customer.id; // <-- Storing the TRUE customer ID to use below
 
   if (!validatePhoneNumber(customer.contact)) {
     throw new Error("Invalid customer phone number. Must have at least 10 digits.");
   }
 
+  // 2. Fetch Agent Details (First Name Only!)
   const [agents]: any = await db.query(
-    "SELECT id, first_name, last_name FROM users WHERE id = ?",
+    "SELECT id, first_name FROM users WHERE id = ?",
     [agentId]
   );
 
@@ -311,8 +313,9 @@ export async function prepareManualWhatsAppMessage(
   }
 
   const agent = agents[0];
-  const agentName = `${agent.first_name} ${agent.last_name || ""}`.trim();
+  const agentName = `${agent.first_name}`.trim(); // <-- Only First Name now
 
+  // 3. Fetch Project
   const [projects]: any = await db.query(
     "SELECT id, name FROM projects WHERE id = ?",
     [customer.project_id]
@@ -324,15 +327,17 @@ export async function prepareManualWhatsAppMessage(
 
   const project = projects[0];
 
+  // 4. Fetch Template
   const template = await getTemplateForEvent(customer.project_id, templateCode);
 
   if (!template) {
     throw new Error(`No active template found for project ${customer.project_id} and event ${templateCode}`);
   }
 
+  // 5. Fetch Follow-up Dates USING THE TRUE CUSTOMER ID
   const [agentCustomer]: any = await db.query(
     "SELECT follow_up_date, follow_up_time FROM agent_customers WHERE agent_id = ? AND customer_id = ? ORDER BY id DESC LIMIT 1",
-    [agentId, customerId]
+    [agentId, actualCustomerId] 
   );
 
   let formattedDate = "";
@@ -341,13 +346,40 @@ export async function prepareManualWhatsAppMessage(
   if (agentCustomer.length > 0) {
     const ac = agentCustomer[0];
     if (ac.follow_up_date) {
-      formattedDate = new Date(ac.follow_up_date).toLocaleDateString('en-IN'); 
+      // Format as nicely readable Indian date
+      formattedDate = new Date(ac.follow_up_date).toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'short', year: 'numeric'
+      }); 
     }
+    
     if (ac.follow_up_time) {
-      formattedTime = ac.follow_up_time; 
+      const timeStr = String(ac.follow_up_time).trim();
+      
+      // BULLETPROOF CHECK: Does it already have AM/PM?
+      if (timeStr.toUpperCase().includes('AM') || timeStr.toUpperCase().includes('PM')) {
+        // It's already formatted, just use it!
+        formattedTime = timeStr;
+      } else {
+        // It's likely a 24-hour SQL string (e.g., "14:30:00" or "14:30")
+        try {
+          const parts = timeStr.split(':');
+          if (parts.length >= 2) {
+            const h = parseInt(parts[0], 10);
+            const minutes = parts[1];
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const h12 = h % 12 || 12;
+            formattedTime = `${h12}:${minutes} ${ampm}`;
+          } else {
+             formattedTime = timeStr; // Fallback if format is totally weird
+          }
+        } catch (e) {
+          formattedTime = timeStr; // fallback
+        }
+      }
     }
   }
 
+  // 6. Render the template
   const renderedMessage = renderTemplateBody(template.template_body, {
     customer_name: customer.name,
     agent_name: agentName,
@@ -364,11 +396,12 @@ export async function prepareManualWhatsAppMessage(
     throw new Error("Rendered message is empty");
   }
 
+  // 7. Generate Link & Log
   const whatsappUrl = generateWhatsAppLink(customer.contact, renderedMessage);
 
   const logId = await logMessage({
     agent_id: agentId,
-    customer_id: customerId,
+    customer_id: actualCustomerId, // <-- Ensure log is attached to true customer ID
     project_id: customer.project_id,
     template_id: template.id,
     trigger_event: templateCode,

@@ -278,11 +278,14 @@ export async function getSupervisorTeamFollowUps(
       ac.status_code,
       ac.follow_up_date,
       ac.follow_up_time,
-      TIMESTAMP(ac.follow_up_date, ac.follow_up_time) AS scheduled_at, 
+      CASE 
+        WHEN ac.follow_up_time IS NOT NULL THEN TIMESTAMP(ac.follow_up_date, ac.follow_up_time)
+        ELSE CAST(ac.follow_up_date AS DATETIME)
+      END AS scheduled_at, 
       c.updated_at,
       ac.remark,
       p.name as project_name,
-      CONCAT(u.first_name, ' ', u.last_name) as agent_name
+      u.first_name as agent_name
     FROM agent_customers ac
     JOIN users u ON ac.agent_id = u.id
     JOIN customers c ON ac.customer_id = c.id    
@@ -621,7 +624,7 @@ export async function getSupervisorDrillDown(
       ac.done_date,
       ac.assigned_at,
       p.name AS project_name,
-      CONCAT(u.first_name, ' ', u.last_name) AS agent_name,
+      u.first_name AS agent_name,
       ${pipelineLeadTypeCol}
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
@@ -653,7 +656,7 @@ export async function searchGlobalCustomers(contactNumber: string) {
       ac.follow_up_date,
       ac.follow_up_time,
       p.name AS project_name,
-      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+      u.first_name AS agent_name
     FROM customers c
     -- Join active assignments
     LEFT JOIN agent_customers ac ON c.id = ac.customer_id AND ac.is_active = 1
@@ -836,7 +839,7 @@ export async function getWhatsAppAuditLog(
   
   return rows.map((row: any) => ({
     ...row,
-    agent_name: `${row.first_name} ${row.last_name}`,
+    agent_name: row.first_name,
     sent_at: row.sent_at,
   }));
 }
