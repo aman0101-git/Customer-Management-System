@@ -272,7 +272,7 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 /**
  * Prepare and send manual WhatsApp message
  */
-export async function prepareManuaWhatsAppMessage(
+export async function prepareManualWhatsAppMessage(
   agentId: number,
   customerId: number,
   templateCode: string
@@ -282,9 +282,13 @@ export async function prepareManuaWhatsAppMessage(
   phone: string;
   logId: number;
 }> {
+  // BULLETPROOF LOOKUP: Checks if the passed ID is the customer_id OR the agent_customer_id
   const [customers]: any = await db.query(
-    "SELECT id, name, contact, project_id FROM customers WHERE id = ?",
-    [customerId]
+    `SELECT c.id, c.name, c.contact, c.project_id 
+     FROM customers c 
+     WHERE c.id = ? 
+        OR c.id = (SELECT customer_id FROM agent_customers WHERE id = ? LIMIT 1)`,
+    [customerId, customerId]
   );
 
   if (!customers.length) {

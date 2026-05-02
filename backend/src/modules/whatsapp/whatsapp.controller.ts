@@ -385,7 +385,7 @@ export async function sendManualWhatsApp(req: Request, res: Response) {
 
     // We removed the messy if/else block! 
     // Simply call the service with the template code.
-    const result = await Service.prepareManuaWhatsAppMessage(
+    const result = await Service.prepareManualWhatsAppMessage(
       agentId,
       Number(customerId),
       String(triggerEvent)

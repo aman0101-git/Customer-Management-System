@@ -278,9 +278,6 @@ export async function getSupervisorTeamFollowUps(
       ac.status_code,
       ac.follow_up_date,
       ac.follow_up_time,
-      ac.d3_sent,
-      ac.d1_sent,
-      ac.followup_msg_sent,
       TIMESTAMP(ac.follow_up_date, ac.follow_up_time) AS scheduled_at, 
       c.updated_at,
       ac.remark,
@@ -784,6 +781,9 @@ export async function reassignCustomerTransaction(
 /**
  * Get WhatsApp audit log for supervisor (messages sent by their agents)
  */
+/**
+ * Get WhatsApp audit log for supervisor (messages sent by their agents)
+ */
 export async function getWhatsAppAuditLog(
   supervisorId: number,
   filterAgentId?: number,
@@ -802,12 +802,7 @@ export async function getWhatsAppAuditLog(
       p.name as project_name,
       wt.template_code,
       wml.delivery_mode,
-      wml.message_preview,
-      wml.provider_message_id,
-      wml.error_code,
-      wml.error_message,
-      wml.request_payload,
-      wml.response_payload
+      wml.message_preview
     FROM whatsapp_message_logs wml
     JOIN users u ON wml.agent_id = u.id
     JOIN customers c ON wml.customer_id = c.id
