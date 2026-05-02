@@ -88,20 +88,15 @@ const getFinalStatus = (statusCode: string) => {
 };
 
 // --- NEW TAB MANAGEMENT LOGIC ---
-// Defined outside the component so the reference persists across React re-renders
 let waWindowRef: Window | null = null;
 
 const openInSingleWhatsAppTab = (url: string) => {
-  // Convert api.whatsapp.com to web.whatsapp.com to prevent domain redirects
   let directUrl = url;
   if (directUrl.includes("api.whatsapp.com")) {
     directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
   }
 
-  // Open or update the exact same tab
   waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
-
-  // Bring the tab into focus for the agent
   if (waWindowRef) {
     waWindowRef.focus();
   }
@@ -119,8 +114,9 @@ export default function CustomerResolvePage() {
   // History State
   const [history, setHistory] = useState<any[]>([]);
 
-  // WhatsApp State for CREATE flow only
-  const [whatsappAfterCreate, setWhatsappAfterCreate] = useState(true);
+  // Track which button was clicked
+  const [submitAction, setSubmitAction] = useState<"SAVE" | "SEND">("SAVE");
+  
   const [whatsappSending, setWhatsappSending] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState<{
     type: "idle" | "loading" | "success" | "error";
@@ -214,7 +210,6 @@ export default function CustomerResolvePage() {
           if (found) {
             setCustomer(found);
             setPageState("EDIT");
-
             setHistory(found.history || []);
 
             const status = found.status_code || "";
@@ -269,8 +264,18 @@ export default function CustomerResolvePage() {
     e.preventDefault();
     setWhatsappStatus({ type: "idle" });
 
+    // Append WhatsApp tracking to remark
+    let finalRemark = form.remark || "";
+    if (submitAction === "SEND") {
+      const statusText = form.status ? form.status.toUpperCase() : "UPDATE";
+      finalRemark = finalRemark 
+        ? `${finalRemark} | [WhatsApp Sent: ${statusText}]`
+        : `[WhatsApp Sent: ${statusText}]`;
+    }
+
     const payload = {
       ...form,
+      remark: finalRemark,
       project_id: form.project,
       contact: phone,
       status_code: form.status,
@@ -280,6 +285,8 @@ export default function CustomerResolvePage() {
     };
 
     try {
+      let customerIdToUse = isEdit ? customer?.customer_id : customer?.id;
+
       if (isCreate) {
         const createRes = await fetch(`${API_BASE}/api/agent/customers`, {
           method: "POST",
@@ -294,53 +301,13 @@ export default function CustomerResolvePage() {
           throw new Error(createData?.message || "Failed to create customer");
         }
 
-        const customerId = createData?.data?.customer_id ?? createData?.data?.id;
+        customerIdToUse = createData?.data?.customer_id ?? createData?.data?.id;
 
-        if (!customerId) {
+        if (!customerIdToUse) {
           throw new Error("Invalid response: missing customer_id");
         }
-
-        if (whatsappAfterCreate) {
-          setWhatsappSending(true);
-          setWhatsappStatus({ type: "loading", message: "Sending WhatsApp message..." });
-
-          try {
-            const waRes = await fetch(`${API_BASE}/api/agent/whatsapp/send-manual`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                customerId,
-                triggerEvent: "INITIAL",
-              }),
-            });
-
-            const waData = await waRes.json().catch(() => null);
-
-            if (waRes.ok) {
-              if (waData?.data?.whatsappUrl) {
-                // --- APPLIED FIX ---
-                openInSingleWhatsAppTab(waData.data.whatsappUrl);
-              }
-              setWhatsappStatus({ type: "success", message: "WhatsApp message prepared successfully." });
-            } else {
-              setWhatsappStatus({
-                type: "error",
-                message: `WhatsApp error: ${waData?.message || "Unable to prepare WhatsApp message"}`,
-              });
-              console.warn("WhatsApp sending failed:", waData);
-            }
-          } catch (waErr) {
-            setWhatsappStatus({ type: "error", message: "Failed to send WhatsApp message" });
-            console.error("WhatsApp error:", waErr);
-          } finally {
-            setWhatsappSending(false);
-          }
-        }
-
-        setTimeout(() => navigate("/agent/dashboard"), 500);
-      } else if (isEdit && customer) {
-        const updateRes = await fetch(`${API_BASE}/api/agent/customers/${customer.id}`, {
+      } else if (isEdit && customerIdToUse) {
+        const updateRes = await fetch(`${API_BASE}/api/agent/customers/${customerIdToUse}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -350,9 +317,64 @@ export default function CustomerResolvePage() {
         if (!updateRes.ok) {
           throw new Error("Failed to update customer");
         }
-
-        navigate("/agent/dashboard");
       }
+
+      // Handle sending WhatsApp Message
+      if (submitAction === "SEND" && customerIdToUse) {
+        setWhatsappSending(true);
+        setWhatsappStatus({ type: "loading", message: "Preparing WhatsApp message..." });
+
+        try {
+          // Determine template code based strictly on status
+          let templateCode = isCreate ? "INITIAL" : "FU"; // Default
+          
+          if (!isCreate && form.status) {
+             const s = form.status.toUpperCase();
+             if (s === "NOT-REACHABLE") templateCode = "NR";
+             else if (s === "VISIT-DONE") templateCode = "VD";
+             else if (s === "LOST") templateCode = "LOST";
+             else if (s === "VIRTUAL-MEET") templateCode = "VM";
+             else if (s === "BOOKING-DONE") templateCode = "BD";
+             else if (s === "SDOW") templateCode = "SDOW";
+             else if (s === "VISIT-CONFIRMED") templateCode = "VC";
+             else if (s === "VISIT-PROPOSED") templateCode = "VP";
+             else if (s === "VIRTUAL-MEET-CONFIRMED") templateCode = "VMC";
+             else if (s === "FOLLOW-UP") templateCode = "FU";
+          }
+
+          const waRes = await fetch(`${API_BASE}/api/agent/whatsapp/send-manual`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              customerId: customerIdToUse,
+              triggerEvent: templateCode,
+            }),
+          });
+
+          const waData = await waRes.json().catch(() => null);
+
+          if (waRes.ok) {
+            if (waData?.data?.whatsappUrl) {
+              openInSingleWhatsAppTab(waData.data.whatsappUrl);
+            }
+            setWhatsappStatus({ type: "success", message: "WhatsApp message prepared." });
+          } else {
+            setWhatsappStatus({
+              type: "error",
+              message: `WhatsApp error: ${waData?.message || "Unable to prepare message"}`,
+            });
+            console.warn("WhatsApp sending failed:", waData);
+          }
+        } catch (waErr) {
+          setWhatsappStatus({ type: "error", message: "Failed to send WhatsApp message" });
+          console.error("WhatsApp error:", waErr);
+        } finally {
+          setWhatsappSending(false);
+        }
+      }
+
+      setTimeout(() => navigate("/agent/dashboard"), 500);
     } catch (err: any) {
       console.error("Error:", err);
       alert(`Error: ${err.message || "An error occurred"}`);
@@ -564,13 +586,9 @@ export default function CustomerResolvePage() {
                       required
                       className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm"
                     >
-                      <option value="" disabled>
-                        Select project
-                      </option>
+                      <option value="" disabled>Select project</option>
                       {projects.map((p) => (
-                        <option key={p.id} value={String(p.id)}>
-                          {p.name}
-                        </option>
+                        <option key={p.id} value={String(p.id)}>{p.name}</option>
                       ))}
                     </select>
                   </div>
@@ -609,9 +627,7 @@ export default function CustomerResolvePage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-pincode" className="text-slate-600 font-medium ml-1">
-                      Pincode
-                    </Label>
+                    <Label htmlFor="form-pincode" className="text-slate-600 font-medium ml-1">Pincode</Label>
                     <Input
                       id="form-pincode"
                       name="pincode"
@@ -652,18 +668,14 @@ export default function CustomerResolvePage() {
                       >
                         <option value="">Select {field.label.toLowerCase()}</option>
                         {field.options.map(opt => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
+                          <option key={opt} value={opt}>{opt}</option>
                         ))}
                       </select>
                     </div>
                   ))}
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-designation" className="text-slate-600 font-medium ml-1">
-                      Designation
-                    </Label>
+                    <Label htmlFor="form-designation" className="text-slate-600 font-medium ml-1">Designation</Label>
                     <select
                       id="form-designation"
                       name="designation"
@@ -673,9 +685,7 @@ export default function CustomerResolvePage() {
                     >
                       <option value="">Select designation</option>
                       {DESIGNATION_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
+                        <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
                   </div>
@@ -702,17 +712,13 @@ export default function CustomerResolvePage() {
                     >
                       <option value="">Select status</option>
                       {STATUS_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>
-                          {opt}
-                        </option>
+                        <option key={opt} value={opt}>{opt}</option>
                       ))}
                     </select>
                   </div>
 
                   <div className="space-y-1.5 opacity-90">
-                    <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">
-                      Final Status
-                    </Label>
+                    <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">Final Status</Label>
                     <Input
                       id="form-finalStatus"
                       value={form.finalStatus}
@@ -772,8 +778,16 @@ export default function CustomerResolvePage() {
                       />
                     </div>
                   )}
+                </div>
+              </section>
 
-                  <div className="col-span-full space-y-1.5">
+              <section className="bg-slate-50 p-6 rounded-xl border border-slate-100 space-y-6">
+                <div className="flex items-center gap-4">
+                  <span className="bg-slate-400 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">04</span>
+                  <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Remarks & History</h3>
+                </div>
+                <div className="space-y-4">
+                  <div>
                     <Label htmlFor="form-remark" className="text-slate-600 font-medium ml-1">
                       {isEdit ? "Add New Remark Update" : "Special Remarks"}
                     </Label>
@@ -786,163 +800,111 @@ export default function CustomerResolvePage() {
                       placeholder="Enter details..."
                       className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all"
                     />
+                  </div>
 
-                    {isEdit && history.length > 0 && (
-                      <div className="mt-8 pt-6 border-t border-slate-200">
-                        <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-5 block">
-                          Customer Journey Timeline
-                        </Label>
-                        <div className="border border-slate-200 rounded-xl bg-slate-50 overflow-hidden shadow-inner">
-                          <div className="max-h-72 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-slate-300">
-                            
-                            {/* Vertical Timeline Container */}
-                            <div className="relative border-l-2 border-indigo-200 ml-3 space-y-6">
-                              {history.map((item, idx) => (
-                                <div key={idx} className="relative pl-6">
-                                  
-                                  {/* Timeline Node Dot */}
-                                  <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center shadow-sm ${
-                                    item.action_type === 'CREATE' ? 'bg-blue-500' :
-                                    item.action_type === 'STATUS_CHANGE' ? 'bg-indigo-500' : 'bg-slate-400'
-                                  }`}></div>
-                                  
-                                  {/* Timeline Card */}
-                                  <div className="bg-white p-3.5 rounded-lg border border-slate-100 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
-                                    <div className="flex justify-between items-start mb-2">
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        
-                                        {/* Action Badges */}
-                                        {item.action_type === 'CREATE' && (
-                                          <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase border border-blue-100">Lead Created</span>
-                                        )}
-                                        {item.action_type === 'STATUS_CHANGE' && (
-                                          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded uppercase border border-indigo-100">Status Changed</span>
-                                        )}
-                                        {item.action_type === 'EDIT' && (
-                                          <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase border border-slate-200">Remark Added</span>
-                                        )}
-                                        
-                                        {/* Timestamp */}
-                                        <span className="text-[10px] font-semibold text-slate-400">
-                                          {new Date(item.date).toLocaleDateString("en-GB")} @ {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                        </span>
-                                      </div>
+                  {isEdit && history.length > 0 && (
+                    <div className="mt-8 pt-6 border-t border-slate-200">
+                      <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-5 block">
+                        📋 Activity History
+                      </Label>
+                      <div className="border border-slate-200 rounded-xl bg-slate-50 overflow-hidden shadow-inner">
+                        <div className="max-h-72 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-slate-300">
+                          <div className="relative border-l-2 border-indigo-200 ml-3 space-y-6">
+                            {history.map((item, idx) => (
+                              <div key={idx} className="relative pl-6">
+                                <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center shadow-sm ${
+                                  item.action_type === 'CREATE' ? 'bg-blue-500' :
+                                  item.action_type === 'STATUS_CHANGE' ? 'bg-indigo-500' : 'bg-slate-400'
+                                }`}></div>
+                                
+                                <div className="bg-white p-3.5 rounded-lg border border-slate-100 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      {item.action_type === 'CREATE' && (
+                                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase border border-blue-100">Lead Created</span>
+                                      )}
+                                      {item.action_type === 'STATUS_CHANGE' && (
+                                        <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded uppercase border border-indigo-100">Status Changed</span>
+                                      )}
+                                      {item.action_type === 'EDIT' && (
+                                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase border border-slate-200">Remark Added</span>
+                                      )}
+                                      <span className="text-[10px] font-semibold text-slate-400">
+                                        {new Date(item.date).toLocaleDateString("en-GB")} @ {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                      </span>
                                     </div>
-
-                                    {/* Status Change Indicator */}
-                                    {item.action_type === 'STATUS_CHANGE' && item.old_status && item.new_status && (
-                                      <div className="flex items-center gap-2 mt-2 mb-2 text-xs font-bold">
-                                        <span className="text-slate-400 line-through capitalize px-2 py-0.5 bg-slate-50 rounded border border-slate-100">{item.old_status.replace(/-/g, ' ')}</span>
-                                        <span className="text-slate-300">→</span>
-                                        <span className="text-emerald-700 capitalize px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200">{item.new_status.replace(/-/g, ' ')}</span>
-                                      </div>
-                                    )}
-
-                                    {/* Initial Status Display */}
-                                    {item.action_type === 'CREATE' && item.new_status && (
-                                      <div className="mt-1.5 mb-2 text-xs font-bold text-blue-700 capitalize flex items-center gap-1.5">
-                                        Initial Status: <span className="bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">{item.new_status.replace(/-/g, ' ')}</span>
-                                      </div>
-                                    )}
-
-                                    {/* Remark Display */}
-                                    {item.remark && (
-                                      <div className="text-sm text-slate-700 leading-relaxed font-medium italic bg-slate-50/70 p-2.5 rounded-md border border-slate-100 mt-2">
-                                        "{item.remark}"
-                                      </div>
-                                    )}
                                   </div>
-                                </div>
-                              ))}
-                            </div>
 
+                                  {item.action_type === 'STATUS_CHANGE' && item.old_status && item.new_status && (
+                                    <div className="flex items-center gap-2 mt-2 mb-2 text-xs font-bold">
+                                      <span className="text-slate-400 line-through capitalize px-2 py-0.5 bg-slate-50 rounded border border-slate-100">{item.old_status.replace(/-/g, ' ')}</span>
+                                      <span className="text-slate-300">→</span>
+                                      <span className="text-emerald-700 capitalize px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200">{item.new_status.replace(/-/g, ' ')}</span>
+                                    </div>
+                                  )}
+
+                                  {item.action_type === 'CREATE' && item.new_status && (
+                                    <div className="mt-1.5 mb-2 text-xs font-bold text-blue-700 capitalize flex items-center gap-1.5">
+                                      Initial Status: <span className="bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">{item.new_status.replace(/-/g, ' ')}</span>
+                                    </div>
+                                  )}
+
+                                  {item.remark && (
+                                    <div className="text-sm text-slate-700 leading-relaxed font-medium italic bg-slate-50/70 p-2.5 rounded-md border border-slate-100 mt-2">
+                                      "{item.remark}"
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </section>
 
-              {isCreate && (
-                <section className="bg-green-50 border border-green-200 rounded-xl p-6 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg flex-shrink-0">
-                      <MessageCircle className="w-5 h-5 text-green-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-slate-900 text-sm">Auto-send Welcome Message</h3>
-                      <p className="text-xs text-slate-600 mt-1">
-                        Automatically send the initial WhatsApp message after customer is created.
-                        A message preview will be shown and you can send it directly to WhatsApp.
-                      </p>
-                    </div>
+              <div className="flex items-center justify-end gap-3 pt-8 border-t border-slate-100 mt-8">
+                {whatsappStatus.type !== "idle" && (
+                  <div className={`mr-auto text-sm font-medium ${
+                    whatsappStatus.type === "error" ? "text-rose-600" : "text-slate-600"
+                  }`}>
+                    {whatsappStatus.message}
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      id="whatsapp-checkbox"
-                      checked={whatsappAfterCreate}
-                      onChange={(e) => setWhatsappAfterCreate(e.target.checked)}
-                      disabled={whatsappSending}
-                      className="w-4 h-4 accent-green-600 cursor-pointer"
-                    />
-                    <label htmlFor="whatsapp-checkbox" className="text-sm font-medium text-slate-700 cursor-pointer flex-1">
-                      {whatsappAfterCreate ? "✓ Send WhatsApp on create" : "Don't send WhatsApp"}
-                    </label>
-                  </div>
-
-                  {whatsappStatus.type !== "idle" && (
-                    <div
-                      className={`p-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
-                        whatsappStatus.type === "loading"
-                          ? "bg-blue-100 text-blue-800"
-                          : whatsappStatus.type === "success"
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {whatsappStatus.type === "loading" && (
-                        <div className="animate-spin">
-                          <MessageCircle className="w-4 h-4" />
-                        </div>
-                      )}
-                      {whatsappStatus.type === "success" && <span>✓</span>}
-                      {whatsappStatus.type === "error" && <span>⚠</span>}
-                      {whatsappStatus.message}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                )}
+                
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={handleCancel}
                   disabled={whatsappSending}
-                  className="px-8 h-11 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold"
+                  className="px-6 h-11 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all font-semibold"
                 >
                   Cancel
                 </Button>
+                
                 <Button
                   type="submit"
+                  onClick={() => setSubmitAction("SAVE")}
                   disabled={whatsappSending}
-                  className="px-10 h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 flex items-center gap-2"
+                  className="px-6 h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
+                >
+                  {isCreate ? "Create & Save" : "Save Update"}
+                </Button>
+                
+                <Button
+                  type="submit"
+                  onClick={() => setSubmitAction("SEND")}
+                  disabled={whatsappSending}
+                  className="px-6 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
                 >
                   {whatsappSending ? (
-                    <>
-                      <div className="animate-spin">
-                        <MessageCircle className="w-4 h-4" />
-                      </div>
-                      Processing...
-                    </>
-                  ) : whatsappAfterCreate && isCreate ? (
-                    "Create & Send"
+                    <div className="animate-spin"><MessageCircle className="w-4 h-4" /></div>
                   ) : (
-                    isCreate ? "Confirm & Create" : "Save Changes"
+                    <MessageCircle className="w-4 h-4" />
                   )}
+                  {isCreate ? "Create & Send WA" : "Save & Send WA"}
                 </Button>
               </div>
             </form>

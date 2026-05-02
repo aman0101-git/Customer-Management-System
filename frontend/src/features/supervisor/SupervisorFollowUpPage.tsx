@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios"; 
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay, parseISO, addDays, isEqual } from "date-fns";
+import { format, isBefore, isToday, startOfDay, parseISO } from "date-fns";
 import { 
   Loader2, 
   Calendar, 
@@ -33,8 +33,8 @@ export default function SupervisorFollowUpPage() {
   // Filter State
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedProject, setSelectedProject] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all'); // 2. New State
-  const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'needs-d1' | 'needs-d3' | 'future'>('all');
+  const [selectedStatus, setSelectedStatus] = useState('all'); 
+  const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'future'>('all');
   const [loading, setLoading] = useState(true);
 
   // Initial Load
@@ -45,7 +45,7 @@ export default function SupervisorFollowUpPage() {
     }
   }, [user]);
 
-  // 3. Add selectedStatus to dependency array
+  // Add selectedStatus to dependency array
   useEffect(() => {
     if (user && !loading) fetchData();
   }, [selectedAgent, selectedProject, selectedStatus]);
@@ -66,7 +66,6 @@ export default function SupervisorFollowUpPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 4. Pass status to API
       const res = await axios.get(`/api/supervisor/follow-ups`, {
         params: { 
             agentId: selectedAgent, 
@@ -76,8 +75,6 @@ export default function SupervisorFollowUpPage() {
       });
       
       const todayStart = startOfDay(new Date());
-      const tomorrowStart = startOfDay(addDays(new Date(), 1));
-      const in3DaysStart = startOfDay(addDays(new Date(), 3));
 
       const processed = (res.data || []).map((item: any) => {
         const fDate = parseISO(item.follow_up_date); 
@@ -86,8 +83,6 @@ export default function SupervisorFollowUpPage() {
         let category = 'future';
         if (isBefore(itemDateStart, todayStart)) category = 'past';
         else if (isToday(itemDateStart)) category = 'today';
-        else if (isEqual(itemDateStart, tomorrowStart) && !item.d1_sent) category = 'needs-d1';
-        else if (isEqual(itemDateStart, in3DaysStart) && !item.d3_sent) category = 'needs-d3';
         
         return { ...item, category, parsedDate: fDate };
       });
@@ -100,12 +95,9 @@ export default function SupervisorFollowUpPage() {
     }
   };
 
-  // ... (KPI Calculations remain the same) ...
   const counts = {
     past: data.filter(i => i.category === 'past').length,
     today: data.filter(i => i.category === 'today').length,
-    needsD1: data.filter(i => i.category === 'needs-d1').length,
-    needsD3: data.filter(i => i.category === 'needs-d3').length,
     future: data.filter(i => i.category === 'future').length
   };
 
@@ -113,13 +105,10 @@ export default function SupervisorFollowUpPage() {
     ? data 
     : data.filter(i => i.category === timeFilter);
 
-  // ... (Styles functions remain the same) ...
   const getRowStyle = (category: string) => {
     switch(category) {
       case 'past': return "bg-red-50/60 hover:bg-red-100 border-l-4 border-l-red-500";
       case 'today': return "bg-orange-50/60 hover:bg-orange-100 border-l-4 border-l-orange-500";
-      case 'needs-d1': return "bg-blue-50/60 hover:bg-blue-100 border-l-4 border-l-blue-500";
-      case 'needs-d3': return "bg-purple-50/60 hover:bg-purple-100 border-l-4 border-l-purple-500";
       default: return "hover:bg-slate-50 border-l-4 border-l-transparent";
     }
   };
@@ -173,7 +162,7 @@ export default function SupervisorFollowUpPage() {
                <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
              </div>
 
-             {/* 5. Status Dropdown (NEW) */}
+             {/* Status Dropdown */}
              <div className="relative min-w-[180px]">
                <select 
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
@@ -192,8 +181,8 @@ export default function SupervisorFollowUpPage() {
           </div>
         </div>
 
-        {/* KPI CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+        {/* KPI CARDS - Adjusted to grid-cols-3 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Overdue */}
           <div 
             onClick={() => setTimeFilter(timeFilter === 'past' ? 'all' : 'past')}
@@ -219,34 +208,6 @@ export default function SupervisorFollowUpPage() {
                 <h2 className="text-3xl font-bold text-orange-600 mt-1">{counts.today}</h2>
               </div>
               <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Clock className="w-5 h-5"/></div>
-            </div>
-          </div>
-
-          {/* Needs D-1 */}
-          <div 
-            onClick={() => setTimeFilter(timeFilter === 'needs-d1' ? 'all' : 'needs-d1')}
-            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'needs-d1' ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-100' : 'bg-white border-slate-200 hover:border-blue-300 hover:shadow-md'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Needs D-1</p>
-                <h2 className="text-3xl font-bold text-blue-600 mt-1">{counts.needsD1}</h2>
-              </div>
-              <div className="p-2 bg-blue-100 rounded-lg text-blue-600"><Clock className="w-5 h-5"/></div>
-            </div>
-          </div>
-
-          {/* Needs D-3 */}
-          <div 
-            onClick={() => setTimeFilter(timeFilter === 'needs-d3' ? 'all' : 'needs-d3')}
-            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'needs-d3' ? 'bg-purple-50 border-purple-300 ring-2 ring-purple-100' : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-md'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Needs D-3</p>
-                <h2 className="text-3xl font-bold text-purple-600 mt-1">{counts.needsD3}</h2>
-              </div>
-              <div className="p-2 bg-purple-100 rounded-lg text-purple-600"><Calendar className="w-5 h-5"/></div>
             </div>
           </div>
 
@@ -283,7 +244,6 @@ export default function SupervisorFollowUpPage() {
                     <th className="px-6 py-3">Contact</th>
                     <th className="px-6 py-3">Project</th>
                     <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Reminders Sent</th>
                     <th className="px-6 py-3">Follow Up Date</th>
                     <th className="px-6 py-3">Updated</th>
                   </tr>
@@ -318,41 +278,13 @@ export default function SupervisorFollowUpPage() {
                         </span>
                       </td>
 
-                      {/* Reminders Sent */}
-                      <td className="px-6 py-3">
-                        <div className="flex gap-2 flex-wrap">
-                          {item.d3_sent && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> D-3
-                            </span>
-                          )}
-                          {item.d1_sent && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> D-1
-                            </span>
-                          )}
-                          {item.followup_msg_sent && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-green-100 text-green-700 border border-green-200 font-bold flex items-center gap-1">
-                              <CheckCircle2 className="w-3 h-3" /> F/U
-                            </span>
-                          )}
-                          {!item.d3_sent && !item.d1_sent && !item.followup_msg_sent && (
-                            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200 font-bold">
-                              None
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Follow Up - FIXED SECTION */}
+                      {/* Follow Up */}
                       <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
                              <span className={`font-semibold ${item.category === 'past' ? 'text-red-600' : 'text-slate-700'}`}>
-                                {/* Using the combined parsedDate for accurate date */}
                                 {format(item.parsedDate, "dd MMM yyyy")}
                              </span>
                              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                {/* Using the combined parsedDate for accurate time */}
                                 {format(item.parsedDate, "h:mm a")}
                              </span>
                           </div>

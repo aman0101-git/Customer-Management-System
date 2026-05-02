@@ -9,7 +9,8 @@ import {
   CalendarClock, 
   BarChart3, 
   Search,
-  MessageCircle
+  MessageCircle,
+  Clock
 } from "lucide-react";
 
 export default function SupervisorDashboard() {
@@ -123,15 +124,19 @@ export default function SupervisorDashboard() {
           </CardHeader>
         </Card>
   
-        {/* <Card accent="green" className="cursor-pointer" onClick={() => {}}>
+        <Card 
+          accent="purple" 
+          className="cursor-pointer transition-all hover:scale-[1.02] shadow-sm hover:shadow-md" 
+          onClick={() => navigate("/supervisor/whatsapp/audit")} 
+        >
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Clock className="w-5 h-5" />
-              Attendance Monitoring
+              Whatsapp Audit Log
             </CardTitle>
-            <CardDescription>Login / logout and work hours</CardDescription>
+            <CardDescription>View and manage WhatsApp audit logs</CardDescription>
           </CardHeader>
-        </Card> */}
+        </Card>
         
       </div>
     </AppShell>

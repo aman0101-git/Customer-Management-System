@@ -9,18 +9,18 @@ import {
   Plus,
   Edit2,
   Trash2,
-  Eye,
   Search,
   AlertCircle,
-  CheckCircle,
-  Zap,
+  Tag,
+  Star
 } from "lucide-react";
 
 type Template = {
   id: number;
   project_id: number;
   project_name: string;
-  trigger_event: "INITIAL" | "REMINDER_D3" | "REMINDER_D1" | "FOLLOWUP_DAY";
+  trigger_event: string;
+  template_code?: string;
   template_name: string;
   template_body: string;
   language_code: string;
@@ -37,19 +37,30 @@ type Project = {
   name: string;
 };
 
-const TRIGGER_EVENTS = [
-  { value: "INITIAL", label: "Initial Contact" },
-  { value: "REMINDER_D3", label: "Reminder (Day 3)" },
-  { value: "REMINDER_D1", label: "Reminder (Day 1)" },
-  { value: "FOLLOWUP_DAY", label: "Follow-up Day" },
-];
+// Simplified Architecture: Initial Contact vs Status Updates
+const INITIAL_CODES = ["INITIAL"];
+const STATUS_BASED_CODES = ["VC", "VP", "VMC", "VM", "SDOW", "NR", "VD", "BD", "LOST", "FU"];
+
+const TEMPLATE_CODE_LABELS: Record<string, string> = {
+  INITIAL: "Initial Welcome Contact",
+  VC: "Visit Confirmed",
+  VP: "Visit Planned",
+  VMC: "Virtual Meet Confirmed",
+  VM: "Virtual Meet",
+  SDOW: "Site Drop / Out of Window",
+  NR: "Not-Reachable",
+  VD: "Visit Done",
+  BD: "Booking Done",
+  LOST: "Lost / Closed",
+  FU: "Generic Follow-up",
+};
 
 const TEMPLATE_VARIABLES = [
   { name: "customer_name", description: "Customer's full name" },
   { name: "agent_name", description: "Agent's full name" },
   { name: "project_name", description: "Project name" },
-  { name: "follow_up_date", description: "Follow-up date" },
-  { name: "follow_up_time", description: "Follow-up time" },
+  { name: "follow_up_date", description: "Follow-up date (if applicable)" },
+  { name: "follow_up_time", description: "Follow-up time (if applicable)" },
 ];
 
 export default function WhatsAppTemplateManagement() {
@@ -58,26 +69,16 @@ export default function WhatsAppTemplateManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProject, setSelectedProject] = useState<string>("");
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
 
-  // Form state
   const [formData, setFormData] = useState({
     project_id: "",
     trigger_event: "",
+    template_code: "",
     template_name: "",
     template_body: "",
     is_active: 1,
     variables_json: "{}",
-  });
-
-  // Preview state
-  const [previewData, setPreviewData] = useState({
-    customer_name: "John Doe",
-    agent_name: "Agent Smith",
-    project_name: "Sunset Heights",
-    follow_up_date: "15/03/2023",
-    follow_up_time: "10:30:00",
   });
 
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
@@ -96,13 +97,9 @@ export default function WhatsAppTemplateManagement() {
       .catch(err => console.error("Failed to load projects:", err));
   }, []);
 
-  // Load templates
-  const loadTemplates = (projectId?: string) => {
-    const url = projectId
-      ? `${API_BASE}/api/supervisor/whatsapp/templates?projectId=${projectId}`
-      : `${API_BASE}/api/supervisor/whatsapp/templates`;
-
-    fetch(url, { credentials: "include" })
+  // Load ALL templates once, then filter on the frontend for speed
+  const loadTemplates = () => {
+    fetch(`${API_BASE}/api/supervisor/whatsapp/templates`, { credentials: "include" })
       .then(async res => {
         if (!res.ok) throw new Error(await res.text());
         return res.json();
@@ -115,10 +112,9 @@ export default function WhatsAppTemplateManagement() {
   };
 
   useEffect(() => {
-    loadTemplates(selectedProject);
-  }, [selectedProject]);
+    loadTemplates();
+  }, []);
 
-  // Handle create/update
   const handleSaveTemplate = async () => {
     if (!formData.project_id || !formData.trigger_event || !formData.template_body) {
       alert("Please fill in all required fields");
@@ -139,6 +135,7 @@ export default function WhatsAppTemplateManagement() {
         body: JSON.stringify({
           project_id: Number(formData.project_id),
           trigger_event: formData.trigger_event,
+          template_code: formData.trigger_event, // Ensure both match our code
           template_name: formData.template_name,
           template_body: formData.template_body,
           language_code: "en",
@@ -153,19 +150,19 @@ export default function WhatsAppTemplateManagement() {
       setDrawerOpen(false);
       setEditingTemplate(null);
       resetForm();
-      loadTemplates(selectedProject);
+      loadTemplates(); // Reload all templates
     } catch (error: any) {
       console.error("Error saving template:", error);
       alert(`Error: ${error.message}`);
     }
   };
 
-  // Handle edit
   const handleEditTemplate = (template: Template) => {
     setEditingTemplate(template);
     setFormData({
       project_id: String(template.project_id),
-      trigger_event: template.trigger_event,
+      trigger_event: template.template_code || template.trigger_event, // Fetch exact code
+      template_code: template.template_code || template.trigger_event,
       template_name: template.template_name,
       template_body: template.template_body,
       is_active: template.is_active,
@@ -174,7 +171,6 @@ export default function WhatsAppTemplateManagement() {
     setDrawerOpen(true);
   };
 
-  // Handle delete
   const handleDeleteTemplate = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this template?")) return;
 
@@ -187,18 +183,18 @@ export default function WhatsAppTemplateManagement() {
       if (!response.ok) throw new Error(await response.text());
 
       alert("Template deleted successfully");
-      loadTemplates(selectedProject);
+      loadTemplates();
     } catch (error: any) {
       console.error("Error deleting template:", error);
       alert(`Error: ${error.message}`);
     }
   };
 
-  // Reset form
   const resetForm = () => {
     setFormData({
       project_id: "",
       trigger_event: "",
+      template_code: "",
       template_name: "",
       template_body: "",
       is_active: 1,
@@ -207,19 +203,68 @@ export default function WhatsAppTemplateManagement() {
     setEditingTemplate(null);
   };
 
-  // Render template preview
-  const renderTemplate = (body: string): string => {
-    let rendered = body;
-    rendered = rendered.replace(/{{customer_name}}/g, previewData.customer_name);
-    rendered = rendered.replace(/{{agent_name}}/g, previewData.agent_name);
-    rendered = rendered.replace(/{{project_name}}/g, previewData.project_name);
-    return rendered;
-  };
+  // --- FRONTEND FILTERING FIX ---
+  // Filters instantly by search query AND selected project
+  const filteredTemplates = templates.filter(t => {
+    const matchesSearch = t.template_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          t.template_body.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesProject = selectedProject === "" || String(t.project_id) === selectedProject;
+    return matchesSearch && matchesProject;
+  });
 
-  const filteredTemplates = templates.filter(t =>
-    t.template_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.template_body.toLowerCase().includes(searchQuery.toLowerCase())
+  // Categorize based on the new logic
+  const initialTemplates = filteredTemplates.filter(t => 
+    INITIAL_CODES.includes(t.template_code || t.trigger_event || "")
   );
+  
+  const statusBasedTemplates = filteredTemplates.filter(t =>
+    STATUS_BASED_CODES.includes(t.template_code || t.trigger_event || "")
+  );
+
+  const TemplateCard = ({ template }: { template: Template }) => {
+    const displayCode = template.template_code || template.trigger_event;
+    
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all">
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex-1">
+            <h4 className="font-semibold text-slate-900 text-sm">{template.template_name}</h4>
+            <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+              <span className="font-bold text-slate-700">{displayCode}</span>
+              <span>•</span>
+              <span>{template.project_name || "Unknown Project"}</span>
+            </div>
+          </div>
+          {template.is_active ? (
+            <span className="px-2 py-1 bg-green-50 text-green-700 text-[10px] font-bold rounded border border-green-200">
+              Active
+            </span>
+          ) : (
+            <span className="px-2 py-1 bg-slate-50 text-slate-600 text-[10px] font-bold rounded border border-slate-200">
+              Inactive
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded mb-3 line-clamp-3">
+          {template.template_body}
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleEditTemplate(template)}
+            className="flex-1 flex items-center justify-center gap-1 bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+          >
+            <Edit2 className="w-3 h-3" /> Edit
+          </button>
+          <button
+            onClick={() => handleDeleteTemplate(template.id)}
+            className="flex-1 flex items-center justify-center gap-1 bg-red-50 hover:bg-red-100 text-red-700 px-3 py-2 rounded-lg text-xs font-semibold transition-colors"
+          >
+            <Trash2 className="w-3 h-3" /> Delete
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <AppShell sidebar={null}>
@@ -235,7 +280,7 @@ export default function WhatsAppTemplateManagement() {
                 WhatsApp Message Templates
               </h2>
               <p className="text-sm text-slate-500 font-medium mt-1 ml-1">
-                Create and manage project-wise WhatsApp message templates with variable support.
+                Manage automated responses per project
               </p>
             </div>
             <button
@@ -250,15 +295,13 @@ export default function WhatsAppTemplateManagement() {
             </button>
           </div>
 
-          {/* Controls & Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Controls */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex items-center">
-              <div className="pl-3 pr-2 text-slate-400">
-                <Search className="w-5 h-5" />
-              </div>
+              <Search className="w-5 h-5 text-slate-400 ml-3 mr-2" />
               <input
                 type="text"
-                placeholder="Search templates by name or content..."
+                placeholder="Search templates..."
                 className="w-full h-10 outline-none text-sm text-slate-700 placeholder:text-slate-400"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
@@ -269,7 +312,7 @@ export default function WhatsAppTemplateManagement() {
               <select
                 value={selectedProject}
                 onChange={e => setSelectedProject(e.target.value)}
-                className="w-full h-10 outline-none text-sm text-slate-700 px-3 bg-transparent"
+                className="w-full h-10 outline-none text-sm text-slate-700 px-3 bg-transparent cursor-pointer"
               >
                 <option value="">All Projects</option>
                 {projects.map(p => (
@@ -279,124 +322,58 @@ export default function WhatsAppTemplateManagement() {
                 ))}
               </select>
             </div>
-
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total</span>
-              <span className="text-2xl font-black text-green-600">{filteredTemplates.length}</span>
-            </div>
           </div>
 
-          {/* Templates Table */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500">Template Name</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500">Project</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500">Event</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500">Status</th>
-                    <th className="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredTemplates.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="text-center py-24">
-                        <div className="flex flex-col items-center justify-center">
-                          <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 border border-slate-100">
-                            <MessageCircle className="w-8 h-8 text-slate-300" />
-                          </div>
-                          <h3 className="text-slate-900 font-bold">No templates found</h3>
-                          <p className="text-slate-400 text-sm mt-1">Create your first template to get started.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTemplates.map(template => (
-                      <tr key={template.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-900">{template.template_name}</p>
-                            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{template.template_body}</p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-sm font-medium text-slate-700">
-                            {template.project_name ||
-                              projects.find(p => p.id === template.project_id)?.name ||
-                              "—"}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase bg-indigo-50 text-indigo-700 border border-indigo-100">
-                            <Zap className="w-3 h-3" />
-                            {TRIGGER_EVENTS.find(e => e.value === template.trigger_event)?.label}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold tracking-wide uppercase border ${
-                              template.is_active
-                                ? "bg-green-50 text-green-700 border-green-100"
-                                : "bg-slate-50 text-slate-700 border-slate-100"
-                            }`}
-                          >
-                            {template.is_active ? (
-                              <>
-                                <CheckCircle className="w-3 h-3" />
-                                Active
-                              </>
-                            ) : (
-                              "Inactive"
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="inline-flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setFormData({
-                                  project_id: String(template.project_id),
-                                  trigger_event: template.trigger_event,
-                                  template_name: template.template_name,
-                                  template_body: template.template_body,
-                                  is_active: template.is_active,
-                                  variables_json: template.variables_json,
-                                });
-                                setPreviewPanelOpen(true);
-                              }}
-                              className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
-                              title="Preview"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleEditTemplate(template)}
-                              className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteTemplate(template.id)}
-                              className="p-2 hover:bg-red-50 rounded-lg text-red-500 transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+          {/* Initial Create Templates */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <Star className="w-5 h-5 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">✨ Initial Contact Templates</h3>
+                <p className="text-xs text-slate-500">Sent automatically when "Create & Send" is clicked.</p>
+              </div>
             </div>
+            {initialTemplates.length === 0 ? (
+              <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center">
+                <p className="text-slate-500 text-sm">No initial templates set for this project.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {initialTemplates.map(t => (
+                  <TemplateCard key={t.id} template={t} />
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Template Variables Reference */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+          {/* Status-Based Templates */}
+          <div className="space-y-4 pt-8 border-t border-slate-200">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-purple-100 rounded-lg">
+                <Tag className="w-5 h-5 text-purple-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">🏷️ Status-Based Templates</h3>
+                <p className="text-xs text-slate-500">Sent when updating an existing customer's status.</p>
+              </div>
+            </div>
+            {statusBasedTemplates.length === 0 ? (
+              <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center">
+                <p className="text-slate-500 text-sm">No status-based templates yet.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {statusBasedTemplates.map(t => (
+                  <TemplateCard key={t.id} template={t} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Variables Reference */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mt-8">
             <div className="flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
@@ -405,9 +382,7 @@ export default function WhatsAppTemplateManagement() {
                 <div className="mt-2 space-y-1">
                   {TEMPLATE_VARIABLES.map(v => (
                     <div key={v.name} className="text-sm text-blue-800">
-                      <code className="bg-blue-100 px-2 py-1 rounded">
-                        {`{{${v.name}}}`}
-                      </code>
+                      <code className="bg-blue-100 px-2 py-1 rounded">{`{{${v.name}}}`}</code>
                       {" - "}
                       <span className="text-blue-700">{v.description}</span>
                     </div>
@@ -419,7 +394,7 @@ export default function WhatsAppTemplateManagement() {
         </div>
       </div>
 
-      {/* Create/Edit Template Drawer */}
+      {/* Create/Edit Drawer */}
       <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
         <DrawerContent>
           <DrawerHeader className="border-b border-slate-200">
@@ -427,151 +402,90 @@ export default function WhatsAppTemplateManagement() {
             <DrawerClose />
           </DrawerHeader>
 
-          <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-            {/* Project & Trigger Event */}
+          <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label>Project *</Label>
                 <select
                   value={formData.project_id}
                   onChange={e => setFormData({ ...formData, project_id: e.target.value })}
-                  className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-green-500 cursor-pointer"
                 >
                   <option value="">Select a project</option>
                   {projects.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
+                    <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <Label>Trigger Event *</Label>
+                <Label>Template Code (Trigger Event) *</Label>
                 <select
                   value={formData.trigger_event}
                   onChange={e => setFormData({ ...formData, trigger_event: e.target.value })}
-                  className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  className="mt-2 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-green-500 cursor-pointer"
                 >
-                  <option value="">Select event</option>
-                  {TRIGGER_EVENTS.map(e => (
-                    <option key={e.value} value={e.value}>
-                      {e.label}
-                    </option>
-                  ))}
+                  <option value="">Select Event Code</option>
+                  <optgroup label="Creation Event">
+                    <option value="INITIAL">INITIAL (Initial Contact)</option>
+                  </optgroup>
+                  <optgroup label="Status Updates">
+                    {STATUS_BASED_CODES.map(code => (
+                      <option key={code} value={code}>
+                        {code} ({TEMPLATE_CODE_LABELS[code]})
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
             </div>
 
-            {/* Template Name */}
             <div>
               <Label>Template Name *</Label>
               <Input
                 value={formData.template_name}
                 onChange={e => setFormData({ ...formData, template_name: e.target.value })}
-                placeholder="e.g., Initial Welcome Message"
+                placeholder="e.g., Nanded City - Visit Confirmed"
                 className="mt-2"
               />
             </div>
 
-            {/* Template Body */}
             <div>
-              <Label>Message Body *</Label>
+              <Label>Template Body *</Label>
               <Textarea
                 value={formData.template_body}
                 onChange={e => setFormData({ ...formData, template_body: e.target.value })}
-                placeholder="Enter your message body. Use {{customer_name}}, {{agent_name}}, {{project_name}} for variables."
-                className="mt-2 min-h-[120px]"
+                placeholder="Hi {{customer_name}}, your site visit is scheduled for..."
+                rows={5}
+                className="mt-2"
               />
             </div>
 
-            {/* Active Status */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <input
                 type="checkbox"
+                id="is-active"
                 checked={formData.is_active === 1}
                 onChange={e => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
-                className="w-4 h-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
+                className="w-4 h-4 cursor-pointer accent-green-600"
               />
-              <Label>Active Template</Label>
+              <label htmlFor="is-active" className="text-sm font-medium text-slate-700 cursor-pointer">
+                Active Template
+              </label>
             </div>
 
-            {/* Save Button */}
-            <div className="flex gap-3 justify-end pt-4">
+            <div className="flex gap-2 pt-4 border-t">
               <button
-                onClick={() => {
-                  setDrawerOpen(false);
-                  resetForm();
-                }}
-                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                onClick={() => setDrawerOpen(false)}
+                className="flex-1 px-4 py-2 border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-50 font-semibold transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSaveTemplate}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-bold transition-colors"
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-colors"
               >
-                {editingTemplate ? "Update" : "Create"} Template
-              </button>
-            </div>
-          </div>
-        </DrawerContent>
-      </Drawer>
-
-      {/* Preview Panel */}
-      <Drawer open={previewPanelOpen} onOpenChange={setPreviewPanelOpen}>
-        <DrawerContent>
-          <DrawerHeader className="border-b border-slate-200">
-            <DrawerTitle>Template Preview</DrawerTitle>
-            <DrawerClose />
-          </DrawerHeader>
-
-          <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Preview Settings */}
-              <div className="space-y-4">
-                <h3 className="font-bold text-slate-900">Sample Data</h3>
-                <div>
-                  <Label>Customer Name</Label>
-                  <Input
-                    value={previewData.customer_name}
-                    onChange={e => setPreviewData({ ...previewData, customer_name: e.target.value })}
-                    className="mt-2"
-                  />
-                </div>
-                <div>
-                  <Label>Agent Name</Label>
-                  <Input
-                    value={previewData.agent_name}
-                    onChange={e => setPreviewData({ ...previewData, agent_name: e.target.value })}
-                    className="mt-2"
-                  />
-                </div>
-                <div>
-                  <Label>Project Name</Label>
-                  <Input
-                    value={previewData.project_name}
-                    onChange={e => setPreviewData({ ...previewData, project_name: e.target.value })}
-                    className="mt-2"
-                  />
-                </div>
-              </div>
-
-              {/* Live Preview */}
-              <div className="space-y-4">
-                <h3 className="font-bold text-slate-900">Live Preview</h3>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 min-h-[200px] text-sm text-slate-800 whitespace-pre-wrap">
-                  {renderTemplate(formData.template_body)}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end pt-4">
-              <button
-                onClick={() => setPreviewPanelOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-900 rounded-lg text-sm font-bold transition-colors"
-              >
-                Close
+                {editingTemplate ? "Update Template" : "Create Template"}
               </button>
             </div>
           </div>
