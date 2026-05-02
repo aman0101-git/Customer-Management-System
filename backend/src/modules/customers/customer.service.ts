@@ -21,6 +21,7 @@ export async function getAgentCustomerMerged(agentCustomerId: number, agentId: n
               ac.final_status,
               c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, 
               c.project_id,
+              c.id AS customer_id,
               c.updated_at,
               c.created_at AS created_at
        FROM agent_customers ac
@@ -241,13 +242,10 @@ export async function updateAgentCustomer(
   const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
   const finalStatus = calculateFinalStatus(data.status_code);
 
-  // Check if follow_up_date has changed (for reschedule reset logic)
-  const dateHasChanged = oldValue && 
-    (oldValue.follow_up_date !== followUpDate || oldValue.follow_up_time !== followUpTime);
-
-  // Build UPDATE query with optional reminder reset
+  // Clean UPDATE query (Removed the old boolean tracking flags)
   let updateQuery = `UPDATE agent_customers
-     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?`;
+     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
+     WHERE id = ?`;
   
   const updateParams: any[] = [
     data.status_code,
@@ -260,15 +258,8 @@ export async function updateAgentCustomer(
     data.config || data.configuration,
     data.budget,
     data.purpose,
+    agentCustomerId
   ];
-
-  // RESCHEDULE RESET: If follow_up_date changed, reset reminder flags to restart the queue
-  if (dateHasChanged && followUpDate) {
-    updateQuery += `, d3_sent = 0, d1_sent = 0, followup_msg_sent = 0`;
-  }
-
-  updateQuery += ` WHERE id = ?`;
-  updateParams.push(agentCustomerId);
 
   await db.query(updateQuery, updateParams);
 
@@ -276,15 +267,14 @@ export async function updateAgentCustomer(
     `SELECT customer_id FROM agent_customers WHERE id = ?`,
     [agentCustomerId]
   );
+  
   if (agentRow.length) {
     const customerId = agentRow[0].customer_id;
     
-    // FIX: Added data.project_id to the check
+    // Check if customer fields need updating
     if (data.name || data.location || data.pincode || data.profession || data.designation || data.project_id) {
-      
-      // Dynamic SQL build to safely handle the project_id update
       let updateSql = `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?`;
-      const updateParams: any[] = [
+      const custParams: any[] = [
         data.name,
         data.location,
         data.pincode,
@@ -292,17 +282,15 @@ export async function updateAgentCustomer(
         data.designation,
       ];
 
-      // FIX: If the frontend sends a new project_id, append it to the SQL query
       if (data.project_id) {
         updateSql += `, project_id = ?`;
-        updateParams.push(data.project_id);
+        custParams.push(data.project_id);
       }
 
       updateSql += `, updated_at = NOW() WHERE id = ?`;
-      updateParams.push(customerId);
+      custParams.push(customerId);
 
-      await db.query(updateSql, updateParams);
-      
+      await db.query(updateSql, custParams);
     } else {
       await db.query(
         `UPDATE customers SET updated_at = NOW() WHERE id = ?`,
@@ -317,7 +305,7 @@ export async function updateAgentCustomer(
   );
   const newValue = newRows[0] ? { ...newRows[0] } : null;
 
-  // --- NEW LOGIC: DYNAMIC ACTION TYPE ---
+  // --- DYNAMIC ACTION TYPE ---
   let actionType = 'EDIT';
   if (oldValue && oldValue.status_code !== newValue.status_code) {
       actionType = 'STATUS_CHANGE';
@@ -568,15 +556,7 @@ export async function getAgentProjects(agentId: number) {
   return rows;
 }
 
-// ... existing imports
-
 export async function getAgentFollowUps(agentId: number) {
-  // Logic:
-  // 1. Must have a follow_up_date
-  // 2. Must NOT be 'lost'
-  // 3. Must NOT be 'COMPLETED' (Visit Done / Booking Done)
-  // 4. Sorted by Date ASC (Oldest/Overdue first) -> Then Time
-  
   const [rows]: any = await db.query(
     `SELECT ac.id AS agent_customer_id, 
             c.id AS customer_id,
@@ -584,9 +564,6 @@ export async function getAgentFollowUps(agentId: number) {
             ac.follow_up_date, 
             ac.follow_up_time,
             ac.remark,
-            ac.d3_sent,
-            ac.d1_sent,
-            ac.followup_msg_sent,
             c.name, 
             c.contact, 
             c.location,

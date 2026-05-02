@@ -776,3 +776,72 @@ export async function reassignCustomerTransaction(
     connection.release();
   }
 }
+
+// =============================================================================
+// WHATSAPP AUDIT LOG (NEW: Profile-Centric Workflow)
+// =============================================================================
+
+/**
+ * Get WhatsApp audit log for supervisor (messages sent by their agents)
+ */
+export async function getWhatsAppAuditLog(
+  supervisorId: number,
+  filterAgentId?: number,
+  startDate?: string,
+  endDate?: string
+): Promise<any[]> {
+  let query = `
+    SELECT 
+      wml.id,
+      wml.created_at as sent_at,
+      wml.status,
+      u.first_name,
+      u.last_name,
+      c.name as customer_name,
+      c.contact as phone,
+      p.name as project_name,
+      wt.template_code,
+      wml.delivery_mode,
+      wml.message_preview,
+      wml.provider_message_id,
+      wml.error_code,
+      wml.error_message,
+      wml.request_payload,
+      wml.response_payload
+    FROM whatsapp_message_logs wml
+    JOIN users u ON wml.agent_id = u.id
+    JOIN customers c ON wml.customer_id = c.id
+    JOIN projects p ON wml.project_id = p.id
+    LEFT JOIN whatsapp_templates wt ON wml.template_id = wt.id
+    WHERE u.supervisor_id = ?
+  `;
+  
+  const params: any[] = [supervisorId];
+
+  // Filter by agent if specified
+  if (filterAgentId) {
+    query += ` AND wml.agent_id = ?`;
+    params.push(filterAgentId);
+  }
+
+  // Filter by date range
+  if (startDate) {
+    query += ` AND DATE(wml.created_at) >= ?`;
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    query += ` AND DATE(wml.created_at) <= ?`;
+    params.push(endDate);
+  }
+
+  query += ` ORDER BY wml.created_at DESC`;
+
+  const [rows]: any = await db.query(query, params);
+  
+  return rows.map((row: any) => ({
+    ...row,
+    agent_name: `${row.first_name} ${row.last_name}`,
+    sent_at: row.sent_at,
+  }));
+}

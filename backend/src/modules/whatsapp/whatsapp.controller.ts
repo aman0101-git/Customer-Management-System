@@ -358,6 +358,12 @@ export async function getCustomerMessageHistory(req: Request, res: Response) {
  * 3. Generate wa.me link
  * 4. Log message action
  * 5. Return URL to open in new tab
+ * 
+ * Supports both triggerEvent (legacy) and templateCode (new profile-centric workflow)
+ */
+/**
+ * POST /api/agent/whatsapp/send-manual
+ * Send WhatsApp message manually using wa.me link
  */
 export async function sendManualWhatsApp(req: Request, res: Response) {
   try {
@@ -366,7 +372,8 @@ export async function sendManualWhatsApp(req: Request, res: Response) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const { customerId, triggerEvent } = req.body;
+    // triggerEvent here is our new template code (INITIAL, VC, LOST, etc.)
+    const { customerId, triggerEvent } = req.body; 
 
     // Validate inputs
     if (!customerId || !triggerEvent) {
@@ -376,7 +383,8 @@ export async function sendManualWhatsApp(req: Request, res: Response) {
       });
     }
 
-    // Prepare message and generate wa.me link
+    // We removed the messy if/else block! 
+    // Simply call the service with the template code.
     const result = await Service.prepareManuaWhatsAppMessage(
       agentId,
       Number(customerId),
@@ -453,6 +461,47 @@ export async function validateTemplate(req: Request, res: Response) {
     res.status(400).json({
       success: false,
       message: error.message || "Failed to validate template",
+    });
+  }
+}
+
+/**
+ * GET /api/agent/whatsapp/template-by-code
+ * Get template by project_id + template_code (NEW: Profile-Centric Workflow)
+ * Query params: projectId, templateCode
+ */
+export async function getTemplateByCode(req: Request, res: Response) {
+  try {
+    const { projectId, templateCode } = req.query;
+
+    if (!projectId || !templateCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required query params: projectId, templateCode",
+      });
+    }
+
+    const template = await Repository.getTemplateByProjectAndCode(
+      Number(projectId),
+      String(templateCode)
+    );
+
+    if (!template) {
+      return res.status(404).json({
+        success: false,
+        message: `No active template found for project ${projectId} and code ${templateCode}`,
+      });
+    }
+
+    res.json({
+      success: true,
+      data: template,
+    });
+  } catch (error: any) {
+    console.error("Error fetching template by code:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to fetch template by code",
     });
   }
 }

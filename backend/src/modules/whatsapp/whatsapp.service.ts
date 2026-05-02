@@ -32,7 +32,7 @@ function normalizeVariablesJson(input: unknown): Record<string, unknown> {
 // =============================================================================
 
 /**
- * Fetch template by project_id + trigger_event
+ * Fetch template by project_id + trigger_event (which is now our template_code)
  * Returns null if no active template found
  */
 export async function getTemplateForEvent(
@@ -41,7 +41,7 @@ export async function getTemplateForEvent(
 ): Promise<WhatsAppTemplate | null> {
   const template = await Repository.getTemplateByProjectAndEvent(projectId, triggerEvent);
   if (!template) {
-    throw new Error(`No template found for project ${projectId} and event ${triggerEvent}`);
+    throw new Error(`No active template found for project ${projectId} and code ${triggerEvent}`);
   }
   return template;
 }
@@ -55,10 +55,10 @@ export async function createTemplate(data: CreateTemplateInput): Promise<number>
     throw new Error("Missing required fields: project_id, trigger_event, template_body, template_name");
   }
 
-  // Validate trigger_event
-  const validEvents = ["INITIAL", "REMINDER_D3", "REMINDER_D1", "FOLLOWUP_DAY"];
+  // Validate trigger_event (Updated to our 10 new Status codes)
+  const validEvents = ["INITIAL", "VC", "VP", "VMC", "VM", "SDOW", "NR", "VD", "BD", "LOST", "FU"];
   if (!validEvents.includes(data.trigger_event)) {
-    throw new Error(`Invalid trigger_event. Must be one of: ${validEvents.join(", ")}`);
+    throw new Error(`Invalid template code. Must be one of: ${validEvents.join(", ")}`);
   }
 
   // Normalize variables_json
@@ -195,7 +195,6 @@ export function extractTemplateVariables(templateBody: string): string[] {
  * Log a message action
  */
 export async function logMessage(data: CreateMessageLogInput): Promise<number> {
-  // Validate required fields
   if (!data.agent_id || !data.customer_id || !data.project_id || !data.template_id || !data.recipient_phone) {
     throw new Error("Missing required fields for message logging");
   }
@@ -234,12 +233,11 @@ export async function updateMessageStatus(
 }
 
 // =============================================================================
-// MANUAL WHATSAPP SENDING SERVICE (Phase 2)
+// MANUAL WHATSAPP SENDING SERVICE
 // =============================================================================
 
 /**
  * Validate phone number format
- * Phone must be at least 10 digits
  */
 export function validatePhoneNumber(phone: string): boolean {
   if (!phone) return false;
@@ -249,7 +247,6 @@ export function validatePhoneNumber(phone: string): boolean {
 
 /**
  * Check if rendered message has any remaining placeholders
- * Returns true if message is valid (no {{}} remaining)
  */
 export function validateRenderedMessage(renderedMessage: string): boolean {
   const placeholderRegex = /{{(\w+)}}/g;
@@ -258,7 +255,6 @@ export function validateRenderedMessage(renderedMessage: string): boolean {
 
 /**
  * Generate WhatsApp wa.me link
- * Format: https://wa.me/{phone}?text={encoded_message}
  */
 export function generateWhatsAppLink(phone: string, message: string): string {
   const digitsOnly = phone.replace(/\D/g, "");
@@ -274,44 +270,12 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 }
 
 /**
- * Mark reminder as sent in agent_customers table
- * OPTIMISTIC TRACKING: Called when link is generated, before user actually sends
- */
-export async function markReminderAsSent(
-  agentId: number,
-  customerId: number,
-  triggerEvent: string
-): Promise<void> {
-  let updateField = "";
-  
-  switch (triggerEvent) {
-    case "REMINDER_D3":
-      updateField = "d3_sent";
-      break;
-    case "REMINDER_D1":
-      updateField = "d1_sent";
-      break;
-    case "FOLLOWUP_DAY":
-      updateField = "followup_msg_sent";
-      break;
-    default:
-      // For other events like INITIAL or CHAT, don't track
-      return;
-  }
-
-  await db.query(
-    `UPDATE agent_customers SET ${updateField} = 1 WHERE agent_id = ? AND customer_id = ?`,
-    [agentId, customerId]
-  );
-}
-
-/**
  * Prepare and send manual WhatsApp message
  */
 export async function prepareManuaWhatsAppMessage(
   agentId: number,
   customerId: number,
-  triggerEvent: string
+  templateCode: string
 ): Promise<{
   whatsappUrl: string;
   message: string;
@@ -343,7 +307,7 @@ export async function prepareManuaWhatsAppMessage(
   }
 
   const agent = agents[0];
-  const agentName = `${agent.first_name}`.trim();
+  const agentName = `${agent.first_name} ${agent.last_name || ""}`.trim();
 
   const [projects]: any = await db.query(
     "SELECT id, name FROM projects WHERE id = ?",
@@ -356,13 +320,12 @@ export async function prepareManuaWhatsAppMessage(
 
   const project = projects[0];
 
-  const template = await getTemplateForEvent(customer.project_id, triggerEvent);
+  const template = await getTemplateForEvent(customer.project_id, templateCode);
 
   if (!template) {
-    throw new Error(`No active template found for project ${customer.project_id} and event ${triggerEvent}`);
+    throw new Error(`No active template found for project ${customer.project_id} and event ${templateCode}`);
   }
 
-  // NEW: Fetch follow-up details from agent_customers table
   const [agentCustomer]: any = await db.query(
     "SELECT follow_up_date, follow_up_time FROM agent_customers WHERE agent_id = ? AND customer_id = ? ORDER BY id DESC LIMIT 1",
     [agentId, customerId]
@@ -374,16 +337,13 @@ export async function prepareManuaWhatsAppMessage(
   if (agentCustomer.length > 0) {
     const ac = agentCustomer[0];
     if (ac.follow_up_date) {
-      // Formats date to Indian standard format (DD/MM/YYYY)
       formattedDate = new Date(ac.follow_up_date).toLocaleDateString('en-IN'); 
     }
     if (ac.follow_up_time) {
-      // Usually comes as HH:MM:SS from MySQL. You can format it further if needed.
       formattedTime = ac.follow_up_time; 
     }
   }
 
-  // UPDATED: Pass the new variables to the renderer
   const renderedMessage = renderTemplateBody(template.template_body, {
     customer_name: customer.name,
     agent_name: agentName,
@@ -407,17 +367,13 @@ export async function prepareManuaWhatsAppMessage(
     customer_id: customerId,
     project_id: customer.project_id,
     template_id: template.id,
-    trigger_event: triggerEvent,
+    trigger_event: templateCode,
     send_mode: "MANUAL",
     delivery_mode: "WA_LINK",
     recipient_phone: customer.contact,
     message_preview: renderedMessage,
     status: "MANUAL_TRIGGERED",
   });
-
-  // OPTIMISTIC TRACKING: Mark reminder as sent immediately when link is generated
-  // User will open the link after this returns
-  await markReminderAsSent(agentId, customerId, triggerEvent);
 
   return {
     whatsappUrl,

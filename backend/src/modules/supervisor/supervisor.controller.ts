@@ -235,3 +235,42 @@ export async function reassignCustomer(req: Request, res: Response) {
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
+
+// =============================================================================
+// WHATSAPP AUDIT LOG (NEW: Profile-Centric Workflow)
+// =============================================================================
+
+/**
+ * GET /api/supervisor/whatsapp/audit
+ * Get WhatsApp audit log with filters for agent and date
+ * Query params: agentId (optional), startDate (optional), endDate (optional)
+ */
+export async function getWhatsAppAuditLog(req: Request, res: Response) {
+  try {
+    const supervisorId = (req as any).user?.id;
+    const { agentId, startDate, endDate } = req.query;
+
+    if (!supervisorId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const result = await Service.getWhatsAppAuditLog(
+      supervisorId,
+      agentId ? Number(agentId) : undefined,
+      startDate ? String(startDate) : undefined,
+      endDate ? String(endDate) : undefined
+    );
+
+    res.json({
+      success: true,
+      data: result,
+      count: result.length,
+    });
+  } catch (error: any) {
+    console.error("Error fetching WhatsApp audit log:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to fetch audit log",
+    });
+  }
+}

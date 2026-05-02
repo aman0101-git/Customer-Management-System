@@ -173,6 +173,33 @@ export async function deleteTemplate(id: number): Promise<boolean> {
   return result.affectedRows > 0;
 }
 
+/**
+ * Get template by project_id + template_code (NEW: Profile-Centric Workflow)
+ */
+export async function getTemplateByProjectAndCode(
+  projectId: number,
+  templateCode: string
+): Promise<WhatsAppTemplate | null> {
+  const [rows]: any = await db.query(
+    "SELECT * FROM whatsapp_templates WHERE project_id = ? AND template_code = ? AND is_active = 1",
+    [projectId, templateCode]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Get all templates for a project with template_code
+ */
+export async function getTemplatesByProjectAndCode(
+  projectId: number
+): Promise<(WhatsAppTemplate & { template_code: string | null })[]> {
+  const [rows]: any = await db.query(
+    "SELECT * FROM whatsapp_templates WHERE project_id = ? ORDER BY template_code, created_at DESC",
+    [projectId]
+  );
+  return rows;
+}
+
 // =============================================================================
 // WHATSAPP MESSAGE LOGS REPOSITORY
 // =============================================================================
@@ -281,4 +308,107 @@ export async function updateMessageLogStatus(
     [status, id]
   );
   return result.affectedRows > 0;
+}
+
+// =============================================================================
+// CANDIDATE JOURNEY REPOSITORY (NEW: Profile-Centric Workflow)
+// =============================================================================
+
+export interface JourneyEvent {
+  id: string;
+  event_type: 'status_change' | 'whatsapp_message';
+  timestamp: string;
+  data: {
+    old_status?: string;
+    new_status?: string;
+    template_code?: string;
+    trigger_event?: string;
+    message_preview?: string;
+    delivery_mode?: string;
+    status?: string;
+    remark?: string;
+  };
+}
+
+/**
+ * Get merged journey (agent_customer_logs + whatsapp_message_logs) for a customer
+ */
+export async function getCustomerJourney(customerId: number): Promise<JourneyEvent[]> {
+  // Get agent_customer_logs (status changes)
+  const [statusLogs]: any = await db.query(
+    `SELECT 
+       CONCAT('acl_', id) as id,
+       'status_change' as event_type,
+       created_at as timestamp,
+       action_type,
+       old_value,
+       new_value
+     FROM agent_customer_logs
+     WHERE (SELECT id FROM agent_customers WHERE customer_id = ?) = agent_customer_id
+     ORDER BY created_at DESC`,
+    [customerId]
+  );
+
+  // Get whatsapp_message_logs
+  const [messageLogs]: any = await db.query(
+    `SELECT 
+       CONCAT('wml_', id) as id,
+       'whatsapp_message' as event_type,
+       created_at as timestamp,
+       trigger_event,
+       status,
+       delivery_mode,
+       message_preview,
+       wt.template_code
+     FROM whatsapp_message_logs wml
+     LEFT JOIN whatsapp_templates wt ON wml.template_id = wt.id
+     WHERE customer_id = ?
+     ORDER BY created_at DESC`,
+    [customerId]
+  );
+
+  // Merge and sort by timestamp (newest first)
+  const events: JourneyEvent[] = [];
+
+  // Process status logs
+  for (const log of statusLogs) {
+    let oldStatus, newStatus;
+    try {
+      oldStatus = log.old_value ? JSON.parse(log.old_value).status_code : null;
+    } catch (e) {}
+    try {
+      newStatus = log.new_value ? JSON.parse(log.new_value).status_code : null;
+    } catch (e) {}
+
+    events.push({
+      id: log.id,
+      event_type: 'status_change',
+      timestamp: log.timestamp,
+      data: {
+        old_status: oldStatus,
+        new_status: newStatus,
+      },
+    });
+  }
+
+  // Process message logs
+  for (const msg of messageLogs) {
+    events.push({
+      id: msg.id,
+      event_type: 'whatsapp_message',
+      timestamp: msg.timestamp,
+      data: {
+        template_code: msg.template_code,
+        trigger_event: msg.trigger_event,
+        message_preview: msg.message_preview,
+        delivery_mode: msg.delivery_mode,
+        status: msg.status,
+      },
+    });
+  }
+
+  // Sort by timestamp (newest first)
+  events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return events;
 }

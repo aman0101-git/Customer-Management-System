@@ -56,15 +56,12 @@ router.post("/log-message", authenticate, Controller.logMessage);
 router.get("/message-history/:customerId", authenticate, Controller.getCustomerMessageHistory);
 
 /**
- * POST /api/agent/whatsapp/send-manual (Phase 2)
- * Send WhatsApp message manually using wa.me link
- */
-router.post("/send-manual", authenticate, Controller.sendManualWhatsApp);
-
-/**
  * GET /api/agent/whatsapp/validate-template (Phase 2)
  * Validate template exists and is properly configured
  */
 router.get("/validate-template", authenticate, Controller.validateTemplate);
+
+// Add this line back to your Agent routes section
+router.post("/send-manual", authenticate, Controller.sendManualWhatsApp);
 
 export default router;
