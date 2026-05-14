@@ -15,28 +15,28 @@ import {
   ChevronRight,
   Briefcase,
   MessageCircle,
+  CheckCircle2, // <-- Added for the new dropdown icon
 } from "lucide-react";
 
 // --- NEW TAB MANAGEMENT LOGIC ---
-// Defined outside the component so the reference persists across React re-renders
 let waWindowRef: Window | null = null;
 
 const openInSingleWhatsAppTab = (url: string) => {
-  // Convert api.whatsapp.com to web.whatsapp.com to prevent domain redirects
-  // from detaching the window reference in modern browsers.
   let directUrl = url;
   if (directUrl.includes("api.whatsapp.com")) {
     directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
   }
-
-  // Open or update the exact same tab
   waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
-
-  // Bring the tab into focus for the agent
   if (waWindowRef) {
     waWindowRef.focus();
   }
 };
+
+// --- STATUS OPTIONS ---
+const STATUS_OPTIONS = [
+  "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
+  "not-reachable", "virtual-meet", "pending"
+];
 
 export default function FollowUpDashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -44,6 +44,7 @@ export default function FollowUpDashboard() {
 
   const [data, setData] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "past" | "today" | "future">("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all"); // <-- Added status state
   const [loading, setLoading] = useState(true);
   const [whatsappLoading, setWhatsappLoading] = useState<number | null>(null);
 
@@ -63,49 +64,48 @@ export default function FollowUpDashboard() {
     }
   };
 
-
-
-  // Open generic WhatsApp chat
   const handleOpenWhatsApp = (phone: string) => {
     if (!phone) {
       alert("Phone number not available");
       return;
     }
-
     const digits = phone.replace(/\D/g, "");
     const formatted = digits.length === 10 ? "91" + digits : digits;
     const waUrl = `https://web.whatsapp.com/send?phone=${formatted}`;
     openInSingleWhatsAppTab(waUrl);
   };
 
-  // --- CATEGORIZATION LOGIC ---
+  // --- FILTERING & CATEGORIZATION LOGIC ---
   const todayStart = startOfDay(new Date());
 
-  const categorized = data.map((item) => {
+  // 1. Filter by status first
+  const statusFilteredData = selectedStatus === "all" 
+    ? data 
+    : data.filter(item => item.status_code === selectedStatus);
+
+  // 2. Then categorize into time buckets
+  const categorized = statusFilteredData.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
 
     let category = "future";
 
-    // Priority: Overdue checks first
     if (isBefore(itemDateStart, todayStart)) {
       category = "past";
-    }
-    // Today
-    else if (isToday(itemDateStart)) {
+    } else if (isToday(itemDateStart)) {
       category = "today";
     }
 
     return { ...item, category };
   });
 
+  // 3. KPI Counts update dynamically based on the filtered status
   const counts = {
     past: categorized.filter((i) => i.category === "past").length,
     today: categorized.filter((i) => i.category === "today").length,
     future: categorized.filter((i) => i.category === "future").length,
   };
 
-  // --- FILTERING ---
   const displayList =
     filter === "all" ? categorized : categorized.filter((i) => i.category === filter);
 
@@ -156,13 +156,23 @@ export default function FollowUpDashboard() {
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Daily Follow-ups</h1>
             <p className="text-slate-500 mt-1">Manage your pending calls and visits efficiently.</p>
           </div>
-          <button
-            onClick={() => fetchFollowUps()}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:text-blue-600 hover:border-blue-200 px-4 py-2 rounded-lg shadow-sm transition-all text-sm font-medium"
-          >
-            <RefreshCw className="w-4 h-4" />
-            <span>Refresh List</span>
-          </button>
+          
+          {/* REPLACED BUTTON WITH STATUS DROPDOWN */}
+          <div className="relative min-w-[180px]">
+            <select 
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+            >
+              <option value="all">All Status</option>
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {status.replace(/-/g, ' ')}
+                </option>
+              ))}
+            </select>
+            <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+          </div>
         </div>
 
         {/* KPI CARDS */}
@@ -295,7 +305,6 @@ export default function FollowUpDashboard() {
               const formattedTime = customer.follow_up_time?.slice(0, 5) || "--:--";
 
               const rowId: number = customer.agent_customer_id ?? customer.customer_id ?? customer.id;
-              const sendCustomerId: number = customer.customer_id ?? customer.id ?? rowId;
 
               return (
                 <div
