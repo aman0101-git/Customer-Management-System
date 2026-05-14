@@ -282,22 +282,39 @@ export async function prepareManualWhatsAppMessage(
   phone: string;
   logId: number;
 }> {
-  // 1. BULLETPROOF LOOKUP: Finds true customer ID
-  const [customers]: any = await db.query(
+  // 1. BULLETPROOF LOOKUP: Finds true customer ID without overlap bugs!
+  
+  // Check 1: Did the frontend pass the TRUE customer_id? (Most likely!)
+  // We strictly tie it to ac.agent_id = ? so an agent can never pull someone else's lead
+  let [customers]: any = await db.query(
     `SELECT c.id, c.name, c.contact, c.project_id 
      FROM customers c 
-     WHERE c.id = ? 
-        OR c.id = (SELECT customer_id FROM agent_customers WHERE id = ? LIMIT 1)`,
-    [customerId, customerId]
+     JOIN agent_customers ac ON c.id = ac.customer_id 
+     WHERE c.id = ? AND ac.agent_id = ? 
+     ORDER BY ac.id DESC LIMIT 1`,
+    [customerId, agentId]
   );
 
+  // Check 2: If not found, did the frontend pass the agent_customer_id instead?
   if (!customers.length) {
-    throw new Error(`Customer with ID ${customerId} not found`);
+    [customers] = await db.query(
+      `SELECT c.id, c.name, c.contact, c.project_id 
+       FROM customers c 
+       JOIN agent_customers ac ON c.id = ac.customer_id 
+       WHERE ac.id = ? AND ac.agent_id = ? 
+       LIMIT 1`,
+      [customerId, agentId]
+    );
+  }
+
+  // If STILL nothing was found, throw the error
+  if (!customers.length) {
+    throw new Error(`Customer with ID ${customerId} not found for this agent`);
   }
 
   const customer = customers[0];
   const actualCustomerId = customer.id; // <-- Storing the TRUE customer ID to use below
-
+  
   if (!validatePhoneNumber(customer.contact)) {
     throw new Error("Invalid customer phone number. Must have at least 10 digits.");
   }
@@ -417,5 +434,5 @@ export async function prepareManualWhatsAppMessage(
     message: renderedMessage,
     phone: customer.contact,
     logId,
-  };
+  }
 }
