@@ -11,7 +11,7 @@ import {
   Briefcase,
   User,
   ArrowLeft,
-  CheckCircle2 // Import Icon for status
+  CheckCircle2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -33,7 +33,7 @@ export default function SupervisorFollowUpPage() {
   // Filter State
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedProject, setSelectedProject] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all'); // 2. New State
+  const [selectedStatus, setSelectedStatus] = useState('all'); 
   const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'future'>('all');
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +45,7 @@ export default function SupervisorFollowUpPage() {
     }
   }, [user]);
 
-  // 3. Add selectedStatus to dependency array
+  // Add selectedStatus to dependency array
   useEffect(() => {
     if (user && !loading) fetchData();
   }, [selectedAgent, selectedProject, selectedStatus]);
@@ -66,7 +66,6 @@ export default function SupervisorFollowUpPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 4. Pass status to API
       const res = await axios.get(`/api/supervisor/follow-ups`, {
         params: { 
             agentId: selectedAgent, 
@@ -76,8 +75,9 @@ export default function SupervisorFollowUpPage() {
       });
       
       const todayStart = startOfDay(new Date());
+
       const processed = (res.data || []).map((item: any) => {
-        const fDate = parseISO(item.scheduled_at); 
+        const fDate = parseISO(item.follow_up_date); 
         const itemDateStart = startOfDay(fDate);
         
         let category = 'future';
@@ -95,7 +95,6 @@ export default function SupervisorFollowUpPage() {
     }
   };
 
-  // ... (KPI Calculations remain the same) ...
   const counts = {
     past: data.filter(i => i.category === 'past').length,
     today: data.filter(i => i.category === 'today').length,
@@ -106,7 +105,6 @@ export default function SupervisorFollowUpPage() {
     ? data 
     : data.filter(i => i.category === timeFilter);
 
-  // ... (Styles functions remain the same) ...
   const getRowStyle = (category: string) => {
     switch(category) {
       case 'past': return "bg-red-50/60 hover:bg-red-100 border-l-4 border-l-red-500";
@@ -164,7 +162,7 @@ export default function SupervisorFollowUpPage() {
                <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
              </div>
 
-             {/* 5. Status Dropdown (NEW) */}
+             {/* Status Dropdown */}
              <div className="relative min-w-[180px]">
                <select 
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
@@ -183,7 +181,7 @@ export default function SupervisorFollowUpPage() {
           </div>
         </div>
 
-        {/* KPI CARDS */}
+        {/* KPI CARDS - Adjusted to grid-cols-3 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Overdue */}
           <div 
@@ -280,15 +278,13 @@ export default function SupervisorFollowUpPage() {
                         </span>
                       </td>
 
-                      {/* Follow Up - FIXED SECTION */}
+                      {/* Follow Up */}
                       <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
                              <span className={`font-semibold ${item.category === 'past' ? 'text-red-600' : 'text-slate-700'}`}>
-                                {/* Using the combined parsedDate for accurate date */}
                                 {format(item.parsedDate, "dd MMM yyyy")}
                              </span>
                              <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                {/* Using the combined parsedDate for accurate time */}
                                 {format(item.parsedDate, "h:mm a")}
                              </span>
                           </div>

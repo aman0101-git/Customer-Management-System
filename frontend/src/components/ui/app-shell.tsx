@@ -13,7 +13,8 @@ import {
   Briefcase, 
   Settings, 
   ShieldAlert,      
-  FileDown 
+  FileDown,
+  MessageCircle 
 } from "lucide-react";
 import { NavLink, Link } from "react-router-dom";
 
@@ -46,6 +47,8 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Summary", path: "/supervisor/summarydashboard", icon: PieChart },
     { name: "Exports", path: "/supervisor/export-data", icon: FileDown },
     { name: "Search", path: "/supervisor/customer-search", icon: Search },
+    { name: "Templates", path: "/supervisor/whatsapp/templates", icon: MessageCircle },
+    { name: "Audit", path: "/supervisor/whatsapp/audit", icon: Clock },
   ];
 
   // Matches concepts in AdminDashboard (assuming you will create routes for these later, 

@@ -79,3 +79,19 @@ export async function updateProject(req: Request, res: Response) {
     res.status(500).json({ error: "Failed to update project" });
   }
 }
+
+// NEW: Deactivate Project Controller
+export async function deactivateProject(req: Request, res: Response) {
+  try {
+    const id = Number(req.params.id);
+    if (!id) {
+      return res.status(400).json({ error: "Project ID is required" });
+    }
+
+    await Service.deactivateProjectService(id);
+    res.json({ success: true, message: "Project deactivated successfully" });
+  } catch (err) {
+    console.error("Error deactivating project:", err);
+    res.status(500).json({ error: "Failed to deactivate project" });
+  }
+}

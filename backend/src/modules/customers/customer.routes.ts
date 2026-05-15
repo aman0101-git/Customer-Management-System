@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 import * as Controller from "./customer.controller.js";
+import * as WhatsAppController from "../whatsapp/whatsapp.controller.js";
 
 const router = Router();
 

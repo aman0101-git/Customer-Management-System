@@ -12,4 +12,7 @@ router.get("/drill-down", authenticate, Controller.getDrillDownData);
 router.get("/customers/search", authenticate, Controller.searchCustomers);
 router.put("/customers/:id/reassign", authenticate, Controller.reassignCustomer);
 
+// WhatsApp Audit Log (Profile-Centric Workflow)
+router.get("/whatsapp/audit", authenticate, Controller.getWhatsAppAuditLog);
+
 export default router;

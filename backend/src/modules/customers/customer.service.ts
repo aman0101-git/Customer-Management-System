@@ -21,6 +21,7 @@ export async function getAgentCustomerMerged(agentCustomerId: number, agentId: n
               ac.final_status,
               c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, 
               c.project_id,
+              c.id AS customer_id,
               c.updated_at,
               c.created_at AS created_at
        FROM agent_customers ac
@@ -144,9 +145,10 @@ export async function createAgentCustomer(agentId: number, data: any) {
   try {
     await conn.beginTransaction();
 
+    // FIXED: Now checks for existing customer ONLY within the same project
     const [existing]: any = await conn.query(
-      "SELECT id FROM customers WHERE contact = ?",
-      [data.contact]
+      "SELECT id FROM customers WHERE contact = ? AND project_id = ?",
+      [data.contact, data.project_id]
     );
 
     let customerId;
@@ -186,7 +188,7 @@ export async function createAgentCustomer(agentId: number, data: any) {
         finalStatus, 
         followUpDate, 
         followUpTime, 
-        doneDate, // NEW FIELD
+        doneDate, 
         data.remark,
       ]
     );
@@ -199,7 +201,14 @@ export async function createAgentCustomer(agentId: number, data: any) {
 
     await conn.commit();
 
-    return { agent_customer_id: assignment.insertId };
+    return { 
+      success: true,
+      data: {
+        agent_customer_id: assignment.insertId,
+        customer_id: customerId,
+        project_id: data.project_id,
+      }
+    };
   } catch (err: any) {
     await conn.rollback();
     if (err.code === "ER_DUP_ENTRY") {
@@ -233,43 +242,55 @@ export async function updateAgentCustomer(
   const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
   const finalStatus = calculateFinalStatus(data.status_code);
 
-  await db.query(
-    `UPDATE agent_customers
+  // Clean UPDATE query (Removed the old boolean tracking flags)
+  let updateQuery = `UPDATE agent_customers
      SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
-     WHERE id = ?`,
-    [
-      data.status_code,
-      finalStatus, 
-      followUpDate, 
-      followUpTime, 
-      doneDate, 
-      data.remark,
-      data.leadRating || data.lead_rating || data.rating,
-      data.config || data.configuration,
-      data.budget,
-      data.purpose,
-      agentCustomerId,
-    ]
-  );
+     WHERE id = ?`;
+  
+  const updateParams: any[] = [
+    data.status_code,
+    finalStatus, 
+    followUpDate, 
+    followUpTime, 
+    doneDate, 
+    data.remark,
+    data.leadRating || data.lead_rating || data.rating,
+    data.config || data.configuration,
+    data.budget,
+    data.purpose,
+    agentCustomerId
+  ];
+
+  await db.query(updateQuery, updateParams);
 
   const [agentRow]: any = await db.query(
     `SELECT customer_id FROM agent_customers WHERE id = ?`,
     [agentCustomerId]
   );
+  
   if (agentRow.length) {
     const customerId = agentRow[0].customer_id;
-    if (data.name || data.location || data.pincode || data.profession || data.designation) {
-      await db.query(
-        `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?, updated_at = NOW() WHERE id = ?`,
-        [
-          data.name,
-          data.location,
-          data.pincode,
-          data.profession,
-          data.designation,
-          customerId,
-        ]
-      );
+    
+    // Check if customer fields need updating
+    if (data.name || data.location || data.pincode || data.profession || data.designation || data.project_id) {
+      let updateSql = `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?`;
+      const custParams: any[] = [
+        data.name,
+        data.location,
+        data.pincode,
+        data.profession,
+        data.designation,
+      ];
+
+      if (data.project_id) {
+        updateSql += `, project_id = ?`;
+        custParams.push(data.project_id);
+      }
+
+      updateSql += `, updated_at = NOW() WHERE id = ?`;
+      custParams.push(customerId);
+
+      await db.query(updateSql, custParams);
     } else {
       await db.query(
         `UPDATE customers SET updated_at = NOW() WHERE id = ?`,
@@ -284,7 +305,7 @@ export async function updateAgentCustomer(
   );
   const newValue = newRows[0] ? { ...newRows[0] } : null;
 
-  // --- NEW LOGIC: DYNAMIC ACTION TYPE ---
+  // --- DYNAMIC ACTION TYPE ---
   let actionType = 'EDIT';
   if (oldValue && oldValue.status_code !== newValue.status_code) {
       actionType = 'STATUS_CHANGE';
@@ -301,7 +322,7 @@ export async function updateAgentCustomer(
 
 export async function getCustomerRemarkHistory(agentCustomerId: number) {
   const [rows]: any = await db.query(
-    `SELECT created_at, new_value 
+    `SELECT created_at, action_type, old_value, new_value 
      FROM agent_customer_logs 
      WHERE agent_customer_id = ? 
      ORDER BY created_at DESC`,
@@ -309,12 +330,26 @@ export async function getCustomerRemarkHistory(agentCustomerId: number) {
   );
 
   return rows.map((log: any) => {
-    const data = JSON.parse(log.new_value);
+    let newVal: any = {};
+    let oldVal: any = {};
+    
+    // Safely parse the JSON logs
+    try { newVal = log.new_value ? JSON.parse(log.new_value) : {}; } catch(e){}
+    try { oldVal = log.old_value ? JSON.parse(log.old_value) : {}; } catch(e){}
+
     return {
       date: log.created_at,
-      remark: data.remark || "No remark entered"
+      action_type: log.action_type,
+      old_status: oldVal.status_code || null,
+      new_status: newVal.status_code || null,
+      remark: newVal.remark && newVal.remark.trim() !== "" ? newVal.remark : null
     };
-  }).filter((item: any) => item.remark !== "No remark entered");
+  }).filter((item: any) => 
+    // Filter out useless empty edits, only return meaningful events
+    item.action_type === 'CREATE' || 
+    item.action_type === 'STATUS_CHANGE' || 
+    item.remark
+  );
 }
 
 // --- DASHBOARD ANALYTICS ---
@@ -521,17 +556,10 @@ export async function getAgentProjects(agentId: number) {
   return rows;
 }
 
-// ... existing imports
-
 export async function getAgentFollowUps(agentId: number) {
-  // Logic:
-  // 1. Must have a follow_up_date
-  // 2. Must NOT be 'lost'
-  // 3. Must NOT be 'COMPLETED' (Visit Done / Booking Done)
-  // 4. Sorted by Date ASC (Oldest/Overdue first) -> Then Time
-  
   const [rows]: any = await db.query(
     `SELECT ac.id AS agent_customer_id, 
+            c.id AS customer_id,
             ac.status_code, 
             ac.follow_up_date, 
             ac.follow_up_time,
@@ -539,6 +567,7 @@ export async function getAgentFollowUps(agentId: number) {
             c.name, 
             c.contact, 
             c.location,
+            c.project_id,
             p.name AS project_name
      FROM agent_customers ac
      JOIN customers c ON ac.customer_id = c.id

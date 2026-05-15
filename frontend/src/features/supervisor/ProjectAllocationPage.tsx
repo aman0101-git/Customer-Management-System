@@ -92,6 +92,29 @@ export default function ProjectAllocationPage() {
       .catch(err => alert("Error creating project: " + err));
   };
 
+  const handleDeactivateProject = (id: number, name: string) => {
+    if (!window.confirm(`Are you sure you want to deactivate the project "${name}"? Agents will no longer see it.`)) {
+      return;
+    }
+
+    fetch(`${API_BASE}/api/projects/${id}`, {
+      method: "DELETE", // Using DELETE method for a soft-delete action
+      credentials: "include",
+    })
+      .then(async res => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        return res.json();
+      })
+      .then(() => {
+        // Remove the project from the UI immediately without needing a full refresh
+        setProjects(prev => prev.filter(p => p.id !== id));
+      })
+      .catch(err => alert("Error deactivating project: " + err));
+  };
+
   const formatDate = (dateStr?: string | null) => {
     if (!dateStr) return "-";
     return new Date(dateStr).toLocaleDateString("en-GB", {
@@ -168,15 +191,21 @@ export default function ProjectAllocationPage() {
                           <span className="text-xs font-bold">{p.agent_count} Agents</span>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4 text-right whitespace-nowrap">
                         <button
-                          className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors"
+                          className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors mr-2"
                           onClick={() => {
                             setSelectedProject(p);
                             setAllocationDrawerOpen(true);
                           }}
                         >
                           Manage Team
+                        </button>
+                        <button
+                          className="text-rose-600 hover:text-rose-800 font-bold text-xs bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-lg transition-colors"
+                          onClick={() => handleDeactivateProject(p.id, p.name)}
+                        >
+                          Deactivate
                         </button>
                       </td>
                     </tr>

@@ -38,7 +38,7 @@ export async function getAssociates(supervisorId: number) {
 // ---------------- DASHBOARD FUNCTIONS ---------------- //
 
 // 1. VISITS & BOOKINGS (Cards)
-// Rule: VC, VP, VMC, VM -> Follow Up Date.
+// Rule: VC, VP, VMC, VM, Follow Up, SDOW, Not Reachable, Lost -> Updated Date.
 // Rule: BD, VD -> Done Date.
 export async function getSupervisorVisitsBooking(
   supervisorId: number,
@@ -56,15 +56,13 @@ export async function getSupervisorVisitsBooking(
     params.push(projectId);
   }
 
-  // UPDATED: We now need 3 pairs of dates for the 3 distinct OR conditions
-  // 1. Pipeline (follow_up_date)
-  // 2. Success (done_date)
-  // 3. Lost (updated_at)
+  // UPDATED: We now only need 2 pairs of dates for the 2 distinct OR conditions
+  // 1. Actioned/Updated Statuses (updated_at)
+  // 2. Success Statuses (done_date)
   const fullParams = [
     ...params, 
-    startDate, endDate, 
-    startDate, endDate, 
-    startDate, endDate
+    startDate, endDate, // For Scenario A
+    startDate, endDate  // For Scenario B
   ];
 
   const [rows]: any = await db.query(
@@ -78,15 +76,15 @@ export async function getSupervisorVisitsBooking(
       ${agentCondition.sql}
       ${projectFilter}
       AND (
-        -- Scenario A: Pipeline Statuses (Based on Scheduled Follow Up Date)
+        -- Scenario A: Actioned Statuses & Lost (Based on Updated Date)
         (
           ac.status_code IN (
             'visit-proposed', 'visit-confirmed', 
             'virtual-meet', 'virtual-meet-confirmed',
-            'follow-up', 'sdow', 'not-reachable'
+            'follow-up', 'sdow', 'not-reachable', 'lost'
           )
-          AND ac.follow_up_date IS NOT NULL
-          AND DATE(ac.follow_up_date) BETWEEN ? AND ?
+          AND ac.updated_at IS NOT NULL
+          AND DATE(ac.updated_at) BETWEEN ? AND ?
         )
         OR
         -- Scenario B: Success Statuses (Based on Done Date)
@@ -94,13 +92,6 @@ export async function getSupervisorVisitsBooking(
           ac.status_code IN ('visit-done', 'booking-done')
           AND ac.done_date IS NOT NULL
           AND DATE(ac.done_date) BETWEEN ? AND ?
-        )
-        OR
-        -- Scenario C: Lost Status (Based on Updated Date)
-        (
-          ac.status_code = 'lost'
-          AND ac.updated_at IS NOT NULL
-          AND DATE(ac.updated_at) BETWEEN ? AND ?
         )
       )
     ) t
@@ -283,14 +274,18 @@ export async function getSupervisorTeamFollowUps(
       c.name AS customer_name,      
       c.contact AS contact_number,   
       c.location,
+      u.first_name AS agent_first_name,
       ac.status_code,
       ac.follow_up_date,
       ac.follow_up_time,
-      TIMESTAMP(ac.follow_up_date, ac.follow_up_time) AS scheduled_at, 
+      CASE 
+        WHEN ac.follow_up_time IS NOT NULL THEN TIMESTAMP(ac.follow_up_date, ac.follow_up_time)
+        ELSE CAST(ac.follow_up_date AS DATETIME)
+      END AS scheduled_at, 
       c.updated_at,
       ac.remark,
       p.name as project_name,
-      CONCAT(u.first_name, ' ', u.last_name) as agent_name
+      u.first_name as agent_name
     FROM agent_customers ac
     JOIN users u ON ac.agent_id = u.id
     JOIN customers c ON ac.customer_id = c.id    
@@ -310,7 +305,7 @@ export async function getSupervisorTeamFollowUps(
   return rows;
 }
 
-// NEW: Export Data Service
+// NEW: Export Data Service with Full Journey History
 export async function getExportData(
   supervisorId: number,
   agentId: string,
@@ -324,6 +319,7 @@ export async function getExportData(
 
   let sql = `
     SELECT 
+      ac.id AS agent_customer_id, -- Added to fetch logs later
       c.name AS customer_name,
       c.contact,
       c.location,
@@ -402,8 +398,20 @@ export async function getExportData(
   }
 
   if (startDate && endDate) {
-    sql += ` AND DATE(ac.updated_at) BETWEEN ? AND ?`;
-    params.push(startDate, endDate);
+    if (['visit-done', 'booking-done'].includes(status)) {
+        sql += ` AND DATE(ac.done_date) BETWEEN ? AND ?`;
+        params.push(startDate, endDate);
+    } else if (status && status !== 'all') {
+        sql += ` AND DATE(ac.updated_at) BETWEEN ? AND ?`;
+        params.push(startDate, endDate);
+    } else {
+        sql += ` AND (
+            (ac.status_code IN ('visit-done', 'booking-done') AND DATE(ac.done_date) BETWEEN ? AND ?)
+            OR
+            (ac.status_code NOT IN ('visit-done', 'booking-done') AND DATE(ac.updated_at) BETWEEN ? AND ?)
+        )`;
+        params.push(startDate, endDate, startDate, endDate);
+    }
   }
 
   if (mode === 'fresh') {
@@ -414,8 +422,63 @@ export async function getExportData(
 
   sql += ` ORDER BY ac.updated_at DESC`;
 
-  const [rows] = await db.query(sql, params);
-  return rows;
+  const [rows]: any = await db.query(sql, params);
+
+  // Return early if no data
+  if (rows.length === 0) return rows;
+
+  // --- NEW: FETCH AND FORMAT HISTORY LOGS ---
+  const customerIds = rows.map((r: any) => r.agent_customer_id);
+  
+  const [logRows]: any = await db.query(
+    `SELECT agent_customer_id, created_at, action_type, old_value, new_value 
+     FROM agent_customer_logs 
+     WHERE agent_customer_id IN (?) 
+     ORDER BY created_at ASC`,
+    [customerIds]
+  );
+
+  const historyMap: Record<number, string[]> = {};
+
+  logRows.forEach((log: any) => {
+    let newVal: any = {};
+    let oldVal: any = {};
+    try { newVal = log.new_value ? JSON.parse(log.new_value) : {}; } catch(e){}
+    try { oldVal = log.old_value ? JSON.parse(log.old_value) : {}; } catch(e){}
+
+    // Skip blank edits
+    if (log.action_type !== 'CREATE' && log.action_type !== 'STATUS_CHANGE' && (!newVal.remark || newVal.remark.trim() === '')) {
+      return; 
+    }
+
+    const dateStr = new Date(log.created_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    let entry = `[${dateStr}] ${log.action_type}`;
+
+    if (log.action_type === 'STATUS_CHANGE') {
+        entry += ` (${oldVal.status_code || 'none'} -> ${newVal.status_code || 'none'})`;
+    } else if (log.action_type === 'CREATE') {
+        entry += ` (Initial: ${newVal.status_code || 'none'})`;
+    }
+
+    if (newVal.remark && newVal.remark.trim() !== '') {
+        entry += ` | Remark: "${newVal.remark}"`;
+    }
+
+    if (!historyMap[log.agent_customer_id]) {
+      historyMap[log.agent_customer_id] = [];
+    }
+    historyMap[log.agent_customer_id].push(entry);
+  });
+
+  // Attach compiled history string to the final rows
+  const finalExportRows = rows.map((row: any) => ({
+    ...row,
+    full_history: historyMap[row.agent_customer_id] 
+      ? historyMap[row.agent_customer_id].join('\n') 
+      : 'No history recorded'
+  }));
+
+  return finalExportRows;
 }
 
 // --- DRILL DOWN FUNCTION FOR SUPERVISOR ---
@@ -445,10 +508,13 @@ export async function getSupervisorDrillDown(
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
 
+    // UPDATED: Cards logic simplified to match the new updated_at rule
     if (section === 'cards') {
-        if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
-        else if (statusCode === 'lost') dateCol = "ac.updated_at";
-        else dateCol = "ac.follow_up_date";
+        if (['visit-done', 'booking-done'].includes(statusCode)) {
+            dateCol = "ac.done_date";
+        } else {
+            dateCol = "ac.updated_at"; // All other statuses fall back to updated_at
+        }
     } 
     else if (section === 'pipeline') {
         dateCol = "ac.follow_up_date";
@@ -459,7 +525,7 @@ export async function getSupervisorDrillDown(
     }
 
     params.push(startDate, endDate);
-    whereClause = ` AND DATE(${dateCol}) BETWEEN ? AND ? AND ac.status_code = ? `; // FIXED: Added DATE()
+    whereClause = ` AND DATE(${dateCol}) BETWEEN ? AND ? AND ac.status_code = ? `;
     params.push(statusCode);
     
     if (dayNum) {
@@ -475,7 +541,7 @@ export async function getSupervisorDrillDown(
         whereClause = ` 
             AND ac.status_code IN (${pipelineStatuses})
             AND DATE(ac.follow_up_date) BETWEEN ? AND ? 
-        `; // FIXED: Added DATE()
+        `; 
         params.push(startDate, endDate);
         
         if (dayNum) {
@@ -491,7 +557,7 @@ export async function getSupervisorDrillDown(
                 OR
                 (ac.status_code NOT IN ('visit-done', 'booking-done') AND DATE(ac.assigned_at) BETWEEN ? AND ?)
             )
-        `; // FIXED: Added DATE()
+        `; 
         params.push(startDate, endDate, startDate, endDate);
 
         if (dayNum) {
@@ -509,45 +575,43 @@ export async function getSupervisorDrillDown(
     }
   }
 
-  let dynamicJoin = "";
-  let pipelineLeadTypeCol = " 'N/A' AS pipeline_lead_type "; 
+  // FIX: Unconditionally apply the Lead Type calculation so it shows up in ALL drill down views
+  const pipelineLeadTypeCol = `
+      CASE 
+          WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
+              IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
+          ELSE 'N/A'
+      END AS pipeline_lead_type
+  `;
 
-  if (section === 'pipeline') {
-      pipelineLeadTypeCol = `
-          CASE 
-              WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
-                  IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
-              ELSE 'N/A'
-          END AS pipeline_lead_type
-      `;
-
-      dynamicJoin = `
-        LEFT JOIN (
+  // FIX: Unconditionally apply the Reset Clock join
+  const dynamicJoin = `
+    LEFT JOIN (
+        SELECT 
+            acl.agent_customer_id, 
+            COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
+        FROM agent_customer_logs acl
+        JOIN (
             SELECT 
-                acl.agent_customer_id, 
-                COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
-            FROM agent_customer_logs acl
-            JOIN (
-                SELECT 
-                    agent_customer_id, 
-                    MAX(created_at) AS last_status_change_at
-                FROM agent_customer_logs
-                WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
-                GROUP BY agent_customer_id
-            ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
-                            AND acl.created_at >= latest_status.last_status_change_at
-            
-            WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
-              AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != '' -- FIXED: Added missing 'acl.' prefix
-            GROUP BY acl.agent_customer_id
-        ) followup_history ON followup_history.agent_customer_id = ac.id
-      `;
+                agent_customer_id, 
+                MAX(created_at) AS last_status_change_at
+            FROM agent_customer_logs
+            WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
+            GROUP BY agent_customer_id
+        ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
+                        AND acl.created_at >= latest_status.last_status_change_at
+        
+        WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
+          AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != '' 
+        GROUP BY acl.agent_customer_id
+    ) followup_history ON followup_history.agent_customer_id = ac.id
+  `;
 
-      if (mode === 'fresh') {
-          whereClause += ` AND IFNULL(followup_history.unique_dates, 1) <= 1 `;
-      } else if (mode === 'repeated') {
-          whereClause += ` AND followup_history.unique_dates > 1 `;
-      }
+  // Keep the mode filtering (only applies when the frontend explicitly passes 'fresh' or 'repeated')
+  if (mode === 'fresh') {
+      whereClause += ` AND IFNULL(followup_history.unique_dates, 1) <= 1 `;
+  } else if (mode === 'repeated') {
+      whereClause += ` AND followup_history.unique_dates > 1 `;
   }
 
   const sql = `
@@ -560,7 +624,7 @@ export async function getSupervisorDrillDown(
       ac.done_date,
       ac.assigned_at,
       p.name AS project_name,
-      CONCAT(u.first_name, ' ', u.last_name) AS agent_name,
+      u.first_name AS agent_name,
       ${pipelineLeadTypeCol}
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
@@ -592,7 +656,7 @@ export async function searchGlobalCustomers(contactNumber: string) {
       ac.follow_up_date,
       ac.follow_up_time,
       p.name AS project_name,
-      CONCAT(u.first_name, ' ', u.last_name) AS agent_name
+      u.first_name AS agent_name
     FROM customers c
     -- Join active assignments
     LEFT JOIN agent_customers ac ON c.id = ac.customer_id AND ac.is_active = 1
@@ -711,4 +775,71 @@ export async function reassignCustomerTransaction(
     // ✅ This block is guaranteed to run, safely returning the connection to the pool exactly once.
     connection.release();
   }
+}
+
+// =============================================================================
+// WHATSAPP AUDIT LOG (NEW: Profile-Centric Workflow)
+// =============================================================================
+
+/**
+ * Get WhatsApp audit log for supervisor (messages sent by their agents)
+ */
+/**
+ * Get WhatsApp audit log for supervisor (messages sent by their agents)
+ */
+export async function getWhatsAppAuditLog(
+  supervisorId: number,
+  filterAgentId?: number,
+  startDate?: string,
+  endDate?: string
+): Promise<any[]> {
+  let query = `
+    SELECT 
+      wml.id,
+      wml.created_at as sent_at,
+      wml.status,
+      u.first_name,
+      u.last_name,
+      c.name as customer_name,
+      c.contact as phone,
+      p.name as project_name,
+      wt.template_code,
+      wml.delivery_mode,
+      wml.message_preview
+    FROM whatsapp_message_logs wml
+    JOIN users u ON wml.agent_id = u.id
+    JOIN customers c ON wml.customer_id = c.id
+    JOIN projects p ON wml.project_id = p.id
+    LEFT JOIN whatsapp_templates wt ON wml.template_id = wt.id
+    WHERE u.supervisor_id = ?
+  `;
+  
+  const params: any[] = [supervisorId];
+
+  // Filter by agent if specified
+  if (filterAgentId) {
+    query += ` AND wml.agent_id = ?`;
+    params.push(filterAgentId);
+  }
+
+  // Filter by date range
+  if (startDate) {
+    query += ` AND DATE(wml.created_at) >= ?`;
+    params.push(startDate);
+  }
+
+  if (endDate) {
+    query += ` AND DATE(wml.created_at) <= ?`;
+    params.push(endDate);
+  }
+
+  query += ` ORDER BY wml.created_at DESC`;
+
+  const [rows]: any = await db.query(query, params);
+  
+  return rows.map((row: any) => ({
+    ...row,
+    agent_name: row.first_name,
+    sent_at: row.sent_at,
+  }));
 }

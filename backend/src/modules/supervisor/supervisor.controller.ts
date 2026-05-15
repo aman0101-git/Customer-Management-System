@@ -120,7 +120,7 @@ export async function exportSupervisorData(req: Request, res: Response) {
       { header: 'Follow-up Date', key: 'follow_up_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
       { header: 'Follow-up Time', key: 'follow_up_time', width: 12 },
       { header: 'Done Date', key: 'done_date', width: 15, style: { numFmt: 'dd/mm/yyyy' } },
-      
+      { header: 'Full Journey Timeline', key: 'full_history', width: 60, style: { alignment: { wrapText: true } } },
       { header: 'Remark', key: 'remark', width: 30 },
       { header: 'Final Status', key: 'final_status', width: 15 },
       { header: 'Project', key: 'project_name', width: 18 },
@@ -233,5 +233,44 @@ export async function reassignCustomer(req: Request, res: Response) {
   } catch (error) {
     console.error("Reassignment Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// =============================================================================
+// WHATSAPP AUDIT LOG (NEW: Profile-Centric Workflow)
+// =============================================================================
+
+/**
+ * GET /api/supervisor/whatsapp/audit
+ * Get WhatsApp audit log with filters for agent and date
+ * Query params: agentId (optional), startDate (optional), endDate (optional)
+ */
+export async function getWhatsAppAuditLog(req: Request, res: Response) {
+  try {
+    const supervisorId = (req as any).user?.id;
+    const { agentId, startDate, endDate } = req.query;
+
+    if (!supervisorId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const result = await Service.getWhatsAppAuditLog(
+      supervisorId,
+      agentId ? Number(agentId) : undefined,
+      startDate ? String(startDate) : undefined,
+      endDate ? String(endDate) : undefined
+    );
+
+    res.json({
+      success: true,
+      data: result,
+      count: result.length,
+    });
+  } catch (error: any) {
+    console.error("Error fetching WhatsApp audit log:", error);
+    res.status(400).json({
+      success: false,
+      message: error.message || "Failed to fetch audit log",
+    });
   }
 }
