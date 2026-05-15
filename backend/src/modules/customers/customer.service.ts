@@ -35,11 +35,15 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
   );
   return "OK";
 }
-// Get all customers assigned to an agent, joined with customers table, sorted by updated_at DESC
+// Get all customers assigned to an agent, joined with customers table, sorted by assigned_at DESC.
+// Selects only the columns the frontend list view consumes — avoids shipping the
+// `remark` TEXT column and other unused fields per row.
 export async function getAgentCustomers(agentId: number) {
   const [rows]: any = await db.query(
-    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.budget, ac.status_code,
-            c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at
+    `SELECT ac.id, ac.status_code, ac.final_status,
+            ac.follow_up_date, ac.follow_up_time,
+            ac.assigned_at, c.updated_at,
+            c.name, c.contact
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      WHERE ac.agent_id = ?
@@ -166,60 +170,62 @@ export async function updateAgentCustomer(
   agentId: number,
   data: any
 ) {
-  const [check]: any = await db.query(
-    "SELECT id FROM agent_customers WHERE id = ? AND agent_id = ?",
-    [agentCustomerId, agentId]
-  );
+  const conn = await db.getConnection();
 
-  if (!check.length) return null;
+  try {
+    await conn.beginTransaction();
 
-  // Fetch old value for logging
-  const [oldRows]: any = await db.query(
-    "SELECT * FROM agent_customers WHERE id = ?",
-    [agentCustomerId]
-  );
-  const oldValue = oldRows[0] ? { ...oldRows[0] } : null;
+    // Combined ownership check + old-value fetch with row lock.
+    // FOR UPDATE prevents concurrent writes to the same assignment from racing
+    // (e.g. an agent submitting an edit twice in parallel).
+    const [oldRows]: any = await conn.query(
+      "SELECT * FROM agent_customers WHERE id = ? AND agent_id = ? FOR UPDATE",
+      [agentCustomerId, agentId]
+    );
 
-  // Format follow_up_date and follow_up_time
-  let followUpDate = data.follow_up_date;
-  if (followUpDate) {
-    // Always extract YYYY-MM-DD from any string (ISO or plain date)
-    followUpDate = String(followUpDate).slice(0, 10);
-  }
-  let followUpTime = data.follow_up_time;
-  if (followUpTime) {
-    try {
-      // Accepts 'HH:mm' or ISO, returns 'HH:mm:ss'
-      const t = new Date(`1970-01-01T${followUpTime}`);
-      followUpTime = t.toTimeString().slice(0, 8);
-    } catch {}
-  }
-  await db.query(
-    `UPDATE agent_customers
-     SET status_code = ?, follow_up_date = ?, follow_up_time = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
-     WHERE id = ?`,
-    [
-      data.status_code,
-      followUpDate,
-      followUpTime,
-      data.remark,
-      data.leadRating || data.lead_rating || data.rating,
-      data.config || data.configuration,
-      data.budget,
-      data.purpose,
-      agentCustomerId,
-    ]
-  );
+    if (!oldRows.length) {
+      await conn.rollback();
+      return null;
+    }
 
-  // Always update customer table's updated_at
-  const [agentRow]: any = await db.query(
-    `SELECT customer_id FROM agent_customers WHERE id = ?`,
-    [agentCustomerId]
-  );
-  if (agentRow.length) {
-    const customerId = agentRow[0].customer_id;
+    const oldValue = { ...oldRows[0] };
+    const customerId = oldValue.customer_id;
+
+    // Format follow_up_date and follow_up_time
+    let followUpDate = data.follow_up_date;
+    if (followUpDate) {
+      // Always extract YYYY-MM-DD from any string (ISO or plain date)
+      followUpDate = String(followUpDate).slice(0, 10);
+    }
+    let followUpTime = data.follow_up_time;
+    if (followUpTime) {
+      try {
+        // Accepts 'HH:mm' or ISO, returns 'HH:mm:ss'
+        const t = new Date(`1970-01-01T${followUpTime}`);
+        followUpTime = t.toTimeString().slice(0, 8);
+      } catch {}
+    }
+
+    await conn.query(
+      `UPDATE agent_customers
+       SET status_code = ?, follow_up_date = ?, follow_up_time = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
+       WHERE id = ?`,
+      [
+        data.status_code,
+        followUpDate,
+        followUpTime,
+        data.remark,
+        data.leadRating || data.lead_rating || data.rating,
+        data.config || data.configuration,
+        data.budget,
+        data.purpose,
+        agentCustomerId,
+      ]
+    );
+
+    // Always update customer table's updated_at
     if (data.name || data.location || data.pincode || data.profession || data.designation) {
-      await db.query(
+      await conn.query(
         `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?, updated_at = NOW() WHERE id = ?`,
         [
           data.name,
@@ -231,26 +237,31 @@ export async function updateAgentCustomer(
         ]
       );
     } else {
-      await db.query(
+      await conn.query(
         `UPDATE customers SET updated_at = NOW() WHERE id = ?`,
         [customerId]
       );
     }
+
+    // Re-fetch new value so the log captures any DB-side defaults / triggers.
+    const [newRows]: any = await conn.query(
+      "SELECT * FROM agent_customers WHERE id = ?",
+      [agentCustomerId]
+    );
+    const newValue = newRows[0] ? { ...newRows[0] } : null;
+
+    await conn.query(
+      `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
+       VALUES (?, ?, 'EDIT', ?, ?)` ,
+      [agentCustomerId, agentId, JSON.stringify(oldValue), JSON.stringify(newValue)]
+    );
+
+    await conn.commit();
+    return newValue;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  // Fetch new value for logging
-  const [newRows]: any = await db.query(
-    "SELECT * FROM agent_customers WHERE id = ?",
-    [agentCustomerId]
-  );
-  const newValue = newRows[0] ? { ...newRows[0] } : null;
-
-  // Insert log for EDIT
-  await db.query(
-    `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
-     VALUES (?, ?, 'EDIT', ?, ?)` ,
-    [agentCustomerId, agentId, JSON.stringify(oldValue), JSON.stringify(newValue)]
-  );
-
-  return newValue;
 }
