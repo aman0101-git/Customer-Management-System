@@ -383,19 +383,11 @@ export default function FollowUpDashboard() {
                     {/* Right: Action Buttons */}
                     <div className="flex gap-2 items-center flex-wrap md:flex-nowrap">
                       <button
-                        onClick={() => handleOpenWhatsApp(customer.contact || customer.phone)}
-                        disabled={whatsappLoading === rowId}
-                        className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 text-white px-4 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm active:scale-95"
-                      >
-                        <MessageCircle className="w-4 h-4" />
-                        <span className="hidden sm:inline">WhatsApp</span>
-                      </button>
-
-                      <button
                         type="button"
                         onClick={() => navigate(`/agent/customers/resolve?edit=${rowId}`)}
-                        className="w-full md:w-auto flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-700 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm active:scale-95"
+                        className="w-full md:w-auto flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm active:scale-95"
                       >
+                        <MessageCircle className="w-4 h-4" />
                         <span>Resolve</span>
                         <ChevronRight className="w-4 h-4" />
                       </button>
