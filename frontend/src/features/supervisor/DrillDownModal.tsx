@@ -46,7 +46,9 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
       return [
         escapeCSV(row.customer_name || "-"),
         escapeCSV(row.contact || "-"),
-        escapeCSV(row.agent_name || "-"),
+        escapeCSV(row.agent_first_name && row.agent_last_name 
+          ? `${row.agent_first_name} ${row.agent_last_name}` 
+          : row.agent_first_name || row.agent_name || "-"),
         escapeCSV(row.project_name || "-"),
         escapeCSV(row.status_code ? row.status_code.replace(/-/g, " ").toUpperCase() : "-"),
         
@@ -141,7 +143,9 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
                       </td>
 
                       <td className="p-3 text-slate-700 whitespace-nowrap">
-                        {row.agent_name}
+                        {row.agent_first_name && row.agent_last_name 
+                          ? `${row.agent_first_name} ${row.agent_last_name}` 
+                          : row.agent_first_name || row.agent_name || "-"}
                       </td>
 
                       <td className="p-3 whitespace-nowrap">
