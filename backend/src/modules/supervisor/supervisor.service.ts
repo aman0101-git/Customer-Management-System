@@ -461,7 +461,7 @@ export async function getSupervisorDrillDown(
       c.name AS customer_name, c.contact AS contact,
       ac.status_code, ac.follow_up_date, ac.follow_up_time, ac.done_date, ac.assigned_at,
       p.name AS project_name,
-      u.first_name AS agent_name,
+      u.first_name AS agent_first_name, u.last_name AS agent_last_name,
       CASE
         WHEN ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet-confirmed') THEN
           IF(IFNULL(ac.distinct_followup_dates,1) <= 1, 'Fresh', 'Repeated')
