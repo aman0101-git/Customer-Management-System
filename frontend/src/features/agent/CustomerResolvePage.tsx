@@ -286,6 +286,10 @@ export default function CustomerResolvePage() {
 
     try {
       let customerIdToUse = isEdit ? customer?.customer_id : customer?.id;
+      // NEW: track the agent_customer_id separately and unambiguously.
+      // In EDIT mode it's customer.id (the merged endpoint exposes ac.id as `id`).
+      // In CREATE mode it's populated after the POST response below.
+      let agentCustomerIdToUse: number | undefined = isEdit ? customer?.id : undefined;
 
       if (isCreate) {
         const createRes = await fetch(`${API_BASE}/api/agent/customers`, {
@@ -302,12 +306,17 @@ export default function CustomerResolvePage() {
         }
 
         customerIdToUse = createData?.data?.customer_id ?? createData?.data?.id;
+        agentCustomerIdToUse = createData?.data?.agent_customer_id;
 
         if (!customerIdToUse) {
           throw new Error("Invalid response: missing customer_id");
         }
-      } else if (isEdit && customerIdToUse) {
-        const updateRes = await fetch(`${API_BASE}/api/agent/customers/${customerIdToUse}`, {
+      } else if (isEdit && agentCustomerIdToUse) {
+        // BUGFIX (May 2026): PUT route is /:agentCustomerId — it expects the
+        // agent_customers.id, NOT the customers.id. Previously this used
+        // customerIdToUse (= customer.customer_id = c.id), which caused 403
+        // Forbidden in production whenever c.id and ac.id values diverged.
+        const updateRes = await fetch(`${API_BASE}/api/agent/customers/${agentCustomerIdToUse}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
@@ -315,12 +324,13 @@ export default function CustomerResolvePage() {
         });
 
         if (!updateRes.ok) {
-          throw new Error("Failed to update customer");
+          const errData = await updateRes.json().catch(() => null);
+          throw new Error(errData?.message || `Failed to update customer (HTTP ${updateRes.status})`);
         }
       }
 
       // Handle sending WhatsApp Message
-      if (submitAction === "SEND" && customerIdToUse) {
+      if (submitAction === "SEND" && (agentCustomerIdToUse || customerIdToUse)) {
         setWhatsappSending(true);
         setWhatsappStatus({ type: "loading", message: "Preparing WhatsApp message..." });
 
@@ -342,11 +352,15 @@ export default function CustomerResolvePage() {
              else if (s === "FOLLOW-UP") templateCode = "FU";
           }
 
+          // BUGFIX (May 2026): pass agentCustomerId (preferred) so the backend
+          // does a strict ac.id lookup. customerId is included as a defensive
+          // fallback only — backend prefers agentCustomerId when both are sent.
           const waRes = await fetch(`${API_BASE}/api/agent/whatsapp/send-manual`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
+              agentCustomerId: agentCustomerIdToUse,
               customerId: customerIdToUse,
               triggerEvent: templateCode,
             }),

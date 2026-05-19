@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import axios from 'axios';
-import { Loader2, Filter, Calendar, User, MessageCircle } from 'lucide-react';
+import { Loader2, Filter, Calendar, User, MessageCircle, Download } from 'lucide-react';
 
 interface AuditLogEntry {
   id: number;
@@ -86,6 +86,52 @@ export default function SupervisorWhatsAppAudit() {
     setFilterAgent('');
     setFilterStartDate('');
     setFilterEndDate('');
+  };
+
+  const exportToCSV = () => {
+    if (auditData.length === 0) {
+      alert('No data to export');
+      return;
+    }
+
+    // Prepare CSV headers
+    const headers = ['Date/Time', 'Agent', 'Customer', 'Project', 'Template'];
+    
+    // Prepare CSV rows
+    const rows = auditData.map((entry) => [
+      formatDateTime(entry.sent_at),
+      `${entry.first_name} ${entry.last_name}`,
+      entry.customer_name,
+      entry.project_name || '-',
+      entry.template_code || '-',
+    ]);
+
+    // Create CSV content
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) =>
+        row
+          .map((cell) => {
+            // Escape quotes and wrap in quotes if contains comma
+            const escaped = String(cell).replace(/"/g, '""');
+            return escaped.includes(',') ? `"${escaped}"` : escaped;
+          })
+          .join(',')
+      ),
+    ].join('\n');
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `whatsapp_audit_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const formatDateTime = (dateStr: string | undefined) => {
@@ -211,9 +257,19 @@ export default function SupervisorWhatsAppAudit() {
               </div>
             </div>
 
-            {/* Results Count */}
-            <div className="text-sm text-slate-600">
-              Showing <span className="font-semibold">{auditData.length}</span> records
+            {/* Export Button */}
+            <div className="flex justify-between items-center">
+              <div className="text-sm text-slate-600">
+                Showing <span className="font-semibold">{auditData.length}</span> records
+              </div>
+              <Button
+                onClick={exportToCSV}
+                disabled={auditData.length === 0}
+                className="bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download className="w-4 h-4" />
+                Export to CSV
+              </Button>
             </div>
           </div>
 

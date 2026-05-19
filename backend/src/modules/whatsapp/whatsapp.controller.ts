@@ -372,22 +372,24 @@ export async function sendManualWhatsApp(req: Request, res: Response) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    // triggerEvent here is our new template code (INITIAL, VC, LOST, etc.)
-    const { customerId, triggerEvent } = req.body; 
+    // PREFERRED: `agentCustomerId` (unambiguous — refers to agent_customers.id).
+    // LEGACY:    `customerId`      (strict customers.id; kept for backward compat).
+    // triggerEvent is the template code (INITIAL, VC, LOST, etc.).
+    const { agentCustomerId, customerId, triggerEvent } = req.body;
 
-    // Validate inputs
-    if (!customerId || !triggerEvent) {
+    if ((!agentCustomerId && !customerId) || !triggerEvent) {
       return res.status(400).json({
         success: false,
-        message: "Missing required fields: customerId, triggerEvent",
+        message: "Missing required fields: (agentCustomerId or customerId), triggerEvent",
       });
     }
 
-    // We removed the messy if/else block! 
-    // Simply call the service with the template code.
     const result = await Service.prepareManualWhatsAppMessage(
       agentId,
-      Number(customerId),
+      {
+        agentCustomerId: agentCustomerId ? Number(agentCustomerId) : undefined,
+        customerId: customerId ? Number(customerId) : undefined,
+      },
       String(triggerEvent)
     );
 

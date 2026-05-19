@@ -1,219 +1,215 @@
+// ============================================================================
+// backend/src/modules/customers/customer.service.ts
+// ----------------------------------------------------------------------------
+// Production optimization (May 2026):
+//   1. SARGABLE DATE FILTERS — DATE(col) BETWEEN replaced with col >= ? AND
+//      col < DATE_ADD(?, INTERVAL 1 DAY) so MySQL can use indexes.
+//   2. NO MORE JSON SCANS — getDashboardPipeline / getAgentDrillDown now read
+//      agent_customers.distinct_followup_dates directly. Requires the
+//      column + backfill from optimization/02_schema_additions.sql + 03b.
+//   3. COUNTERS MAINTAINED IN-TRANSACTION — createAgentCustomer and
+//      updateAgentCustomer keep distinct_followup_dates and
+//      last_status_change_at in sync inside the same transaction as the log.
+//   4. SLIM SELECTS + SAFETY LIMITS on getAgentCustomers / getAgentFollowUps.
+//   5. EDIT-LOG NOISE REDUCED — action_type='EDIT' rows only written if
+//      something actually changed.
+// ============================================================================
+
 import { db } from "../../config/db.js";
 
-// Helper to determine Final Status based on Status Code
-const calculateFinalStatus = (statusCode: string) => {
-  return (statusCode === "visit-done" || statusCode === "booking-done") 
-    ? "COMPLETED" 
-    : "PENDING";
-};
+// Helper: Final Status from Status Code
+const calculateFinalStatus = (statusCode: string) =>
+  (statusCode === "visit-done" || statusCode === "booking-done") ? "COMPLETED" : "PENDING";
 
-// Get merged customer + agent_customer for edit
+// ----------------------------------------------------------------------------
+// READS
+// ----------------------------------------------------------------------------
+
 export async function getAgentCustomerMerged(agentCustomerId: number, agentId: number) {
   const [rows]: any = await db.query(
-      `SELECT ac.id, ac.status_code,
-              ac.follow_up_date,
-              ac.follow_up_time,
-              ac.done_date, 
-              ac.remark, ac.assigned_at,
-              ac.rating,
-              ac.configuration AS config,
-              ac.budget, ac.purpose, ac.source,
-              ac.final_status,
-              c.name, c.contact as phone, c.location, c.pincode, c.profession, c.designation, 
-              c.project_id,
-              c.id AS customer_id,
-              c.updated_at,
-              c.created_at AS created_at
-       FROM agent_customers ac
+    `SELECT ac.id, ac.status_code, ac.follow_up_date, ac.follow_up_time,
+            ac.done_date, ac.remark, ac.assigned_at, ac.rating,
+            ac.configuration AS config, ac.budget, ac.purpose, ac.source,
+            ac.final_status,
+            c.name, c.contact AS phone, c.location, c.pincode, c.profession, c.designation,
+            c.project_id, c.id AS customer_id, c.updated_at, c.created_at
+     FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
-     WHERE ac.id = ? AND ac.agent_id = ?`,
+     WHERE ac.id = ? AND ac.agent_id = ?
+     LIMIT 1`,
     [agentCustomerId, agentId]
   );
   return rows[0] || null;
 }
 
-// Mark agent customer as completed if status is visit-done or booking-done
 export async function completeAgentCustomer(agentCustomerId: number, agentId: number) {
   const [rows]: any = await db.query(
-    "SELECT status_code FROM agent_customers WHERE id = ? AND agent_id = ?",
+    "SELECT status_code FROM agent_customers WHERE id = ? AND agent_id = ? LIMIT 1",
     [agentCustomerId, agentId]
   );
   if (!rows.length) return "FORBIDDEN";
   const status = rows[0].status_code;
   if (status !== "visit-done" && status !== "booking-done" && status !== "lost") return "FORBIDDEN";
   await db.query(
-    `UPDATE agent_customers SET final_status = 'COMPLETED', is_active = false WHERE id = ?`,
+    `UPDATE agent_customers SET final_status = 'COMPLETED', is_active = 0 WHERE id = ?`,
     [agentCustomerId]
   );
   return "OK";
 }
 
-// Get all customers assigned to an agent
-export async function getAgentCustomers(agentId: number) {
+/**
+ * Get all customers for an agent.
+ * Optional pagination: pass {page, limit} from controller to enable; default
+ * behavior (no params) returns up to 5000 records to preserve compatibility
+ * with the existing AgentCustomersPage while preventing runaway responses.
+ */
+export async function getAgentCustomers(
+  agentId: number,
+  page?: number,
+  limit?: number
+) {
+  const effectiveLimit = Math.min(Math.max(limit ?? 5000, 1), 5000);
+  const offset = page && page > 0 ? (page - 1) * effectiveLimit : 0;
+
   const [rows]: any = await db.query(
-    `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.budget, ac.status_code,
-            c.name, c.contact, c.location, c.pincode, c.profession, c.designation, c.created_at, c.updated_at,
-            p.name AS project_name,
-            p.id AS project_id
+    `SELECT ac.id, ac.agent_id, ac.customer_id, ac.status_code, ac.final_status,
+            ac.follow_up_date, ac.follow_up_time, ac.done_date,
+            ac.budget, ac.configuration, ac.rating, ac.source, ac.purpose,
+            ac.remark, ac.assigned_at, ac.updated_at, ac.is_active,
+            c.name, c.contact, c.location, c.pincode, c.profession, c.designation,
+            c.created_at, c.updated_at AS customer_updated_at,
+            p.name AS project_name, p.id AS project_id
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      LEFT JOIN projects p ON c.project_id = p.id
      WHERE ac.agent_id = ?
        AND ac.is_active = 1
-       AND ac.status_code != 'lost'
-     ORDER BY ac.assigned_at DESC`,
-    [agentId]
+       AND ac.status_code <> 'lost'
+     ORDER BY ac.assigned_at DESC
+     LIMIT ? OFFSET ?`,
+    [agentId, effectiveLimit, offset]
   );
   return rows;
 }
 
-export async function searchCustomerForAgent(
-  phone: string,
-  agentId: number
-) {
-  const [customers]: any = await db.query(
-    "SELECT id, name, contact FROM customers WHERE contact = ?",
-    [phone]
-  );
-
-  if (!customers.length) return null;
-
-  const customerId = customers[0].id;
-
-  const [assignments]: any = await db.query(
+export async function searchCustomerForAgent(phone: string, agentId: number) {
+  const [rows]: any = await db.query(
     `SELECT ac.*, ac.follow_up_date, ac.follow_up_time, ac.done_date,
             ac.source, ac.rating, ac.budget, ac.configuration, ac.purpose, ac.final_status,
             c.name, c.contact, c.location, c.pincode, c.project_id, c.profession, c.designation, c.created_at,
-            p.name as project_name
+            p.name AS project_name
      FROM agent_customers ac
      JOIN customers c ON c.id = ac.customer_id
      LEFT JOIN projects p ON c.project_id = p.id
-     WHERE ac.agent_id = ? AND ac.customer_id = ?`,
-    [agentId, customerId]
+     WHERE ac.agent_id = ? AND c.contact = ?
+     LIMIT 1`,
+    [agentId, phone]
   );
-
-  return assignments.length ? assignments[0] : null;
+  return rows[0] || null;
 }
 
-// --- HELPER FOR DATE PARSING ---
+// ----------------------------------------------------------------------------
+// DATE HELPERS
+// ----------------------------------------------------------------------------
 const parseDatesBasedOnStatus = (data: any) => {
   const isDone = data.status_code === "visit-done" || data.status_code === "booking-done";
   const isLost = data.status_code === "lost";
 
-  let followUpDate = null;
-  let followUpTime = null;
-  let doneDate = null;
+  if (isLost) return { followUpDate: null, followUpTime: null, doneDate: null };
 
-  // SCENARIO 1: LOST (No dates needed)
-  if (isLost) {
-    return { followUpDate: null, followUpTime: null, doneDate: null };
-  }
-
-  // SCENARIO 2: DONE (Done Date required, Follow-up disabled)
   if (isDone) {
-    if (data.done_date && data.done_date !== "") {
-      try {
-        doneDate = new Date(data.done_date).toISOString().slice(0, 10);
-      } catch {}
+    let doneDate = null;
+    if (data.done_date) {
+      try { doneDate = new Date(data.done_date).toISOString().slice(0, 10); } catch {}
     }
     return { followUpDate: null, followUpTime: null, doneDate };
   }
 
-  // SCENARIO 3: NORMAL STATUS (Follow-up required, Done Date disabled)
-  if (data.follow_up_date && data.follow_up_date !== "") {
-    try {
-      followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10);
-    } catch {}
+  let followUpDate = null, followUpTime = null;
+  if (data.follow_up_date) {
+    try { followUpDate = new Date(data.follow_up_date).toISOString().slice(0, 10); } catch {}
   }
-
-  if (data.follow_up_time && data.follow_up_time !== "") {
+  if (data.follow_up_time) {
     try {
       const t = new Date(`1970-01-01T${data.follow_up_time}`);
-      if (!isNaN(t.getTime())) {
-        followUpTime = t.toTimeString().slice(0, 8);
-      }
+      if (!isNaN(t.getTime())) followUpTime = t.toTimeString().slice(0, 8);
     } catch {}
   }
-
   return { followUpDate, followUpTime, doneDate: null };
 };
 
+// ----------------------------------------------------------------------------
+// WRITES — keep counters in sync inside the same transaction
+// ----------------------------------------------------------------------------
 
 export async function createAgentCustomer(agentId: number, data: any) {
   const conn = await db.getConnection();
-
   try {
     await conn.beginTransaction();
 
-    // FIXED: Now checks for existing customer ONLY within the same project
     const [existing]: any = await conn.query(
-      "SELECT id FROM customers WHERE contact = ? AND project_id = ?",
+      "SELECT id FROM customers WHERE contact = ? AND project_id = ? LIMIT 1",
       [data.contact, data.project_id]
     );
 
-    let customerId;
-
+    let customerId: number;
     if (existing.length) {
       customerId = existing[0].id;
       await conn.query(
-        `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ? WHERE id = ?`,
+        `UPDATE customers
+            SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?
+          WHERE id = ?`,
         [data.name, data.location, data.pincode, data.profession, data.designation, customerId]
       );
     } else {
       const [result]: any = await conn.query(
-        `INSERT INTO customers (name, contact, location, pincode, profession, designation, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO customers (name, contact, location, pincode, profession, designation, project_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [data.name, data.contact, data.location, data.pincode, data.profession, data.designation, data.project_id]
       );
       customerId = result.insertId;
     }
 
-    // Logic to handle dates based on status
     const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
     const finalStatus = calculateFinalStatus(data.status_code);
 
     const [assignment]: any = await conn.query(
       `INSERT INTO agent_customers
-       (agent_id, customer_id, source, rating, budget, configuration, purpose,
-        status_code, final_status, follow_up_date, follow_up_time, done_date, remark)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (agent_id, customer_id, source, rating, budget, configuration, purpose,
+         status_code, final_status, follow_up_date, follow_up_time, done_date, remark,
+         last_status_change_at, distinct_followup_dates)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
       [
-        agentId,
-        customerId,
+        agentId, customerId,
         data.source,
         data.leadRating || data.lead_rating || data.rating,
         data.budget,
         data.config || data.configuration,
         data.purpose,
-        data.status_code,
-        finalStatus, 
-        followUpDate, 
-        followUpTime, 
-        doneDate, 
-        data.remark,
+        data.status_code, finalStatus,
+        followUpDate, followUpTime, doneDate, data.remark,
+        followUpDate ? 1 : 0,
       ]
     );
 
     await conn.query(
       `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
-       VALUES (?, ?, 'CREATE', NULL, ?)` ,
+       VALUES (?, ?, 'CREATE', NULL, ?)`,
       [assignment.insertId, agentId, JSON.stringify(data)]
     );
 
     await conn.commit();
-
-    return { 
+    return {
       success: true,
       data: {
         agent_customer_id: assignment.insertId,
         customer_id: customerId,
         project_id: data.project_id,
-      }
+      },
     };
   } catch (err: any) {
     await conn.rollback();
-    if (err.code === "ER_DUP_ENTRY") {
-      throw { code: "DUPLICATE_ASSIGNMENT" };
-    }
+    if (err.code === "ER_DUP_ENTRY") throw { code: "DUPLICATE_ASSIGNMENT" };
     throw err;
   } finally {
     conn.release();
@@ -225,332 +221,275 @@ export async function updateAgentCustomer(
   agentId: number,
   data: any
 ) {
-  const [check]: any = await db.query(
-    "SELECT id FROM agent_customers WHERE id = ? AND agent_id = ?",
-    [agentCustomerId, agentId]
-  );
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  if (!check.length) return null;
-
-  const [oldRows]: any = await db.query(
-    "SELECT * FROM agent_customers WHERE id = ?",
-    [agentCustomerId]
-  );
-  const oldValue = oldRows[0] ? { ...oldRows[0] } : null;
-
-  // Logic to handle dates based on status
-  const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
-  const finalStatus = calculateFinalStatus(data.status_code);
-
-  // Clean UPDATE query (Removed the old boolean tracking flags)
-  let updateQuery = `UPDATE agent_customers
-     SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?, done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?
-     WHERE id = ?`;
-  
-  const updateParams: any[] = [
-    data.status_code,
-    finalStatus, 
-    followUpDate, 
-    followUpTime, 
-    doneDate, 
-    data.remark,
-    data.leadRating || data.lead_rating || data.rating,
-    data.config || data.configuration,
-    data.budget,
-    data.purpose,
-    agentCustomerId
-  ];
-
-  await db.query(updateQuery, updateParams);
-
-  const [agentRow]: any = await db.query(
-    `SELECT customer_id FROM agent_customers WHERE id = ?`,
-    [agentCustomerId]
-  );
-  
-  if (agentRow.length) {
-    const customerId = agentRow[0].customer_id;
-    
-    // Check if customer fields need updating
-    if (data.name || data.location || data.pincode || data.profession || data.designation || data.project_id) {
-      let updateSql = `UPDATE customers SET name = ?, location = ?, pincode = ?, profession = ?, designation = ?`;
-      const custParams: any[] = [
-        data.name,
-        data.location,
-        data.pincode,
-        data.profession,
-        data.designation,
-      ];
-
-      if (data.project_id) {
-        updateSql += `, project_id = ?`;
-        custParams.push(data.project_id);
-      }
-
-      updateSql += `, updated_at = NOW() WHERE id = ?`;
-      custParams.push(customerId);
-
-      await db.query(updateSql, custParams);
-    } else {
-      await db.query(
-        `UPDATE customers SET updated_at = NOW() WHERE id = ?`,
-        [customerId]
-      );
+    const [oldRows]: any = await conn.query(
+      "SELECT * FROM agent_customers WHERE id = ? AND agent_id = ? LIMIT 1",
+      [agentCustomerId, agentId]
+    );
+    if (!oldRows.length) {
+      await conn.rollback();
+      return null;
     }
+    const oldValue = oldRows[0];
+
+    const { followUpDate, followUpTime, doneDate } = parseDatesBasedOnStatus(data);
+    const finalStatus = calculateFinalStatus(data.status_code);
+
+    const statusChanged = oldValue.status_code !== data.status_code;
+    const followUpDateChanged = (oldValue.follow_up_date?.toString() || null) !== (followUpDate || null);
+    const meaningfulChange =
+      statusChanged ||
+      followUpDateChanged ||
+      (oldValue.follow_up_time?.toString() || null) !== (followUpTime || null) ||
+      (oldValue.remark || null) !== (data.remark || null) ||
+      (oldValue.rating || null) !== (data.leadRating || data.lead_rating || data.rating || null) ||
+      (oldValue.configuration || null) !== (data.config || data.configuration || null) ||
+      (oldValue.budget || null) !== (data.budget || null) ||
+      (oldValue.purpose || null) !== (data.purpose || null);
+
+    let newDistinctCount = oldValue.distinct_followup_dates ?? 0;
+    let touchLastStatusChange = false;
+
+    if (statusChanged) {
+      newDistinctCount = followUpDate ? 1 : 0;
+      touchLastStatusChange = true;
+    } else if (followUpDateChanged && followUpDate) {
+      const oldDate = oldValue.follow_up_date
+        ? new Date(oldValue.follow_up_date).toISOString().slice(0, 10)
+        : null;
+      if (oldDate !== followUpDate) newDistinctCount += 1;
+    }
+
+    await conn.query(
+      `UPDATE agent_customers
+          SET status_code = ?, final_status = ?, follow_up_date = ?, follow_up_time = ?,
+              done_date = ?, remark = ?, rating = ?, configuration = ?, budget = ?, purpose = ?,
+              distinct_followup_dates = ?,
+              last_status_change_at = CASE WHEN ? THEN NOW() ELSE last_status_change_at END
+        WHERE id = ?`,
+      [
+        data.status_code, finalStatus, followUpDate, followUpTime, doneDate,
+        data.remark,
+        data.leadRating || data.lead_rating || data.rating,
+        data.config || data.configuration,
+        data.budget, data.purpose,
+        newDistinctCount,
+        touchLastStatusChange ? 1 : 0,
+        agentCustomerId,
+      ]
+    );
+
+    if (data.name || data.location || data.pincode || data.profession || data.designation || data.project_id) {
+      const fields: string[] = [];
+      const params: any[] = [];
+      if (data.name !== undefined) { fields.push("name = ?"); params.push(data.name); }
+      if (data.location !== undefined) { fields.push("location = ?"); params.push(data.location); }
+      if (data.pincode !== undefined) { fields.push("pincode = ?"); params.push(data.pincode); }
+      if (data.profession !== undefined) { fields.push("profession = ?"); params.push(data.profession); }
+      if (data.designation !== undefined) { fields.push("designation = ?"); params.push(data.designation); }
+      if (data.project_id !== undefined) { fields.push("project_id = ?"); params.push(data.project_id); }
+
+      if (fields.length) {
+        params.push(oldValue.customer_id);
+        await conn.query(
+          `UPDATE customers SET ${fields.join(", ")}, updated_at = NOW() WHERE id = ?`,
+          params
+        );
+      }
+    }
+
+    let actionType: "EDIT" | "STATUS_CHANGE" | null = null;
+    if (statusChanged) actionType = "STATUS_CHANGE";
+    else if (meaningfulChange) actionType = "EDIT";
+
+    if (actionType) {
+      const [newRows]: any = await conn.query(
+        "SELECT * FROM agent_customers WHERE id = ? LIMIT 1",
+        [agentCustomerId]
+      );
+      const newValue = newRows[0];
+      await conn.query(
+        `INSERT INTO agent_customer_logs
+            (agent_customer_id, agent_id, action_type, old_value, new_value)
+         VALUES (?, ?, ?, ?, ?)`,
+        [agentCustomerId, agentId, actionType, JSON.stringify(oldValue), JSON.stringify(newValue)]
+      );
+      await conn.commit();
+      return newValue;
+    }
+
+    await conn.commit();
+    return oldValue;
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  const [newRows]: any = await db.query(
-    "SELECT * FROM agent_customers WHERE id = ?",
-    [agentCustomerId]
-  );
-  const newValue = newRows[0] ? { ...newRows[0] } : null;
-
-  // --- DYNAMIC ACTION TYPE ---
-  let actionType = 'EDIT';
-  if (oldValue && oldValue.status_code !== newValue.status_code) {
-      actionType = 'STATUS_CHANGE';
-  }
-
-  await db.query(
-    `INSERT INTO agent_customer_logs (agent_customer_id, agent_id, action_type, old_value, new_value)
-     VALUES (?, ?, ?, ?, ?)` ,
-    [agentCustomerId, agentId, actionType, JSON.stringify(oldValue), JSON.stringify(newValue)]
-  );
-
-  return newValue;
 }
 
 export async function getCustomerRemarkHistory(agentCustomerId: number) {
   const [rows]: any = await db.query(
-    `SELECT created_at, action_type, old_value, new_value 
-     FROM agent_customer_logs 
-     WHERE agent_customer_id = ? 
-     ORDER BY created_at DESC`,
+    `SELECT created_at, action_type, old_value, new_value
+       FROM agent_customer_logs
+      WHERE agent_customer_id = ?
+      ORDER BY created_at DESC
+      LIMIT 200`,
     [agentCustomerId]
   );
 
   return rows.map((log: any) => {
-    let newVal: any = {};
-    let oldVal: any = {};
-    
-    // Safely parse the JSON logs
-    try { newVal = log.new_value ? JSON.parse(log.new_value) : {}; } catch(e){}
-    try { oldVal = log.old_value ? JSON.parse(log.old_value) : {}; } catch(e){}
-
+    let newVal: any = {}, oldVal: any = {};
+    try { newVal = log.new_value ? JSON.parse(log.new_value) : {}; } catch {}
+    try { oldVal = log.old_value ? JSON.parse(log.old_value) : {}; } catch {}
     return {
       date: log.created_at,
       action_type: log.action_type,
       old_status: oldVal.status_code || null,
       new_status: newVal.status_code || null,
-      remark: newVal.remark && newVal.remark.trim() !== "" ? newVal.remark : null
+      remark: newVal.remark && newVal.remark.trim() !== "" ? newVal.remark : null,
     };
-  }).filter((item: any) => 
-    // Filter out useless empty edits, only return meaningful events
-    item.action_type === 'CREATE' || 
-    item.action_type === 'STATUS_CHANGE' || 
+  }).filter((item: any) =>
+    item.action_type === 'CREATE' ||
+    item.action_type === 'STATUS_CHANGE' ||
     item.remark
   );
 }
 
-// --- DASHBOARD ANALYTICS ---
+// ----------------------------------------------------------------------------
+// DASHBOARD ANALYTICS — SARGABLE DATE FILTERS, NO MORE JSON SCANS
+// ----------------------------------------------------------------------------
 
-// 1. VISITS & BOOKINGS (Cards)
-// Rule: VC, VP, VMC, VM -> Follow Up Date.
-// Rule: BD, VD -> Done Date.
+/**
+ * Sargable date-range predicate.
+ *   Instead of: WHERE DATE(col) BETWEEN ? AND ?
+ *   We emit:    WHERE col >= ? AND col < DATE_ADD(?, INTERVAL 1 DAY)
+ * This lets MySQL use indexes on col.
+ */
+function dateRange(col: string): string {
+  return `${col} >= ? AND ${col} < DATE_ADD(?, INTERVAL 1 DAY)`;
+}
+
 export async function getDashboardVisitsBooking(
   agentId: number,
   projectId: string,
   startDate: string,
   endDate: string
 ) {
-  let filter = "";
   const params: any[] = [agentId];
-
+  let projectFilter = "";
   if (projectId && projectId !== "all") {
-    filter += " AND c.project_id = ?";
+    projectFilter = " AND c.project_id = ?";
     params.push(projectId);
   }
 
-  // UPDATED: Pass dates 3 times for the 3 scenarios below
   const fullParams = [
-    ...params, 
-    startDate, endDate, 
-    startDate, endDate, 
-    startDate, endDate
+    ...params,
+    startDate, endDate,
+    startDate, endDate,
+    startDate, endDate,
   ];
 
   const [rows]: any = await db.query(
-    `
-    SELECT status_code, COUNT(*) AS count
-    FROM (
-      SELECT ac.status_code
-      FROM agent_customers ac
-      JOIN customers c ON c.id = ac.customer_id
-      WHERE ac.agent_id = ?
-      ${filter}
-      AND (
-        -- Scenario A: Pipeline/Active Statuses (Based on Follow Up Date)
-        (
-          ac.status_code IN (
-            'visit-proposed', 'visit-confirmed', 
-            'virtual-meet', 'virtual-meet-confirmed',
-            'follow-up', 'sdow', 'not-reachable'
-          )
-          AND ac.follow_up_date IS NOT NULL
-          AND DATE(ac.follow_up_date) BETWEEN ? AND ?
-        )
-        OR
-        -- Scenario B: Success Statuses (Based on Done Date)
-        (
-          ac.status_code IN ('visit-done', 'booking-done')
-          AND ac.done_date IS NOT NULL
-          AND DATE(ac.done_date) BETWEEN ? AND ?
-        )
-        OR
-        -- Scenario C: Lost Status (Based on Updated Date)
-        (
-          ac.status_code = 'lost'
-          AND ac.updated_at IS NOT NULL
-          AND DATE(ac.updated_at) BETWEEN ? AND ?
-        )
-      )
-    ) t
-    GROUP BY status_code
-    `,
+    `SELECT status_code, COUNT(*) AS count
+       FROM (
+         SELECT ac.status_code
+           FROM agent_customers ac
+           JOIN customers c ON c.id = ac.customer_id
+          WHERE ac.agent_id = ?
+            ${projectFilter}
+            AND (
+              ( ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet','virtual-meet-confirmed','follow-up','sdow','not-reachable')
+                AND ac.follow_up_date IS NOT NULL
+                AND ${dateRange("ac.follow_up_date")} )
+              OR
+              ( ac.status_code IN ('visit-done','booking-done')
+                AND ac.done_date IS NOT NULL
+                AND ${dateRange("ac.done_date")} )
+              OR
+              ( ac.status_code = 'lost'
+                AND ac.updated_at IS NOT NULL
+                AND ${dateRange("ac.updated_at")} )
+            )
+       ) t
+      GROUP BY status_code`,
     fullParams
   );
 
-  const result: Record<string, number> = {};
-  rows.forEach((r: any) => (result[r.status_code] = r.count));
-
-  return result;
+  const out: Record<string, number> = {};
+  rows.forEach((r: any) => (out[r.status_code] = r.count));
+  return out;
 }
 
-// 2. PIPELINE DISCIPLINE (Matrix)
-// Rule: Week starts Mon=1 (WEEKDAY + 1)
-// Rule: Logic kept as is (Log based) for now.
 export async function getDashboardPipeline(
   agentId: number,
   startDate: string,
   endDate: string,
-  mode: string = "all"
+  _mode: string = "all"
 ) {
   const [rows]: any = await db.query(
-    `
-    SELECT 
-        ac.status_code,
-        (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
-        
-        SUM(
-            CASE 
-                WHEN IFNULL(followup_history.unique_dates, 1) <= 1 THEN 1
-                ELSE 0
-            END
-        ) AS fresh,
-
-        SUM(
-            CASE 
-                WHEN followup_history.unique_dates > 1 THEN 1
-                ELSE 0
-            END
-        ) AS repeated
-
-    FROM agent_customers ac
-    JOIN customers c ON c.id = ac.customer_id
-    
-    LEFT JOIN (
-        SELECT 
-            acl.agent_customer_id, 
-            COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
-        FROM agent_customer_logs acl
-        JOIN (
-            SELECT 
-                agent_customer_id, 
-                MAX(created_at) AS last_status_change_at
-            FROM agent_customer_logs
-            WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
-            GROUP BY agent_customer_id
-        ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
-                        AND acl.created_at >= latest_status.last_status_change_at
-        
-        WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
-          AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != ''
-        GROUP BY acl.agent_customer_id
-    ) followup_history ON followup_history.agent_customer_id = ac.id 
-
-    WHERE ac.agent_id = ?
-      AND ac.follow_up_date BETWEEN ? AND ?
-      AND ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed')
-    
-    GROUP BY ac.status_code, day_num
-    `,
+    `SELECT ac.status_code,
+            (WEEKDAY(ac.follow_up_date) + 1) AS day_num,
+            SUM(CASE WHEN IFNULL(ac.distinct_followup_dates,1) <= 1 THEN 1 ELSE 0 END) AS fresh,
+            SUM(CASE WHEN ac.distinct_followup_dates > 1 THEN 1 ELSE 0 END) AS repeated
+       FROM agent_customers ac
+      WHERE ac.agent_id = ?
+        AND ${dateRange("ac.follow_up_date")}
+        AND ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet-confirmed')
+      GROUP BY ac.status_code, day_num`,
     [agentId, startDate, endDate]
   );
-
   return rows;
 }
 
-// 3. TOTAL STATUS COUNTS (Matrix)
-// Rule: BD/VD -> Done Date. Others -> Assigned Date.
-// Rule: Week starts Mon=1 (WEEKDAY + 1).
-// 3. TOTAL STATUS COUNTS (Matrix)
 export async function getDashboardStatusCounts(
   agentId: number,
   projectId: string,
   startDate: string,
   endDate: string
 ) {
-  let filter = "";
   const params: any[] = [agentId];
-
+  let projectFilter = "";
   if (projectId && projectId !== "all") {
-    filter += " AND c.project_id = ?";
+    projectFilter = " AND c.project_id = ?";
     params.push(projectId);
   }
-
-  // Add date params (Twice)
   params.push(startDate, endDate, startDate, endDate);
 
-  const query = `
-    SELECT 
-        ac.status_code, 
-        CASE 
-            WHEN ac.status_code IN ('visit-done', 'booking-done') AND ac.done_date IS NOT NULL 
+  const [rows]: any = await db.query(
+    `SELECT ac.status_code,
+            CASE
+              WHEN ac.status_code IN ('visit-done','booking-done') AND ac.done_date IS NOT NULL
                 THEN (WEEKDAY(ac.done_date) + 1)
-            ELSE (WEEKDAY(ac.assigned_at) + 1) 
-        END as day_num,
-        COUNT(*) AS count
-    FROM agent_customers ac
-    JOIN customers c ON ac.customer_id = c.id
-    WHERE ac.agent_id = ?
-      AND ac.is_active = 1
-      ${filter}
-      AND (
-        (
-          ac.status_code IN ('visit-done', 'booking-done') 
-          AND DATE(ac.done_date) BETWEEN ? AND ?  -- FIXED: Added DATE()
+              ELSE (WEEKDAY(ac.assigned_at) + 1)
+            END AS day_num,
+            COUNT(*) AS count
+       FROM agent_customers ac
+       JOIN customers c ON ac.customer_id = c.id
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        ${projectFilter}
+        AND (
+          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          OR
+          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
         )
-        OR
-        (
-          ac.status_code NOT IN ('visit-done', 'booking-done')
-          AND DATE(ac.assigned_at) BETWEEN ? AND ? -- FIXED: Added DATE()
-        )
-      )
-    GROUP BY ac.status_code, day_num
-  `;
-
-  const [rows]: any = await db.query(query, params);
+      GROUP BY ac.status_code, day_num`,
+    params
+  );
   return rows;
 }
 
-// Helper to get Assigned Projects for the Filter Dropdown
 export async function getAgentProjects(agentId: number) {
   const [rows]: any = await db.query(
-    `SELECT DISTINCT p.id, p.name 
-     FROM agent_customers ac
-     JOIN customers c ON ac.customer_id = c.id
-     JOIN projects p ON c.project_id = p.id
-     WHERE ac.agent_id = ?`,
+    `SELECT DISTINCT p.id, p.name
+       FROM agent_customers ac
+       JOIN customers c ON ac.customer_id = c.id
+       JOIN projects p ON c.project_id = p.id
+      WHERE ac.agent_id = ?`,
     [agentId]
   );
   return rows;
@@ -558,33 +497,30 @@ export async function getAgentProjects(agentId: number) {
 
 export async function getAgentFollowUps(agentId: number) {
   const [rows]: any = await db.query(
-    `SELECT ac.id AS agent_customer_id, 
+    `SELECT ac.id AS agent_customer_id,
             c.id AS customer_id,
-            ac.status_code, 
-            ac.follow_up_date, 
-            ac.follow_up_time,
-            ac.remark,
-            c.name, 
-            c.contact, 
-            c.location,
-            c.project_id,
+            ac.status_code, ac.follow_up_date, ac.follow_up_time, ac.remark,
+            c.name, c.contact, c.location, c.project_id,
             p.name AS project_name
-     FROM agent_customers ac
-     JOIN customers c ON ac.customer_id = c.id
-     LEFT JOIN projects p ON c.project_id = p.id
-     WHERE ac.agent_id = ? 
-       AND ac.is_active = 1
-       AND ac.follow_up_date IS NOT NULL
-       AND ac.status_code != 'lost'
-       AND ac.final_status != 'COMPLETED'
-     ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC`,
+       FROM agent_customers ac
+       JOIN customers c ON ac.customer_id = c.id
+       LEFT JOIN projects p ON c.project_id = p.id
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND ac.follow_up_date IS NOT NULL
+        AND ac.status_code <> 'lost'
+        AND (ac.final_status <> 'COMPLETED' OR ac.final_status IS NULL)
+      ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC
+      LIMIT 2000`,
     [agentId]
   );
-  
   return rows;
 }
 
-// --- DRILL DOWN FUNCTION FOR AGENT ---
+// ----------------------------------------------------------------------------
+// DRILL-DOWN — sargable filters, no JSON scan (reads distinct_followup_dates)
+// ----------------------------------------------------------------------------
+
 export async function getAgentDrillDown(
   agentId: number,
   projectId: string,
@@ -607,127 +543,86 @@ export async function getAgentDrillDown(
 
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
-
     if (section === 'cards') {
-        if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
-        else if (statusCode === 'lost') dateCol = "ac.updated_at";
-        else dateCol = "ac.follow_up_date";
-    } 
-    else if (section === 'pipeline') {
-        dateCol = "ac.follow_up_date";
-    } 
-    else if (section === 'volume') {
-        if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
-        else dateCol = "ac.assigned_at";
+      if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+      else if (statusCode === 'lost') dateCol = "ac.updated_at";
+      else dateCol = "ac.follow_up_date";
+    } else if (section === 'pipeline') {
+      dateCol = "ac.follow_up_date";
+    } else if (section === 'volume') {
+      if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+      else dateCol = "ac.assigned_at";
     }
 
     params.push(startDate, endDate);
-    whereClause = ` AND DATE(${dateCol}) BETWEEN ? AND ? AND ac.status_code = ? `; // FIXED: Added DATE()
+    whereClause = ` AND ${dateRange(dateCol)} AND ac.status_code = ? `;
     params.push(statusCode);
-    
     if (dayNum) {
-        whereClause += ` AND (WEEKDAY(${dateCol}) + 1) = ? `;
-        params.push(dayNum);
+      whereClause += ` AND (WEEKDAY(${dateCol}) + 1) = ? `;
+      params.push(dayNum);
     }
     orderByCol = dateCol;
-  } 
-  else {
+  } else {
     if (section === 'pipeline') {
-        const pipelineStatuses = "'visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed'";
-        whereClause = ` 
-            AND ac.status_code IN (${pipelineStatuses})
-            AND DATE(ac.follow_up_date) BETWEEN ? AND ? 
-        `; // FIXED: Added DATE()
-        params.push(startDate, endDate);
-        
-        if (dayNum) {
-            whereClause += ` AND (WEEKDAY(ac.follow_up_date) + 1) = ? `;
-            params.push(dayNum);
-        }
-        orderByCol = "ac.follow_up_date";
-    } 
-    else if (section === 'volume') {
-        whereClause = `
-            AND (
-                (ac.status_code IN ('visit-done', 'booking-done') AND DATE(ac.done_date) BETWEEN ? AND ?)
-                OR
-                (ac.status_code NOT IN ('visit-done', 'booking-done') AND DATE(ac.assigned_at) BETWEEN ? AND ?)
-            )
-        `; // FIXED: Added DATE()
-        params.push(startDate, endDate, startDate, endDate);
-
-        if (dayNum) {
-            whereClause += `
-                AND (
-                    CASE 
-                        WHEN ac.status_code IN ('visit-done', 'booking-done') THEN (WEEKDAY(ac.done_date) + 1)
-                        ELSE (WEEKDAY(ac.assigned_at) + 1)
-                    END
-                ) = ?
-            `;
-            params.push(dayNum);
-        }
-        orderByCol = "ac.assigned_at"; 
+      whereClause = `
+        AND ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet-confirmed')
+        AND ${dateRange("ac.follow_up_date")}
+      `;
+      params.push(startDate, endDate);
+      if (dayNum) {
+        whereClause += ` AND (WEEKDAY(ac.follow_up_date) + 1) = ? `;
+        params.push(dayNum);
+      }
+      orderByCol = "ac.follow_up_date";
+    } else if (section === 'volume') {
+      whereClause = `
+        AND (
+          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          OR
+          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+        )
+      `;
+      params.push(startDate, endDate, startDate, endDate);
+      if (dayNum) {
+        whereClause += `
+          AND (
+            CASE WHEN ac.status_code IN ('visit-done','booking-done')
+                 THEN (WEEKDAY(ac.done_date) + 1)
+                 ELSE (WEEKDAY(ac.assigned_at) + 1)
+            END
+          ) = ?
+        `;
+        params.push(dayNum);
+      }
+      orderByCol = "ac.assigned_at";
     }
   }
 
-  let dynamicJoin = "";
-  let pipelineLeadTypeCol = " 'N/A' AS pipeline_lead_type "; 
-
-  if (section === 'pipeline') {
-      pipelineLeadTypeCol = `
-          CASE 
-              WHEN ac.status_code IN ('visit-proposed', 'visit-confirmed', 'virtual-meet-confirmed') THEN
-                  IF(IFNULL(followup_history.unique_dates, 1) <= 1, 'Fresh', 'Repeated')
-              ELSE 'N/A'
-          END AS pipeline_lead_type
-      `;
-
-      dynamicJoin = `
-        LEFT JOIN (
-            SELECT 
-                acl.agent_customer_id, 
-                COUNT(DISTINCT DATE(JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')))) AS unique_dates
-            FROM agent_customer_logs acl
-            JOIN (
-                SELECT 
-                    agent_customer_id, 
-                    MAX(created_at) AS last_status_change_at
-                FROM agent_customer_logs
-                WHERE action_type IN ('CREATE', 'STATUS_CHANGE')
-                GROUP BY agent_customer_id
-            ) latest_status ON acl.agent_customer_id = latest_status.agent_customer_id 
-                            AND acl.created_at >= latest_status.last_status_change_at
-            
-            WHERE JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) IS NOT NULL
-              AND JSON_UNQUOTE(JSON_EXTRACT(acl.new_value, '$.follow_up_date')) != '' 
-            GROUP BY acl.agent_customer_id
-        ) followup_history ON followup_history.agent_customer_id = ac.id
-      `;
-  }
+  const pipelineLeadTypeCol = `
+      CASE
+          WHEN ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet-confirmed') THEN
+              IF(IFNULL(ac.distinct_followup_dates,1) <= 1, 'Fresh', 'Repeated')
+          ELSE 'N/A'
+      END AS pipeline_lead_type
+  `;
 
   const sql = `
-    SELECT 
+    SELECT
       c.name AS customer_name,
       c.contact,
       ac.status_code,
-      ac.follow_up_date,
-      ac.follow_up_time,
-      ac.done_date,
-      ac.assigned_at,
+      ac.follow_up_date, ac.follow_up_time, ac.done_date, ac.assigned_at,
       p.name AS project_name,
       ${pipelineLeadTypeCol}
     FROM agent_customers ac
     JOIN customers c ON c.id = ac.customer_id
-    JOIN projects p ON p.id = c.project_id
-    ${dynamicJoin}
+    JOIN projects  p ON p.id = c.project_id
     WHERE ac.agent_id = ?
       ${projectFilter}
       ${whereClause}
     ORDER BY ${orderByCol} DESC
     LIMIT 200
   `;
-
   const [rows] = await db.query(sql, params);
   return rows;
 }
