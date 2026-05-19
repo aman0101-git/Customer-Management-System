@@ -270,11 +270,27 @@ export function generateWhatsAppLink(phone: string, message: string): string {
 }
 
 /**
- * Prepare and send manual WhatsApp message
+ * Prepare and send manual WhatsApp message.
+ *
+ * IDENTITY RESOLUTION (May 2026 bugfix):
+ *   Previously this function accepted a single ambiguous `customerId` and used
+ *   a "bulletproof" two-step lookup that interpreted the value as either
+ *   customers.id OR agent_customers.id depending on which table found a match
+ *   first. Because both tables auto-increment from 1, their ID spaces overlap
+ *   — and the fallback path was silently routing WhatsApp messages to the
+ *   WRONG customer whenever Check 1 missed.
+ *
+ *   This version accepts EITHER (mutually exclusive):
+ *     - `agentCustomerId` (PREFERRED) — strictly looked up as ac.id.
+ *     - `customerId` (LEGACY)         — strictly looked up as c.id only,
+ *                                       no fallback to ac.id interpretation.
+ *
+ *   We also now require ac.is_active = 1, so transferred / closed leads
+ *   cannot be messaged accidentally.
  */
 export async function prepareManualWhatsAppMessage(
   agentId: number,
-  customerId: number,
+  idInput: { agentCustomerId?: number; customerId?: number },
   templateCode: string
 ): Promise<{
   whatsappUrl: string;
@@ -282,38 +298,56 @@ export async function prepareManualWhatsAppMessage(
   phone: string;
   logId: number;
 }> {
-  // 1. BULLETPROOF LOOKUP: Finds true customer ID without overlap bugs!
-  
-  // Check 1: Did the frontend pass the TRUE customer_id? (Most likely!)
-  // We strictly tie it to ac.agent_id = ? so an agent can never pull someone else's lead
-  let [customers]: any = await db.query(
-    `SELECT c.id, c.name, c.contact, c.project_id 
-     FROM customers c 
-     JOIN agent_customers ac ON c.id = ac.customer_id 
-     WHERE c.id = ? AND ac.agent_id = ? 
-     ORDER BY ac.id DESC LIMIT 1`,
-    [customerId, agentId]
-  );
+  const { agentCustomerId, customerId } = idInput;
 
-  // Check 2: If not found, did the frontend pass the agent_customer_id instead?
-  if (!customers.length) {
+  if (!agentCustomerId && !customerId) {
+    throw new Error("Missing identifier: provide agentCustomerId or customerId.");
+  }
+
+  let customers: any[] = [];
+
+  if (agentCustomerId) {
+    // PREFERRED PATH: identifier is unambiguous.
     [customers] = await db.query(
-      `SELECT c.id, c.name, c.contact, c.project_id 
-       FROM customers c 
-       JOIN agent_customers ac ON c.id = ac.customer_id 
-       WHERE ac.id = ? AND ac.agent_id = ? 
-       LIMIT 1`,
-      [customerId, agentId]
+      `SELECT c.id, c.name, c.contact, c.project_id,
+              ac.id AS agent_customer_id
+         FROM agent_customers ac
+         JOIN customers c ON c.id = ac.customer_id
+        WHERE ac.id = ?
+          AND ac.agent_id = ?
+          AND ac.is_active = 1
+        LIMIT 1`,
+      [agentCustomerId, agentId]
+    ) as any;
+  } else {
+    // LEGACY PATH: strictly customers.id, never falls back to ac.id interpretation.
+    [customers] = await db.query(
+      `SELECT c.id, c.name, c.contact, c.project_id,
+              ac.id AS agent_customer_id
+         FROM customers c
+         JOIN agent_customers ac
+              ON ac.customer_id = c.id
+             AND ac.agent_id = ?
+             AND ac.is_active = 1
+        WHERE c.id = ?
+        ORDER BY ac.id DESC
+        LIMIT 1`,
+      [agentId, customerId]
+    ) as any;
+  }
+
+  if (!customers.length) {
+    const idDescription = agentCustomerId
+      ? `agent_customer_id=${agentCustomerId}`
+      : `customer_id=${customerId}`;
+    throw new Error(
+      `No active assignment found for this agent (${idDescription}). ` +
+      `The lead may have been transferred or deactivated.`
     );
   }
 
-  // If STILL nothing was found, throw the error
-  if (!customers.length) {
-    throw new Error(`Customer with ID ${customerId} not found for this agent`);
-  }
-
   const customer = customers[0];
-  const actualCustomerId = customer.id; // <-- Storing the TRUE customer ID to use below
+  const actualCustomerId = customer.id; // c.id — the REAL customers.id, never an ac.id
   
   if (!validatePhoneNumber(customer.contact)) {
     throw new Error("Invalid customer phone number. Must have at least 10 digits.");
