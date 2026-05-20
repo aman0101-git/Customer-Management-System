@@ -1,19 +1,28 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import axios from "axios"; 
+import axios from "axios";
 import { AppShell } from "@/components/ui/app-shell";
 import { format, isBefore, isToday, startOfDay, parseISO } from "date-fns";
-import { 
-  Loader2, 
-  Calendar, 
-  Clock, 
-  AlertCircle, 
+import {
+  Calendar,
+  Clock,
+  AlertCircle,
   Briefcase,
   User,
   ArrowLeft,
   CheckCircle2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// Phase 5 (May 2026):
+//   - Sticky table header so column labels stay visible while scrolling.
+//   - Spinner replaced with KPI + table skeleton (consistent with Phase 1
+//     dashboard skeletons).
+//   - counts and displayList memoized; the previous code re-ran 3 filter
+//     passes per render plus another for displayList. Now O(N) once per
+//     data/filter change.
+//   - fetch/filter logic and API contracts unchanged.
 
 // 1. Define the Options Constant
 const STATUS_OPTIONS = [
@@ -24,16 +33,16 @@ const STATUS_OPTIONS = [
 export default function SupervisorFollowUpPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  
+
   // Data State
   const [data, setData] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  
+
   // Filter State
   const [selectedAgent, setSelectedAgent] = useState('all');
   const [selectedProject, setSelectedProject] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all'); 
+  const [selectedStatus, setSelectedStatus] = useState('all');
   const [timeFilter, setTimeFilter] = useState<'all' | 'past' | 'today' | 'future'>('all');
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +54,7 @@ export default function SupervisorFollowUpPage() {
     }
   }, [user]);
 
-  // Add selectedStatus to dependency array
+  // Refetch on filter change (unchanged)
   useEffect(() => {
     if (user && !loading) fetchData();
   }, [selectedAgent, selectedProject, selectedStatus]);
@@ -67,23 +76,23 @@ export default function SupervisorFollowUpPage() {
     setLoading(true);
     try {
       const res = await axios.get(`/api/supervisor/follow-ups`, {
-        params: { 
-            agentId: selectedAgent, 
+        params: {
+            agentId: selectedAgent,
             projectId: selectedProject,
-            status: selectedStatus 
+            status: selectedStatus
         }
       });
-      
+
       const todayStart = startOfDay(new Date());
 
       const processed = (res.data || []).map((item: any) => {
-        const fDate = parseISO(item.follow_up_date); 
+        const fDate = parseISO(item.follow_up_date);
         const itemDateStart = startOfDay(fDate);
-        
+
         let category = 'future';
         if (isBefore(itemDateStart, todayStart)) category = 'past';
         else if (isToday(itemDateStart)) category = 'today';
-        
+
         return { ...item, category, parsedDate: fDate };
       });
 
@@ -95,15 +104,20 @@ export default function SupervisorFollowUpPage() {
     }
   };
 
-  const counts = {
-    past: data.filter(i => i.category === 'past').length,
-    today: data.filter(i => i.category === 'today').length,
-    future: data.filter(i => i.category === 'future').length
-  };
+  // Phase 5: counts memoized — one pass instead of three filter passes per render.
+  const counts = useMemo(() => {
+    let past = 0, today = 0, future = 0;
+    for (const i of data) {
+      if (i.category === 'past') past++;
+      else if (i.category === 'today') today++;
+      else if (i.category === 'future') future++;
+    }
+    return { past, today, future };
+  }, [data]);
 
-  const displayList = timeFilter === 'all' 
-    ? data 
-    : data.filter(i => i.category === timeFilter);
+  const displayList = useMemo(() => {
+    return timeFilter === 'all' ? data : data.filter(i => i.category === timeFilter);
+  }, [data, timeFilter]);
 
   const getRowStyle = (category: string) => {
     switch(category) {
@@ -122,7 +136,7 @@ export default function SupervisorFollowUpPage() {
   return (
     <AppShell sidebar={null}>
       <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 font-sans">
-        
+
         {/* HEADER & FILTERS */}
         <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-4">
@@ -134,11 +148,11 @@ export default function SupervisorFollowUpPage() {
                 <p className="text-sm text-slate-500">Monitor team schedule and overdue calls</p>
              </div>
           </div>
-          
+
           <div className="flex flex-wrap gap-3">
              {/* Agent Dropdown */}
              <div className="relative min-w-[180px]">
-               <select 
+               <select
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
                  value={selectedAgent}
                  onChange={(e) => setSelectedAgent(e.target.value)}
@@ -151,7 +165,7 @@ export default function SupervisorFollowUpPage() {
 
              {/* Project Dropdown */}
              <div className="relative min-w-[180px]">
-               <select 
+               <select
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
                  value={selectedProject}
                  onChange={(e) => setSelectedProject(e.target.value)}
@@ -164,7 +178,7 @@ export default function SupervisorFollowUpPage() {
 
              {/* Status Dropdown */}
              <div className="relative min-w-[180px]">
-               <select 
+               <select
                  className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
                  value={selectedStatus}
                  onChange={(e) => setSelectedStatus(e.target.value)}
@@ -181,77 +195,83 @@ export default function SupervisorFollowUpPage() {
           </div>
         </div>
 
-        {/* KPI CARDS - Adjusted to grid-cols-3 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Overdue */}
-          <div 
-            onClick={() => setTimeFilter(timeFilter === 'past' ? 'all' : 'past')}
-            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'past' ? 'bg-red-50 border-red-300 ring-2 ring-red-100' : 'bg-white border-slate-200 hover:border-red-300 hover:shadow-md'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overdue</p>
-                <h2 className="text-3xl font-bold text-red-600 mt-1">{counts.past}</h2>
-              </div>
-              <div className="p-2 bg-red-100 rounded-lg text-red-600"><AlertCircle className="w-5 h-5"/></div>
-            </div>
+        {/* KPI CARDS — show skeletons while loading the first batch so the
+            page layout doesn't jump on data arrival. */}
+        {loading && data.length === 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[0, 1, 2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {/* Overdue */}
+            <div
+              onClick={() => setTimeFilter(timeFilter === 'past' ? 'all' : 'past')}
+              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'past' ? 'bg-red-50 border-red-300 ring-2 ring-red-100' : 'bg-white border-slate-200 hover:border-red-300 hover:shadow-md'}`}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overdue</p>
+                  <h2 className="text-3xl font-bold text-red-600 mt-1">{counts.past}</h2>
+                </div>
+                <div className="p-2 bg-red-100 rounded-lg text-red-600"><AlertCircle className="w-5 h-5"/></div>
+              </div>
+            </div>
 
-          {/* Today */}
-          <div 
-            onClick={() => setTimeFilter(timeFilter === 'today' ? 'all' : 'today')}
-            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'today' ? 'bg-orange-50 border-orange-300 ring-2 ring-orange-100' : 'bg-white border-slate-200 hover:border-orange-300 hover:shadow-md'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Due Today</p>
-                <h2 className="text-3xl font-bold text-orange-600 mt-1">{counts.today}</h2>
+            {/* Today */}
+            <div
+              onClick={() => setTimeFilter(timeFilter === 'today' ? 'all' : 'today')}
+              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'today' ? 'bg-orange-50 border-orange-300 ring-2 ring-orange-100' : 'bg-white border-slate-200 hover:border-orange-300 hover:shadow-md'}`}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Due Today</p>
+                  <h2 className="text-3xl font-bold text-orange-600 mt-1">{counts.today}</h2>
+                </div>
+                <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Clock className="w-5 h-5"/></div>
               </div>
-              <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Clock className="w-5 h-5"/></div>
             </div>
-          </div>
 
-          {/* Upcoming */}
-          <div 
-            onClick={() => setTimeFilter(timeFilter === 'future' ? 'all' : 'future')}
-            className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'future' ? 'bg-yellow-50 border-yellow-300 ring-2 ring-yellow-100' : 'bg-white border-slate-200 hover:border-yellow-300 hover:shadow-md'}`}
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Upcoming</p>
-                <h2 className="text-3xl font-bold text-yellow-600 mt-1">{counts.future}</h2>
+            {/* Upcoming */}
+            <div
+              onClick={() => setTimeFilter(timeFilter === 'future' ? 'all' : 'future')}
+              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'future' ? 'bg-yellow-50 border-yellow-300 ring-2 ring-yellow-100' : 'bg-white border-slate-200 hover:border-yellow-300 hover:shadow-md'}`}
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Upcoming</p>
+                  <h2 className="text-3xl font-bold text-yellow-600 mt-1">{counts.future}</h2>
+                </div>
+                <div className="p-2 bg-yellow-100 rounded-lg text-yellow-600"><Calendar className="w-5 h-5"/></div>
               </div>
-              <div className="p-2 bg-yellow-100 rounded-lg text-yellow-600"><Calendar className="w-5 h-5"/></div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* DATA TABLE */}
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
           {loading ? (
-             <div className="flex flex-col items-center justify-center p-20 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600"/>
-                <span className="text-slate-400 text-sm">Loading follow-ups...</span>
-             </div>
+            <div className="p-4 space-y-3">
+              {[0, 1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
+            </div>
           ) : displayList.length === 0 ? (
              <div className="text-center p-20 text-slate-500">No follow-ups found for the selected criteria.</div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
+                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
                   <tr>
-                    <th className="px-6 py-3">Customer & Agent</th>
-                    <th className="px-6 py-3">Contact</th>
-                    <th className="px-6 py-3">Project</th>
-                    <th className="px-6 py-3">Status</th>
-                    <th className="px-6 py-3">Follow Up Date</th>
-                    <th className="px-6 py-3">Updated</th>
+                    <th className="px-6 py-3 bg-slate-50">Customer & Agent</th>
+                    <th className="px-6 py-3 bg-slate-50">Contact</th>
+                    <th className="px-6 py-3 bg-slate-50">Project</th>
+                    <th className="px-6 py-3 bg-slate-50">Status</th>
+                    <th className="px-6 py-3 bg-slate-50">Follow Up Date</th>
+                    <th className="px-6 py-3 bg-slate-50">Updated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {displayList.map((item) => (
                     <tr key={item.agent_customer_id} className={`transition-colors ${getRowStyle(item.category)}`}>
-                      
+
                       {/* Customer & Agent */}
                       <td className="px-6 py-3">
                         <div className="font-semibold text-slate-900">{item.customer_name}</div>
