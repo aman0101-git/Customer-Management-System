@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
@@ -17,16 +17,15 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Loader2, Calendar, Filter, Briefcase, Layers } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import ConversionFunnel from "@/components/system/ConversionFunnel";
+import Sparkline from "@/components/system/Sparkline";
 
-// Phase 2 (May 2026):
-//   Migrated read fetches to React Query.
-//     - projects lookup -> ['agent','projects']             staleTime 5min
-//     - section 1       -> ['agent','summary',1, params]    staleTime 30s
-//     - section 2       -> ['agent','summary',2, params]    staleTime 30s
-//     - section 3       -> ['agent','summary',3, params]    staleTime 30s
-//   handleDrillDown still uses axios. It writes into local modal state on
-//   click; converting to useQuery here would over-couple the modal to a
-//   query key derived from many states. Out of scope for Phase 2.
+// Phase 2 (May 2026): React Query migration (see queries below).
+// Phase 6 (May 2026):
+//   - ConversionFunnel above the Tab 1 cards: Proposed -> Confirmed -> Done
+//     -> Booking with stage-to-stage conversion %.
+//   - Sparkline above the Tab 2 pipeline matrix: Mon-Sun daily totals.
+//   Both derive from data already fetched; no new endpoints.
 
 /* ---------------- STYLED TABS ---------------- */
 const Tabs = ({ active, setActive, labels }: any) => (
@@ -47,13 +46,11 @@ const Tabs = ({ active, setActive, labels }: any) => (
   </div>
 );
 
-// All possible statuses for Section 3 Rows
 const ALL_STATUSES = [
   "visit-proposed", "visit-confirmed", "virtual-meet", "virtual-meet-confirmed",
   "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending",
 ];
 
-// --- DATE LOGIC (hoisted so query functions can use it) ---
 const getDatesFromPeriod = (p: string) => {
   const now = new Date();
   let start = now, end = now;
@@ -71,27 +68,16 @@ export default function SummaryDashboard() {
   const { user, loading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(0);
-
-  // Filters
   const [selectedProject, setSelectedProject] = useState("all");
   const [period, setPeriod] = useState("This Week");
-
-  // Section 2 Specific
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
   const [mode, setMode] = useState("all");
-
-  // Section 3 Specific
   const [sec3Period, setSec3Period] = useState("This Week");
 
-  // --- DRILL DOWN STATE (modal) ---
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
-
-  // ===================================================================
-  // React Query: projects + per-section reads
-  // ===================================================================
 
   const projectsQuery = useQuery<any[]>({
     queryKey: ["agent", "projects"],
@@ -150,14 +136,33 @@ export default function SummaryDashboard() {
   const sec2Data: any[] = sec2Query.data ?? [];
   const sec3Data: any[] = sec3Query.data ?? [];
 
-  // Loading reflects ONLY the active tab's first-load state. Background
-  // refetches do not flicker the skeleton.
   const activeQuery =
     activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : sec3Query;
   const loading = activeQuery.isLoading;
   const errored = activeQuery.isError;
 
-  // --- DRILL DOWN HANDLER (kept on plain axios per Phase 2 scope) ---
+  // Phase 6: conversion funnel derivation for Tab 1.
+  const funnelStages = useMemo(() => [
+    { label: "Visit Proposed", count: sec1Data["visit-proposed"] ?? 0 },
+    { label: "Visit Confirmed", count: sec1Data["visit-confirmed"] ?? 0 },
+    { label: "Visit Done", count: sec1Data["visit-done"] ?? 0 },
+    { label: "Booking Done", count: sec1Data["booking-done"] ?? 0 },
+  ], [sec1Data]);
+
+  // Phase 6: daily totals for Tab 2 sparkline.
+  const sec2DailyTotals = useMemo(() => {
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    for (const rec of sec2Data) {
+      const d = Number(rec.day_num);
+      if (!d || d < 1 || d > 7) continue;
+      const fresh = Number(rec.fresh) || 0;
+      const repeated = Number(rec.repeated) || 0;
+      const v = mode === "fresh" ? fresh : mode === "repeated" ? repeated : fresh + repeated;
+      totals[d - 1] += v;
+    }
+    return totals;
+  }, [sec2Data, mode]);
+
   const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
     if (!user) return;
     setModalOpen(true);
@@ -173,14 +178,7 @@ export default function SummaryDashboard() {
       const { startDate, endDate } = getDatesFromPeriod(usePeriod);
 
       const res = await axios.get("/api/agent/customers/drill-down", {
-        params: {
-          projectId: selectedProject,
-          startDate,
-          endDate,
-          statusCode,
-          section,
-          dayNum
-        }
+        params: { projectId: selectedProject, startDate, endDate, statusCode, section, dayNum }
       });
       setModalData(res.data);
     } catch (e) {
@@ -191,8 +189,6 @@ export default function SummaryDashboard() {
   };
 
   const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
-
-  /* ---------------- UI COMPONENTS ---------------- */
 
   const FilterBar = ({ children }: any) => (
     <div className="flex flex-col md:flex-row gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-100 items-center justify-between">
@@ -224,13 +220,7 @@ export default function SummaryDashboard() {
     </div>
   );
 
-  /* ---------------- BOX STYLE MATRIX TABLE ---------------- */
-  const MatrixTable = ({
-    rows,
-    data,
-    totalLabel = "Total",
-    isPipeline = false
-  }: any) => {
+  const MatrixTable = ({ rows, data, totalLabel = "Total", isPipeline = false }: any) => {
     const days = [
       { label: "Mon", sql: 1 }, { label: "Tue", sql: 2 }, { label: "Wed", sql: 3 },
       { label: "Thu", sql: 4 }, { label: "Fri", sql: 5 }, { label: "Sat", sql: 6 }, { label: "Sun", sql: 7 },
@@ -320,14 +310,20 @@ export default function SummaryDashboard() {
     );
   };
 
-  /* ---------------- SECTIONS ---------------- */
-
   const renderSection1 = () => (
     <div className="space-y-4 animate-in fade-in duration-500">
       <FilterBar>
         <StyledSelect icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)} options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} />
         <StyledSelect icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)} options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>} />
       </FilterBar>
+
+      {/* Phase 6: conversion funnel above the cards */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+          Conversion funnel
+        </div>
+        <ConversionFunnel stages={funnelStages} accentClass="bg-indigo-500 dark:bg-indigo-400" />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
@@ -372,6 +368,20 @@ export default function SummaryDashboard() {
         <StyledSelect icon={Calendar} value={pipelinePeriod} onChange={(e: any) => setPipelinePeriod(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>} />
         <StyledSelect icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh (Same Day)</option><option value="repeated">Repeated (Pushed)</option></>} />
       </FilterBar>
+
+      {/* Phase 6: week-at-a-glance sparkline above the matrix. */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Daily pipeline trend</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">Mon-Sun, sum across pipeline statuses</div>
+        </div>
+        <Sparkline
+          data={sec2DailyTotals}
+          labels={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+          ariaLabel="Daily pipeline trend"
+        />
+      </div>
+
       <MatrixTable rows={[{ label: "Visit Proposed", code: "visit-proposed" }, { label: "Visit Confirmed", code: "visit-confirmed" }, { label: "Virtual Meet Confirmed", code: "virtual-meet-confirmed" }]} data={sec2Data} totalLabel="Total Pipeline" isPipeline={true} />
     </div>
   );
@@ -404,8 +414,6 @@ export default function SummaryDashboard() {
 
       <Tabs active={activeTab} setActive={setActiveTab} labels={["Visits & Booking", "Weekly Pipeline", "Status Counts"]} />
 
-      {/* Phase 2: in-page error banner. Doesn't replace the section; if cached
-          data exists we keep showing it underneath. */}
       {errored && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
           <span>Could not load this section. Showing last known data.</span>
@@ -420,8 +428,6 @@ export default function SummaryDashboard() {
       )}
 
       {loading ? (
-        // Phase 1: skeleton stand-in for the active section. Same height
-        // budget as the real charts/tables so the page does not jump.
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm p-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[0, 1, 2, 3].map((i) => (
@@ -438,7 +444,6 @@ export default function SummaryDashboard() {
         </>
       )}
 
-      {/* --- ADDED MODAL COMPONENT --- */}
       <AgentDrillDownModal
         isOpen={modalOpen}
         onClose={setModalOpen}

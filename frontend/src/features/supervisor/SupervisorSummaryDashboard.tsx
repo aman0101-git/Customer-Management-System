@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useQuery } from "@tanstack/react-query";
@@ -22,17 +22,13 @@ import {
   Filter
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import ConversionFunnel from "@/components/system/ConversionFunnel";
+import Sparkline from "@/components/system/Sparkline";
 
-// Phase 2 (May 2026):
-//   Migrated read fetches to React Query.
-//     - agents lookup   -> ['supervisor','agents']            staleTime 5min
-//     - projects lookup -> ['supervisor','projects']          staleTime 5min
-//     - section 1       -> ['supervisor','summary',1,params]  staleTime 30s
-//     - section 2       -> ['supervisor','summary',2,params]  staleTime 30s
-//     - section 3       -> ['supervisor','summary',3,params]  staleTime 30s
-//   handleDrillDown still uses axios (kept out of scope per Phase 2 spec).
-
-/* ---------------- COMPACT UI HELPERS ---------------- */
+// Phase 2 (May 2026): React Query migration. Phase 6 (May 2026):
+//   - Team ConversionFunnel above Tab 1 cards.
+//   - Daily-totals Sparkline above Tab 2 pipeline matrix.
+//   Pure derivations from existing sec1Data / sec2Data; no new endpoints.
 
 const Tabs = ({ active, setActive, labels }: any) => (
   <div className="flex p-1 bg-slate-100 rounded-lg w-fit border border-slate-200">
@@ -65,7 +61,6 @@ const SelectInput = ({ icon: Icon, value, onChange, options, minWidth = "min-w-[
   </div>
 );
 
-// --- Date Calculation Helper (hoisted so query functions can use it) ---
 const getDatesFromPeriod = (p: string) => {
   const now = new Date();
   let start = now, end = now;
@@ -76,41 +71,29 @@ const getDatesFromPeriod = (p: string) => {
   else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
   else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
 
-  // FIX: Explicitly append time boundaries so MySQL includes the entire final day
-  // instead of stopping at Midnight (00:00:00) of the end date.
   return {
     startDate: format(start, "yyyy-MM-dd") + " 00:00:00",
     endDate: format(end, "yyyy-MM-dd") + " 23:59:59"
   };
 };
 
-/* ---------------- MAIN COMPONENT ---------------- */
-
 export default function SupervisorSummaryDashboard() {
   const { user } = useAuth();
 
-  // View State
   const [activeTab, setActiveTab] = useState(0);
 
-  // Filter State
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [selectedProject, setSelectedProject] = useState("all");
 
-  // Date/Mode Filters
   const [period, setPeriod] = useState("This Week");
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
   const [sec3Period, setSec3Period] = useState("This Week");
   const [mode, setMode] = useState("all");
 
-  // --- DRILL DOWN MODAL STATE ---
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
-
-  // ===================================================================
-  // React Query: filter lookups + per-section reads
-  // ===================================================================
 
   const agentsQuery = useQuery<any[]>({
     queryKey: ["supervisor", "agents"],
@@ -185,14 +168,33 @@ export default function SupervisorSummaryDashboard() {
   const loading = activeQuery.isLoading;
   const errored = activeQuery.isError;
 
-  // --- DRILL DOWN HANDLER (kept on plain axios per Phase 2 scope) ---
+  // Phase 6: team conversion funnel for Tab 1.
+  const funnelStages = useMemo(() => [
+    { label: "Visit Proposed", count: sec1Data["visit-proposed"] ?? 0 },
+    { label: "Visit Confirmed", count: sec1Data["visit-confirmed"] ?? 0 },
+    { label: "Visit Done", count: sec1Data["visit-done"] ?? 0 },
+    { label: "Booking Done", count: sec1Data["booking-done"] ?? 0 },
+  ], [sec1Data]);
+
+  // Phase 6: daily totals for Tab 2 sparkline.
+  const sec2DailyTotals = useMemo(() => {
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    for (const rec of sec2Data) {
+      const d = Number(rec.day_num);
+      if (!d || d < 1 || d > 7) continue;
+      const fresh = Number(rec.fresh) || 0;
+      const repeated = Number(rec.repeated) || 0;
+      const v = mode === "fresh" ? fresh : mode === "repeated" ? repeated : fresh + repeated;
+      totals[d - 1] += v;
+    }
+    return totals;
+  }, [sec2Data, mode]);
+
   const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
-    // 1. GUARD CLAUSE: Fixes "user is possibly null" error
     if (!user) return;
 
     setModalOpen(true);
     setModalLoading(true);
-    // Title logic: If dayNum is present, it's a specific day, otherwise it's the Total
     const dayLabel = dayNum ? " (Day View)" : " (Total View)";
     setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
 
@@ -212,9 +214,7 @@ export default function SupervisorSummaryDashboard() {
           endDate,
           statusCode,
           section,
-          dayNum, // If undefined (Total column), backend will fetch range without day filter
-
-          // FIX: Explicitly send the selected mode if we are clicking inside the pipeline matrix
+          dayNum,
           mode: section === 'pipeline' ? mode : undefined
         }
       });
@@ -240,9 +240,6 @@ export default function SupervisorSummaryDashboard() {
     />
   );
 
-  // --- RENDER SECTIONS ---
-
-  // 1. Cards (Section 1)
   const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
 
   const renderSection1 = () => (
@@ -262,6 +259,14 @@ export default function SupervisorSummaryDashboard() {
         </div>
       </div>
 
+      {/* Phase 6: team conversion funnel above the cards */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+          Team conversion funnel
+        </div>
+        <ConversionFunnel stages={funnelStages} accentClass="bg-indigo-500 dark:bg-indigo-400" />
+      </div>
+
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           ["Follow Up", "follow-up", "text-cyan-600", "bg-cyan-50", "border-cyan-200"],
@@ -275,7 +280,6 @@ export default function SupervisorSummaryDashboard() {
           ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50", "border-rose-200"],
           ["Lost", "lost", "text-slate-600", "bg-slate-50", "border-slate-200"],
         ].map(([label, code, color, border]) => (
-          // --- UPDATED: WHOLE CARD IS CLICKABLE ---
           <div
             key={code}
             onClick={() => handleDrillDown(code, 'cards')}
@@ -295,7 +299,6 @@ export default function SupervisorSummaryDashboard() {
     </div>
   );
 
-  // 2. Matrix Table Logic
   const MatrixTable = ({ rows, data, isPipeline }: any) => {
     const days = [ {l:"Mon",n:1}, {l:"Tue",n:2}, {l:"Wed",n:3}, {l:"Thu",n:4}, {l:"Fri",n:5}, {l:"Sat",n:6}, {l:"Sun",n:7} ];
     let grandTotal = 0;
@@ -344,7 +347,6 @@ export default function SupervisorSummaryDashboard() {
                        )
                      })}
 
-                     {/* ROW TOTAL (Right Column) */}
                      <td
                         onClick={() => rTot > 0 && handleDrillDown(r.code, isPipeline ? 'pipeline' : 'volume')}
                         className={`p-2 text-center font-bold text-slate-800 bg-slate-100 border border-slate-300 transition-all ${rTot > 0 ? 'cursor-pointer hover:bg-slate-200 active:bg-slate-300' : ''}`}
@@ -355,7 +357,6 @@ export default function SupervisorSummaryDashboard() {
                   )
                })}
 
-               {/* --- GRAND TOTAL ROW (Bottom) --- */}
                <tr className="bg-slate-800 text-white border-t-2 border-slate-300">
                  <td className="p-3 pl-3 font-bold uppercase tracking-wider border border-slate-600">Grand Total</td>
                  {days.map(d => {
@@ -364,7 +365,6 @@ export default function SupervisorSummaryDashboard() {
                    return (
                        <td
                            key={d.l}
-                           // Click Handler for Column Total (e.g., All Monday)
                            onClick={() => c > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume', d.n)}
                            className={`p-3 text-center font-bold border border-slate-600 transition-all ${c > 0 ? 'cursor-pointer hover:bg-slate-700' : ''}`}
                        >
@@ -373,7 +373,6 @@ export default function SupervisorSummaryDashboard() {
                    )
                  })}
 
-                 {/* ABSOLUTE GRAND TOTAL (Bottom Right Corner) */}
                  <td
                     onClick={() => grandTotal > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume')}
                     className={`p-3 text-center text-sm font-extrabold bg-indigo-600 border border-indigo-700 transition-all ${grandTotal > 0 ? 'cursor-pointer hover:bg-indigo-500' : ''}`}
@@ -397,6 +396,20 @@ export default function SupervisorSummaryDashboard() {
            <SelectInput icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh</option><option value="repeated">Repeated</option></>} />
          </div>
       </div>
+
+      {/* Phase 6: team-aggregate week trend sparkline above the matrix. */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Team daily pipeline trend</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">Mon-Sun, sum across pipeline statuses</div>
+        </div>
+        <Sparkline
+          data={sec2DailyTotals}
+          labels={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+          ariaLabel="Team daily pipeline trend"
+        />
+      </div>
+
       <MatrixTable isPipeline={true} data={sec2Data} rows={[{label:"Visit Proposed",code:"visit-proposed"},{label:"Visit Confirmed",code:"visit-confirmed"},{label:"Virtual Meet Confirmed",code:"virtual-meet-confirmed"}]} />
     </div>
   );
@@ -420,7 +433,6 @@ export default function SupervisorSummaryDashboard() {
     <AppShell sidebar={null}>
     <div className="min-h-screen bg-slate-50/50 p-4 md:p-6 max-w-7xl mx-auto font-sans">
 
-      {/* Header */}
       <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
          <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Supervisor <span className="text-indigo-600">Overview</span></h1>
@@ -429,8 +441,6 @@ export default function SupervisorSummaryDashboard() {
          <Tabs active={activeTab} setActive={setActiveTab} labels={["Cards View", "Pipeline Grid", "Status Grid"]} />
       </div>
 
-      {/* Phase 2: in-page error banner. Cached data (if any) remains visible
-          below; we never blank the page on a transient query failure. */}
       {errored && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
           <span>Could not load this section. Showing last known data.</span>
@@ -445,8 +455,6 @@ export default function SupervisorSummaryDashboard() {
       )}
 
       {loading ? (
-          // Phase 1: skeleton stand-in matching section heights so the page
-          // does not jump on tab switch / period change. No data-flow change.
           <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm p-6 space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[0, 1, 2, 3].map((i) => (
@@ -463,7 +471,6 @@ export default function SupervisorSummaryDashboard() {
         </>
       )}
 
-      {/* Drill Down Modal */}
       <DrillDownModal
         isOpen={modalOpen}
         onClose={setModalOpen}

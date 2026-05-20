@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay } from "date-fns";
+import { format, isBefore, isToday, startOfDay, differenceInCalendarDays } from "date-fns";
 import {
   Phone,
   Calendar,
@@ -14,17 +14,16 @@ import {
   ChevronRight,
   Briefcase,
   MessageCircle,
-  CheckCircle2, // <-- Added for the new dropdown icon
+  CheckCircle2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import AgeDistributionBar from "@/components/system/AgeDistributionBar";
 
 // Phase 1 (May 2026): removed unused imports & dead WhatsApp helpers.
 // Phase 2 (May 2026): migrated /api/agent/customers/followups to useQuery.
-//   - staleTime 15s: bounds the resolve-then-revisit staleness window.
-//   - enabled gated on user so we never hit the endpoint anonymously.
-//   - Drill-down / navigation / KPI logic untouched.
+// Phase 6 (May 2026): added overdue-aging distribution bar so an agent can
+//   triage cold leads vs. recoverable misses. Pure derivation; no new fetch.
 
-// --- STATUS OPTIONS ---
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
   "not-reachable", "virtual-meet", "pending"
@@ -40,9 +39,8 @@ export default function FollowUpDashboard() {
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<"all" | "past" | "today" | "future">("all");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all"); // <-- Added status state
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
 
-  // --- DATA: React Query ---
   const followupsQuery = useQuery({
     queryKey: ["agent", "followups"],
     queryFn: fetchFollowUps,
@@ -51,20 +49,15 @@ export default function FollowUpDashboard() {
   });
 
   const data: any[] = followupsQuery.data ?? [];
-  // isLoading = first fetch, no data yet -> show skeleton.
-  // Background refetches keep showing existing data; no jump.
   const loading = followupsQuery.isLoading;
   const errored = followupsQuery.isError;
 
-  // --- FILTERING & CATEGORIZATION LOGIC ---
   const todayStart = startOfDay(new Date());
 
-  // 1. Filter by status first
   const statusFilteredData = selectedStatus === "all"
     ? data
     : data.filter(item => item.status_code === selectedStatus);
 
-  // 2. Then categorize into time buckets
   const categorized = statusFilteredData.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
@@ -80,7 +73,6 @@ export default function FollowUpDashboard() {
     return { ...item, category };
   });
 
-  // 3. KPI Counts update dynamically based on the filtered status
   const counts = {
     past: categorized.filter((i) => i.category === "past").length,
     today: categorized.filter((i) => i.category === "today").length,
@@ -90,7 +82,29 @@ export default function FollowUpDashboard() {
   const displayList =
     filter === "all" ? categorized : categorized.filter((i) => i.category === filter);
 
-  // --- STYLE HELPER ---
+  // Phase 6: overdue-aging buckets. Pure derivation over the same data.
+  // Buckets:  1d  |  2-3d  |  4-7d  |  8+d (stale)
+  const overdueBuckets = useMemo(() => {
+    const today = startOfDay(new Date());
+    let b1 = 0, b23 = 0, b47 = 0, b8 = 0;
+    for (const item of categorized) {
+      if (item.category !== "past") continue;
+      const f = item.follow_up_date ? new Date(item.follow_up_date) : null;
+      if (!f || isNaN(f.getTime())) continue;
+      const daysLate = differenceInCalendarDays(today, startOfDay(f));
+      if (daysLate <= 1) b1++;
+      else if (daysLate <= 3) b23++;
+      else if (daysLate <= 7) b47++;
+      else b8++;
+    }
+    return [
+      { label: "1 day", count: b1, className: "bg-amber-400" },
+      { label: "2-3 days", count: b23, className: "bg-orange-500" },
+      { label: "4-7 days", count: b47, className: "bg-rose-500" },
+      { label: "8+ days (stale)", count: b8, className: "bg-red-700" },
+    ];
+  }, [categorized]);
+
   const getStyles = (category: string) => {
     switch (category) {
       case "past":
@@ -121,8 +135,6 @@ export default function FollowUpDashboard() {
   };
 
   if (authLoading || loading) {
-    // Phase 1: skeleton matches the real layout (header + 3 KPI cards + list)
-    // so the page does not "jump" on load. No data-flow change.
     return (
       <AppShell sidebar={null}>
         <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-6 md:p-8 max-w-6xl mx-auto font-sans">
@@ -151,14 +163,12 @@ export default function FollowUpDashboard() {
   return (
     <AppShell sidebar={null}>
       <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-6xl mx-auto font-sans">
-        {/* HEADER SECTION */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Daily Follow-ups</h1>
             <p className="text-slate-500 mt-1">Manage your pending calls and visits efficiently.</p>
           </div>
 
-          {/* REPLACED BUTTON WITH STATUS DROPDOWN */}
           <div className="relative min-w-[180px]">
             <select
               className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
@@ -176,7 +186,6 @@ export default function FollowUpDashboard() {
           </div>
         </div>
 
-        {/* Phase 2: graceful in-page error banner (does not blank the page). */}
         {errored && (
           <div className="mb-6 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
             <span>Could not load follow-ups. Showing last known data.</span>
@@ -190,7 +199,6 @@ export default function FollowUpDashboard() {
           </div>
         )}
 
-        {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <div
             onClick={() => setFilter(filter === "past" ? "all" : "past")}
@@ -301,7 +309,14 @@ export default function FollowUpDashboard() {
           </div>
         </div>
 
-        {/* LIST SECTION */}
+        {/* Phase 6: overdue-aging distribution. Only renders when there
+            actually are overdue items. */}
+        {counts.past > 0 && (
+          <div className="mb-8">
+            <AgeDistributionBar buckets={overdueBuckets} totalLabel="Overdue" />
+          </div>
+        )}
+
         <div className="space-y-4">
           {displayList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
@@ -327,7 +342,6 @@ export default function FollowUpDashboard() {
                   className={`group relative bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border-l-[6px] ${style.border}`}
                 >
                   <div className="flex flex-col md:flex-row md:items-center p-5 gap-5">
-                    {/* Left: Status Icon & Date */}
                     <div className="flex md:flex-col items-center md:items-start justify-between md:justify-center md:w-32 md:border-r md:border-slate-100 md:pr-4">
                       <div className="flex items-center gap-2 mb-0 md:mb-2">
                         <div className={`p-2 rounded-lg ${style.iconBg}`}>
@@ -347,7 +361,6 @@ export default function FollowUpDashboard() {
                       </div>
                     </div>
 
-                    {/* Middle: Customer Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <h3 className="text-lg font-bold text-slate-900 truncate">
@@ -395,7 +408,6 @@ export default function FollowUpDashboard() {
                       )}
                     </div>
 
-                    {/* Right: Action Buttons */}
                     <div className="flex gap-2 items-center flex-wrap md:flex-nowrap">
                       <button
                         type="button"
