@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
 import AgentDrillDownModal from "./AgentDrillDownModel";
 import {
@@ -15,6 +16,17 @@ import {
 } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Loader2, Calendar, Filter, Briefcase, Layers } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+
+// Phase 2 (May 2026):
+//   Migrated read fetches to React Query.
+//     - projects lookup -> ['agent','projects']             staleTime 5min
+//     - section 1       -> ['agent','summary',1, params]    staleTime 30s
+//     - section 2       -> ['agent','summary',2, params]    staleTime 30s
+//     - section 3       -> ['agent','summary',3, params]    staleTime 30s
+//   handleDrillDown still uses axios. It writes into local modal state on
+//   click; converting to useQuery here would over-couple the modal to a
+//   query key derived from many states. Out of scope for Phase 2.
 
 /* ---------------- STYLED TABS ---------------- */
 const Tabs = ({ active, setActive, labels }: any) => (
@@ -41,50 +53,111 @@ const ALL_STATUSES = [
   "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending",
 ];
 
+// --- DATE LOGIC (hoisted so query functions can use it) ---
+const getDatesFromPeriod = (p: string) => {
+  const now = new Date();
+  let start = now, end = now;
+  if (p === "Today") { start = now; end = now; }
+  else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); }
+  else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); }
+  else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); }
+  else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
+  else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
+
+  return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
+};
+
 export default function SummaryDashboard() {
   const { user, loading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(0);
-  const [projects, setProjects] = useState<any[]>([]);
 
   // Filters
   const [selectedProject, setSelectedProject] = useState("all");
-  const [period, setPeriod] = useState("This Week"); 
-  
+  const [period, setPeriod] = useState("This Week");
+
   // Section 2 Specific
-  const [pipelinePeriod, setPipelinePeriod] = useState("This Week"); 
-  const [mode, setMode] = useState("all"); 
+  const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
+  const [mode, setMode] = useState("all");
 
   // Section 3 Specific
   const [sec3Period, setSec3Period] = useState("This Week");
 
-  // Data Containers
-  const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
-  const [sec2Data, setSec2Data] = useState<any[]>([]);
-  const [sec3Data, setSec3Data] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // --- DRILL DOWN STATE ---
+  // --- DRILL DOWN STATE (modal) ---
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
 
-  // --- DATE LOGIC ---
-  const getDatesFromPeriod = (p: string) => {
-    const now = new Date();
-    let start = now, end = now;
-    if (p === "Today") { start = now; end = now; } 
-    else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); } 
-    else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); } 
-    else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); } 
-    else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); } 
-    else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
+  // ===================================================================
+  // React Query: projects + per-section reads
+  // ===================================================================
 
-    return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
-  };
+  const projectsQuery = useQuery<any[]>({
+    queryKey: ["agent", "projects"],
+    queryFn: async () => {
+      const res = await axios.get("/api/agent/customers/summary-dashboard?section=projects");
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user,
+    staleTime: 5 * 60_000,
+  });
+  const projects: any[] = projectsQuery.data ?? [];
 
-  // --- DRILL DOWN HANDLER ---
+  const sec1Params = { projectId: selectedProject, period };
+  const sec1Query = useQuery<Record<string, number>>({
+    queryKey: ["agent", "summary", 1, sec1Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(period);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "1", projectId: selectedProject, startDate, endDate },
+      });
+      return res.data || {};
+    },
+    enabled: !!user && activeTab === 0,
+    staleTime: 30_000,
+  });
+
+  const sec2Params = { pipelinePeriod, mode };
+  const sec2Query = useQuery<any[]>({
+    queryKey: ["agent", "summary", 2, sec2Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "2", startDate, endDate, mode },
+      });
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user && activeTab === 1,
+    staleTime: 30_000,
+  });
+
+  const sec3Params = { projectId: selectedProject, sec3Period };
+  const sec3Query = useQuery<any[]>({
+    queryKey: ["agent", "summary", 3, sec3Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(sec3Period);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "3", projectId: selectedProject, startDate, endDate },
+      });
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user && activeTab === 2,
+    staleTime: 30_000,
+  });
+
+  const sec1Data: Record<string, number> = sec1Query.data ?? {};
+  const sec2Data: any[] = sec2Query.data ?? [];
+  const sec3Data: any[] = sec3Query.data ?? [];
+
+  // Loading reflects ONLY the active tab's first-load state. Background
+  // refetches do not flicker the skeleton.
+  const activeQuery =
+    activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : sec3Query;
+  const loading = activeQuery.isLoading;
+  const errored = activeQuery.isError;
+
+  // --- DRILL DOWN HANDLER (kept on plain axios per Phase 2 scope) ---
   const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
     if (!user) return;
     setModalOpen(true);
@@ -93,7 +166,7 @@ export default function SummaryDashboard() {
     setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
 
     try {
-      let usePeriod = period; 
+      let usePeriod = period;
       if (section === 'pipeline') usePeriod = pipelinePeriod;
       if (section === 'volume') usePeriod = sec3Period;
 
@@ -106,7 +179,7 @@ export default function SummaryDashboard() {
           endDate,
           statusCode,
           section,
-          dayNum 
+          dayNum
         }
       });
       setModalData(res.data);
@@ -116,45 +189,6 @@ export default function SummaryDashboard() {
       setModalLoading(false);
     }
   };
-
-  const fetchProjects = async () => {
-    try {
-      const res = await axios.get(`/api/agent/customers/summary-dashboard?section=projects&_ts=${Date.now()}`);
-      setProjects(Array.isArray(res.data) ? res.data : []);
-    } catch { setProjects([]); }
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const ts = Date.now();
-      
-      if (activeTab === 0) {
-        const { startDate, endDate } = getDatesFromPeriod(period);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "1", projectId: selectedProject, startDate, endDate, _ts: ts },
-        });
-        setSec1Data(res.data || {});
-      }
-      if (activeTab === 1) {
-        const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "2", startDate, endDate, mode, _ts: ts },
-        });
-        setSec2Data(Array.isArray(res.data) ? res.data : []);
-      }
-      if (activeTab === 2) {
-        const { startDate, endDate } = getDatesFromPeriod(sec3Period);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "3", projectId: selectedProject, startDate, endDate, _ts: ts },
-        });
-        setSec3Data(Array.isArray(res.data) ? res.data : []);
-      }
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { fetchProjects(); }, []);
-  useEffect(() => { if (user) fetchData(); }, [activeTab, selectedProject, period, pipelinePeriod, mode, sec3Period, user]);
 
   const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
 
@@ -191,11 +225,11 @@ export default function SummaryDashboard() {
   );
 
   /* ---------------- BOX STYLE MATRIX TABLE ---------------- */
-  const MatrixTable = ({ 
-    rows, 
-    data, 
-    totalLabel = "Total", 
-    isPipeline = false 
+  const MatrixTable = ({
+    rows,
+    data,
+    totalLabel = "Total",
+    isPipeline = false
   }: any) => {
     const days = [
       { label: "Mon", sql: 1 }, { label: "Tue", sql: 2 }, { label: "Wed", sql: 3 },
@@ -238,8 +272,8 @@ export default function SummaryDashboard() {
                       colTotals[d.sql] += c;
 
                       return (
-                        <td 
-                          key={d.label} 
+                        <td
+                          key={d.label}
                           onClick={() => c > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume', d.sql)}
                           className={`p-2 text-center border border-slate-300 transition-all ${c > 0 ? "text-blue-600 font-bold bg-blue-50/50 cursor-pointer hover:bg-blue-100" : "text-slate-300"}`}
                         >
@@ -247,7 +281,7 @@ export default function SummaryDashboard() {
                         </td>
                       );
                     })}
-                    <td 
+                    <td
                         onClick={() => rowTotal > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume')}
                         className={`p-2 text-center font-bold text-slate-800 bg-slate-50 border border-slate-300 transition-all ${rowTotal > 0 ? "cursor-pointer hover:bg-slate-200" : ""}`}
                     >
@@ -256,15 +290,15 @@ export default function SummaryDashboard() {
                   </tr>
                 );
               })}
-              
+
               <tr className="bg-slate-100 font-bold">
                 <td className="p-2 text-slate-800 uppercase text-xs tracking-wider border border-slate-300">{totalLabel}</td>
                 {days.map(d => {
                     grandTotal += colTotals[d.sql];
                     const val = colTotals[d.sql];
                     return (
-                        <td 
-                          key={d.label} 
+                        <td
+                          key={d.label}
                           onClick={() => val > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume', d.sql)}
                           className={`p-2 text-center border border-slate-300 transition-all ${val > 0 ? "text-blue-800 cursor-pointer hover:bg-slate-200" : "text-slate-300 font-normal"}`}
                         >
@@ -272,7 +306,7 @@ export default function SummaryDashboard() {
                         </td>
                     )
                 })}
-                <td 
+                <td
                     onClick={() => grandTotal > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume')}
                     className={`p-2 text-center text-lg text-blue-900 bg-blue-100 border border-slate-300 transition-all ${grandTotal > 0 ? "cursor-pointer hover:bg-blue-200" : ""}`}
                 >
@@ -308,8 +342,8 @@ export default function SummaryDashboard() {
           ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50"],
           ["Lost", "lost", "text-slate-600", "bg-slate-50"],
         ].map(([label, code, colorClass, bgClass]) => (
-          <Card 
-            key={code} 
+          <Card
+            key={code}
             onClick={() => handleDrillDown(code as string, 'cards')}
             className="border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer"
           >
@@ -370,10 +404,31 @@ export default function SummaryDashboard() {
 
       <Tabs active={activeTab} setActive={setActiveTab} labels={["Visits & Booking", "Weekly Pipeline", "Status Counts"]} />
 
+      {/* Phase 2: in-page error banner. Doesn't replace the section; if cached
+          data exists we keep showing it underneath. */}
+      {errored && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+          <span>Could not load this section. Showing last known data.</span>
+          <button
+            type="button"
+            onClick={() => activeQuery.refetch()}
+            className="text-red-700 font-semibold hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-slate-100 shadow-sm">
-          <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-          <p className="text-slate-500 font-medium">Fetching analytics...</p>
+        // Phase 1: skeleton stand-in for the active section. Same height
+        // budget as the real charts/tables so the page does not jump.
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm p-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-64 rounded-lg" />
         </div>
       ) : (
         <>
@@ -384,12 +439,12 @@ export default function SummaryDashboard() {
       )}
 
       {/* --- ADDED MODAL COMPONENT --- */}
-      <AgentDrillDownModal 
-        isOpen={modalOpen} 
-        onClose={setModalOpen} 
-        title={modalTitle} 
-        data={modalData} 
-        loading={modalLoading} 
+      <AgentDrillDownModal
+        isOpen={modalOpen}
+        onClose={setModalOpen}
+        title={modalTitle}
+        data={modalData}
+        loading={modalLoading}
       />
     </div>
     </AppShell>

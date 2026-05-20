@@ -1,7 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
-import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
 import DrillDownModal from "./DrillDownModal";
 import {
@@ -15,6 +14,7 @@ import {
   subDays,
 } from "date-fns";
 import {
+  Loader2,
   Calendar,
   Briefcase,
   Layers,
@@ -22,15 +22,6 @@ import {
   Filter
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-
-// Phase 2 (May 2026):
-//   Migrated read fetches to React Query.
-//     - agents lookup   -> ['supervisor','agents']            staleTime 5min
-//     - projects lookup -> ['supervisor','projects']          staleTime 5min
-//     - section 1       -> ['supervisor','summary',1,params]  staleTime 30s
-//     - section 2       -> ['supervisor','summary',2,params]  staleTime 30s
-//     - section 3       -> ['supervisor','summary',3,params]  staleTime 30s
-//   handleDrillDown still uses axios (kept out of scope per Phase 2 spec).
 
 /* ---------------- COMPACT UI HELPERS ---------------- */
 
@@ -65,25 +56,6 @@ const SelectInput = ({ icon: Icon, value, onChange, options, minWidth = "min-w-[
   </div>
 );
 
-// --- Date Calculation Helper (hoisted so query functions can use it) ---
-const getDatesFromPeriod = (p: string) => {
-  const now = new Date();
-  let start = now, end = now;
-  if (p === "Today") { start = now; end = now; }
-  else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); }
-  else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); }
-  else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); }
-  else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
-  else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
-
-  // FIX: Explicitly append time boundaries so MySQL includes the entire final day
-  // instead of stopping at Midnight (00:00:00) of the end date.
-  return {
-    startDate: format(start, "yyyy-MM-dd") + " 00:00:00",
-    endDate: format(end, "yyyy-MM-dd") + " 23:59:59"
-  };
-};
-
 /* ---------------- MAIN COMPONENT ---------------- */
 
 export default function SupervisorSummaryDashboard() {
@@ -102,90 +74,40 @@ export default function SupervisorSummaryDashboard() {
   const [sec3Period, setSec3Period] = useState("This Week");
   const [mode, setMode] = useState("all");
 
+  // Data State
+  const [agents, setAgents] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
+  const [sec2Data, setSec2Data] = useState<any[]>([]);
+  const [sec3Data, setSec3Data] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
   // --- DRILL DOWN MODAL STATE ---
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
 
-  // ===================================================================
-  // React Query: filter lookups + per-section reads
-  // ===================================================================
+  // --- Date Calculation Helper ---
+  const getDatesFromPeriod = (p: string) => {
+    const now = new Date();
+    let start = now, end = now;
+    if (p === "Today") { start = now; end = now; }
+    else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); }
+    else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); }
+    else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); }
+    else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
+    else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
 
-  const agentsQuery = useQuery<any[]>({
-    queryKey: ["supervisor", "agents"],
-    queryFn: async () => {
-      const res = await axios.get("/api/supervisor/summary-dashboard?section=associates");
-      return Array.isArray(res.data) ? res.data : [];
-    },
-    enabled: !!user,
-    staleTime: 5 * 60_000,
-  });
-  const agents: any[] = agentsQuery.data ?? [];
+    // FIX: Explicitly append time boundaries so MySQL includes the entire final day
+    // instead of stopping at Midnight (00:00:00) of the end date.
+    return {
+      startDate: format(start, "yyyy-MM-dd") + " 00:00:00",
+      endDate: format(end, "yyyy-MM-dd") + " 23:59:59"
+    };
+  };
 
-  const projectsQuery = useQuery<any[]>({
-    queryKey: ["supervisor", "projects"],
-    queryFn: async () => {
-      const res = await axios.get("/api/supervisor/summary-dashboard?section=projects");
-      return Array.isArray(res.data) ? res.data : [];
-    },
-    enabled: !!user,
-    staleTime: 5 * 60_000,
-  });
-  const projects: any[] = projectsQuery.data ?? [];
-
-  const sec1Params = { agentId: selectedAgent, projectId: selectedProject, period };
-  const sec1Query = useQuery<Record<string, number>>({
-    queryKey: ["supervisor", "summary", 1, sec1Params],
-    queryFn: async () => {
-      const { startDate, endDate } = getDatesFromPeriod(period);
-      const res = await axios.get("/api/supervisor/summary-dashboard", {
-        params: { section: "1", agentId: selectedAgent, projectId: selectedProject, startDate, endDate }
-      });
-      return res.data || {};
-    },
-    enabled: !!user && activeTab === 0,
-    staleTime: 30_000,
-  });
-
-  const sec2Params = { agentId: selectedAgent, projectId: selectedProject, pipelinePeriod, mode };
-  const sec2Query = useQuery<any[]>({
-    queryKey: ["supervisor", "summary", 2, sec2Params],
-    queryFn: async () => {
-      const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
-      const res = await axios.get("/api/supervisor/summary-dashboard", {
-        params: { section: "2", agentId: selectedAgent, projectId: selectedProject, startDate, endDate, mode }
-      });
-      return Array.isArray(res.data) ? res.data : [];
-    },
-    enabled: !!user && activeTab === 1,
-    staleTime: 30_000,
-  });
-
-  const sec3Params = { agentId: selectedAgent, projectId: selectedProject, sec3Period };
-  const sec3Query = useQuery<any[]>({
-    queryKey: ["supervisor", "summary", 3, sec3Params],
-    queryFn: async () => {
-      const { startDate, endDate } = getDatesFromPeriod(sec3Period);
-      const res = await axios.get("/api/supervisor/summary-dashboard", {
-        params: { section: "3", agentId: selectedAgent, projectId: selectedProject, startDate, endDate }
-      });
-      return Array.isArray(res.data) ? res.data : [];
-    },
-    enabled: !!user && activeTab === 2,
-    staleTime: 30_000,
-  });
-
-  const sec1Data: Record<string, number> = sec1Query.data ?? {};
-  const sec2Data: any[] = sec2Query.data ?? [];
-  const sec3Data: any[] = sec3Query.data ?? [];
-
-  const activeQuery =
-    activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : sec3Query;
-  const loading = activeQuery.isLoading;
-  const errored = activeQuery.isError;
-
-  // --- DRILL DOWN HANDLER (kept on plain axios per Phase 2 scope) ---
+  // --- DRILL DOWN HANDLER ---
   const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
     // 1. GUARD CLAUSE: Fixes "user is possibly null" error
     if (!user) return;
@@ -225,6 +147,55 @@ export default function SupervisorSummaryDashboard() {
       setModalLoading(false);
     }
   };
+
+  // --- API CALLS ---
+  useEffect(() => {
+    const loadFilters = async () => {
+      try {
+        const [agentRes, projRes] = await Promise.all([
+          axios.get("/api/supervisor/summary-dashboard?section=associates"),
+          axios.get("/api/supervisor/summary-dashboard?section=projects")
+        ]);
+        setAgents(Array.isArray(agentRes.data) ? agentRes.data : []);
+        setProjects(Array.isArray(projRes.data) ? projRes.data : []);
+      } catch (e) { console.error("Filter load error", e); }
+    };
+    if (user) loadFilters();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const baseUrl = "/api/supervisor/summary-dashboard";
+
+        if (activeTab === 0) {
+          const { startDate, endDate } = getDatesFromPeriod(period);
+          const res = await axios.get(baseUrl, {
+            params: { section: "1", agentId: selectedAgent, projectId: selectedProject, startDate, endDate }
+          });
+          setSec1Data(res.data);
+        }
+        else if (activeTab === 1) {
+          const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
+          const res = await axios.get(baseUrl, {
+            params: { section: "2", agentId: selectedAgent, projectId: selectedProject, startDate, endDate, mode }
+          });
+          setSec2Data(Array.isArray(res.data) ? res.data : []);
+        }
+        else if (activeTab === 2) {
+          const { startDate, endDate } = getDatesFromPeriod(sec3Period);
+          const res = await axios.get(baseUrl, {
+            params: { section: "3", agentId: selectedAgent, projectId: selectedProject, startDate, endDate }
+          });
+          setSec3Data(Array.isArray(res.data) ? res.data : []);
+        }
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    };
+    fetchData();
+  }, [user, activeTab, selectedAgent, selectedProject, period, pipelinePeriod, sec3Period, mode]);
 
   const AgentFilter = () => (
     <SelectInput
@@ -428,21 +399,6 @@ export default function SupervisorSummaryDashboard() {
          </div>
          <Tabs active={activeTab} setActive={setActiveTab} labels={["Cards View", "Pipeline Grid", "Status Grid"]} />
       </div>
-
-      {/* Phase 2: in-page error banner. Cached data (if any) remains visible
-          below; we never blank the page on a transient query failure. */}
-      {errored && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
-          <span>Could not load this section. Showing last known data.</span>
-          <button
-            type="button"
-            onClick={() => activeQuery.refetch()}
-            className="text-red-700 font-semibold hover:underline"
-          >
-            Retry
-          </button>
-        </div>
-      )}
 
       {loading ? (
           // Phase 1: skeleton stand-in matching section heights so the page

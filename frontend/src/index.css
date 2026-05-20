@@ -126,4 +126,22 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Phase 1 (May 2026):
+     - color-scheme tells the browser to render native form widgets
+       (scrollbars, date/time pickers, focus rings on inputs) with the
+       appropriate light/dark default. No layout effect.
+     - A targeted, slow transition on body bg/color smooths the theme
+       swap without affecting hover/active interactions (which are on
+       child elements, not <body>). next-themes' disableTransitionOnChange
+       suppresses this for the swap itself, preventing flicker. */
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    transition: background-color 200ms ease, color 200ms ease;
+  }
 }

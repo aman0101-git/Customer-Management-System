@@ -1,36 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay, addDays, parseISO, isEqual } from "date-fns";
+import { format, isBefore, isToday, startOfDay } from "date-fns";
 import {
-  Loader2,
   Phone,
   Calendar,
   Clock,
   MapPin,
   AlertCircle,
-  RefreshCw,
   ChevronRight,
   Briefcase,
   MessageCircle,
   CheckCircle2, // <-- Added for the new dropdown icon
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// --- NEW TAB MANAGEMENT LOGIC ---
-let waWindowRef: Window | null = null;
-
-const openInSingleWhatsAppTab = (url: string) => {
-  let directUrl = url;
-  if (directUrl.includes("api.whatsapp.com")) {
-    directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
-  }
-  waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
-  if (waWindowRef) {
-    waWindowRef.focus();
-  }
-};
+// Phase 1 (May 2026): removed unused imports & dead WhatsApp helpers.
+// Phase 2 (May 2026): migrated /api/agent/customers/followups to useQuery.
+//   - staleTime 15s: bounds the resolve-then-revisit staleness window.
+//   - enabled gated on user so we never hit the endpoint anonymously.
+//   - Drill-down / navigation / KPI logic untouched.
 
 // --- STATUS OPTIONS ---
 const STATUS_OPTIONS = [
@@ -38,49 +30,38 @@ const STATUS_OPTIONS = [
   "not-reachable", "virtual-meet", "pending"
 ];
 
+async function fetchFollowUps(): Promise<any[]> {
+  const res = await axios.get("/api/agent/customers/followups");
+  return Array.isArray(res.data) ? res.data : [];
+}
+
 export default function FollowUpDashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [data, setData] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "past" | "today" | "future">("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all"); // <-- Added status state
-  const [loading, setLoading] = useState(true);
-  const [whatsappLoading, setWhatsappLoading] = useState<number | null>(null);
 
-  // --- DATA FETCHING ---
-  useEffect(() => {
-    if (user) fetchFollowUps();
-  }, [user]);
+  // --- DATA: React Query ---
+  const followupsQuery = useQuery({
+    queryKey: ["agent", "followups"],
+    queryFn: fetchFollowUps,
+    enabled: !!user,
+    staleTime: 15_000,
+  });
 
-  const fetchFollowUps = async () => {
-    try {
-      const res = await axios.get("/api/agent/customers/followups");
-      setData(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Failed to fetch followups", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleOpenWhatsApp = (phone: string) => {
-    if (!phone) {
-      alert("Phone number not available");
-      return;
-    }
-    const digits = phone.replace(/\D/g, "");
-    const formatted = digits.length === 10 ? "91" + digits : digits;
-    const waUrl = `https://web.whatsapp.com/send?phone=${formatted}`;
-    openInSingleWhatsAppTab(waUrl);
-  };
+  const data: any[] = followupsQuery.data ?? [];
+  // isLoading = first fetch, no data yet -> show skeleton.
+  // Background refetches keep showing existing data; no jump.
+  const loading = followupsQuery.isLoading;
+  const errored = followupsQuery.isError;
 
   // --- FILTERING & CATEGORIZATION LOGIC ---
   const todayStart = startOfDay(new Date());
 
   // 1. Filter by status first
-  const statusFilteredData = selectedStatus === "all" 
-    ? data 
+  const statusFilteredData = selectedStatus === "all"
+    ? data
     : data.filter(item => item.status_code === selectedStatus);
 
   // 2. Then categorize into time buckets
@@ -140,10 +121,30 @@ export default function FollowUpDashboard() {
   };
 
   if (authLoading || loading) {
+    // Phase 1: skeleton matches the real layout (header + 3 KPI cards + list)
+    // so the page does not "jump" on load. No data-flow change.
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
+      <AppShell sidebar={null}>
+        <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-6 md:p-8 max-w-6xl mx-auto font-sans">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-64" />
+              <Skeleton className="h-4 w-72" />
+            </div>
+            <Skeleton className="h-10 w-44 rounded-lg" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-32 rounded-2xl" />
+            ))}
+          </div>
+          <div className="space-y-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-xl" />
+            ))}
+          </div>
+        </div>
+      </AppShell>
     );
   }
 
@@ -156,10 +157,10 @@ export default function FollowUpDashboard() {
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Daily Follow-ups</h1>
             <p className="text-slate-500 mt-1">Manage your pending calls and visits efficiently.</p>
           </div>
-          
+
           {/* REPLACED BUTTON WITH STATUS DROPDOWN */}
           <div className="relative min-w-[180px]">
-            <select 
+            <select
               className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
@@ -174,6 +175,20 @@ export default function FollowUpDashboard() {
             <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
           </div>
         </div>
+
+        {/* Phase 2: graceful in-page error banner (does not blank the page). */}
+        {errored && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+            <span>Could not load follow-ups. Showing last known data.</span>
+            <button
+              type="button"
+              onClick={() => followupsQuery.refetch()}
+              className="text-red-700 font-semibold hover:underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* KPI CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">

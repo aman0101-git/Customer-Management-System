@@ -1,16 +1,20 @@
+// ============================================================================
+// frontend/src/features/admin/admin.api.ts
+// ----------------------------------------------------------------------------
+// Phase 0 (May 2026):
+//   Migrated to the shared http client. Endpoint, payload shape, role union,
+//   and throw-on-failure contract are unchanged. CreateUserForm consumes this
+//   without modification.
+// ============================================================================
 
-import axios from 'axios';
-
-const API_BASE = 'http://localhost:3000';
+import { http } from "@/lib/http";
 
 export async function createUser(payload: {
   firstName: string;
   lastName: string;
   username: string;
   password: string;
-  role: 'AGENT' | 'SUPERVISOR' | 'ADMIN';
+  role: "AGENT" | "SUPERVISOR" | "ADMIN";
 }) {
-  await axios.post(`${API_BASE}/auth/users`, payload, {
-    withCredentials: true
-  });
+  await http.post("/auth/users", payload);
 }
