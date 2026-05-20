@@ -1,7 +1,11 @@
-
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { Loader2, Eye, EyeOff } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createUser } from './admin.api';
-import { Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,101 +17,166 @@ interface CreateUserFormProps {
   allowedRoles?: Role[];
 }
 
+// Phase 4 (May 2026):
+//   - 5 useState fields collapsed into one react-hook-form instance with a
+//     zod schema. Uncontrolled inputs mean keystrokes no longer re-render
+//     the whole form.
+//   - Validations are intentionally minimal — every field required, role
+//     constrained to allowedRoles. No new server-side contract; passwords
+//     are not length-restricted client-side so existing valid credentials
+//     are not silently rejected.
+//   - Phase 3 invariants preserved: useMutation, sonner toast on success +
+//     error (Retry action), ['supervisor','agents'] invalidation, the
+//     onSuccess prop callback for drawer integration.
+//   - Accessibility: aria-invalid + aria-describedby on every validated input.
+
 const ALL_ROLES: Role[] = ['AGENT', 'SUPERVISOR', 'ADMIN'];
 
-export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: CreateUserFormProps) {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role | ''>('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSuccess(false);
-
-    if (!firstName || !lastName || !username || !password || !role) {
-      setError('All fields are required');
-      return;
-    }
-
-    try {
-      setLoading(true);
-
-      await createUser({
-        firstName,
-        lastName,
-        username,
-        password,
-        role,
-      });
-
-      setSuccess(true);
-      setFirstName('');
-      setLastName('');
-      setUsername('');
-      setPassword('');
-      setRole(allowedRoles.length === 1 ? allowedRoles[0] : '');
-      if (onSuccess) {
-        setTimeout(() => onSuccess(), 500); // slight delay for feedback
-      }
-    } catch (err: any) {
-      // Try to extract a specific error message from backend
-      let message = 'Failed to create user';
-      if (err?.response?.data?.message) {
-        if (Array.isArray(err.response.data.message)) {
-          message = err.response.data.message.join(', ');
-        } else {
-          message = err.response.data.message;
-        }
-      } else if (err?.message) {
-        message = err.message;
-      }
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+function extractErrorMessage(err: any, fallback: string): string {
+  if (err?.response?.data?.message) {
+    return Array.isArray(err.response.data.message)
+      ? err.response.data.message.join(', ')
+      : String(err.response.data.message);
   }
+  if (err?.message) return String(err.message);
+  return fallback;
+}
+
+export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: CreateUserFormProps) {
+  const queryClient = useQueryClient();
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Schema is memoized so the role enum reflects allowedRoles without
+  // rebuilding on every render. allowedRoles only changes when the parent
+  // re-mounts with a different prop, which is fine.
+  const schema = useMemo(() => {
+    const roleEnum = z.enum(allowedRoles as [Role, ...Role[]], {
+      message: 'Please select a role',
+    });
+    return z.object({
+      firstName: z.string().trim().min(1, 'First name is required').max(50),
+      lastName: z.string().trim().min(1, 'Last name is required').max(50),
+      username: z.string().trim().min(1, 'Username is required').max(50),
+      password: z.string().min(1, 'Password is required'),
+      role: roleEnum,
+    });
+  }, [allowedRoles]);
+
+  type FormValues = z.infer<typeof schema>;
+
+  const defaultRole: Role | '' = allowedRoles.length === 1 ? allowedRoles[0] : '';
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    mode: 'onSubmit',
+    reValidateMode: 'onChange',
+    defaultValues: {
+      firstName: '',
+      lastName: '',
+      username: '',
+      password: '',
+      role: (defaultRole || undefined) as Role,
+    },
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: (payload: FormValues) => createUser(payload),
+    onSuccess: (_data, payload) => {
+      toast.success(`User ${payload.username} created`);
+      queryClient.invalidateQueries({ queryKey: ['supervisor', 'agents'] });
+      reset({
+        firstName: '',
+        lastName: '',
+        username: '',
+        password: '',
+        role: (defaultRole || undefined) as Role,
+      });
+      if (onSuccess) {
+        setTimeout(() => onSuccess(), 400);
+      }
+    },
+    onError: (err: any, payload) => {
+      const message = extractErrorMessage(err, 'Failed to create user');
+      toast.error(message, {
+        action: {
+          label: 'Retry',
+          onClick: () => createUserMutation.mutate(payload),
+        },
+      });
+    },
+  });
+
+  const loading = createUserMutation.isPending;
+
+  const onSubmit = (values: FormValues) => {
+    createUserMutation.mutate(values);
+  };
 
   return (
     <div className="flex items-center justify-center min-h-[60vh] w-full">
       <div className="max-w-lg w-full">
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <h2 className="text-lg font-semibold">Create User</h2>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <Label htmlFor="firstName">First name</Label>
               <Input
                 id="firstName"
                 placeholder="First name"
-                value={firstName}
-                onChange={e => setFirstName(e.target.value)}
+                aria-invalid={!!errors.firstName}
+                aria-describedby={errors.firstName ? 'firstName-error' : undefined}
+                disabled={loading}
+                {...register('firstName')}
               />
+              {errors.firstName && (
+                <p id="firstName-error" className="mt-1 text-xs text-red-600">
+                  {errors.firstName.message}
+                </p>
+              )}
             </div>
             <div>
               <Label htmlFor="lastName">Last name</Label>
               <Input
                 id="lastName"
                 placeholder="Last name"
-                value={lastName}
-                onChange={e => setLastName(e.target.value)}
+                aria-invalid={!!errors.lastName}
+                aria-describedby={errors.lastName ? 'lastName-error' : undefined}
+                disabled={loading}
+                {...register('lastName')}
               />
+              {errors.lastName && (
+                <p id="lastName-error" className="mt-1 text-xs text-red-600">
+                  {errors.lastName.message}
+                </p>
+              )}
             </div>
           </div>
+
           <div>
             <Label htmlFor="username">Username</Label>
             <Input
               id="username"
               placeholder="Username"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
+              aria-invalid={!!errors.username}
+              aria-describedby={errors.username ? 'username-error' : undefined}
+              disabled={loading}
+              autoComplete="off"
+              {...register('username')}
             />
+            {errors.username && (
+              <p id="username-error" className="mt-1 text-xs text-red-600">
+                {errors.username.message}
+              </p>
+            )}
           </div>
+
           <div>
             <Label htmlFor="password">Password</Label>
             <div className="relative">
@@ -115,47 +184,75 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
                 id="password"
                 type={showPassword ? 'text' : 'password'}
                 placeholder="Password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
                 className="pr-10"
+                aria-invalid={!!errors.password}
+                aria-describedby={errors.password ? 'password-error' : undefined}
+                disabled={loading}
+                autoComplete="new-password"
+                {...register('password')}
               />
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
                 onClick={() => setShowPassword(v => !v)}
                 tabIndex={-1}
+                disabled={loading}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            {errors.password && (
+              <p id="password-error" className="mt-1 text-xs text-red-600">
+                {errors.password.message}
+              </p>
+            )}
           </div>
+
           <div>
             <Label htmlFor="role">Role</Label>
-            <Select value={role} onValueChange={v => setRole(v as Role)}>
-              <SelectTrigger id="role">
-                <SelectValue placeholder="Select role" />
-              </SelectTrigger>
-              <SelectContent>
-                {allowedRoles.map(r => (
-                  <SelectItem key={r} value={r}>
-                    {r.charAt(0) + r.slice(1).toLowerCase()}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Controller
+              control={control}
+              name="role"
+              render={({ field }) => (
+                <Select
+                  value={field.value || ''}
+                  onValueChange={field.onChange}
+                  disabled={loading}
+                >
+                  <SelectTrigger
+                    id="role"
+                    aria-invalid={!!errors.role}
+                    aria-describedby={errors.role ? 'role-error' : undefined}
+                  >
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allowedRoles.map(r => (
+                      <SelectItem key={r} value={r}>
+                        {r.charAt(0) + r.slice(1).toLowerCase()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+            {errors.role && (
+              <p id="role-error" className="mt-1 text-xs text-red-600">
+                {errors.role.message}
+              </p>
+            )}
           </div>
-          {error && (
-            <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </div>
-          )}
-          {success && (
-            <div className="rounded-md bg-green-50 px-3 py-2 text-sm text-green-700">
-              User created successfully!
-            </div>
-          )}
+
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Creating…' : 'Create User'}
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Create User'
+            )}
           </Button>
         </form>
       </div>
