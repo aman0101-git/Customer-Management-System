@@ -1,4 +1,6 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
+import PageTransition from '@/components/system/PageTransition';
 import LoginPage from '@/features/auth/LoginPage';
 import RequireAuth from './RequireAuth';
 import AuthLayout from '../layouts/AuthLayout';
@@ -20,150 +22,161 @@ import GlobalCustomerSearch from '@/features/supervisor/GlobalCustomerSearch';
 import WhatsAppTemplateManagement from '@/features/supervisor/WhatsAppTemplateManagement';
 import SupervisorWhatsAppAudit from '@/features/supervisor/SupervisorWhatsAppAudit';
 
+// Phase 1 (May 2026):
+//   Wrap <Routes> in <AnimatePresence mode="wait"> + <PageTransition>, keyed
+//   by location.pathname. Adds a 150ms cross-fade between pages. Route paths,
+//   role guards, components, and order are unchanged. Default exports and
+//   guard semantics are identical.
 export default function AppRoutes() {
+  const location = useLocation();
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={
-          <AuthLayout>
-            <LoginPage />
-          </AuthLayout>
-        }
-      />
-      <Route
-        path="/"
-        element={<Navigate to="/login"/>}
-      />
+    <AnimatePresence mode="wait" initial={false}>
+      <PageTransition key={location.pathname}>
+        <Routes location={location}>
+          <Route
+            path="/login"
+            element={
+              <AuthLayout>
+                <LoginPage />
+              </AuthLayout>
+            }
+          />
+          <Route
+            path="/"
+            element={<Navigate to="/login"/>}
+          />
 
-      <Route
-        path="/admin/dashboard"
-        element={
-          <RequireAuth role="ADMIN">
-            <AdminDashboard />
-          </RequireAuth>
-        }
-      />
+          <Route
+            path="/admin/dashboard"
+            element={
+              <RequireAuth role="ADMIN">
+                <AdminDashboard />
+              </RequireAuth>
+            }
+          />
 
-      {/* AGENT ROUTES */}
-      <Route
-        path="/agent/dashboard"
-        element={
-          <RequireAuth role="AGENT">
-            <AgentDashboard />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/agent/customers/resolve"
-        element={
-          <RequireAuth role="AGENT">
-            <CustomerResolvePage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/agent/customers"
-        element={
-          <RequireAuth role="AGENT">
-            <AgentCustomersPage />
-          </RequireAuth>
-        }
-      />
+          {/* AGENT ROUTES */}
+          <Route
+            path="/agent/dashboard"
+            element={
+              <RequireAuth role="AGENT">
+                <AgentDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/agent/customers/resolve"
+            element={
+              <RequireAuth role="AGENT">
+                <CustomerResolvePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/agent/customers"
+            element={
+              <RequireAuth role="AGENT">
+                <AgentCustomersPage />
+              </RequireAuth>
+            }
+          />
 
-      <Route
-        path="/agent/followups"
-        element={
-          <RequireAuth role="AGENT">
-            <FollowUpDashboard />
-          </RequireAuth>
-        }
-      />
+          <Route
+            path="/agent/followups"
+            element={
+              <RequireAuth role="AGENT">
+                <FollowUpDashboard />
+              </RequireAuth>
+            }
+          />
 
-      <Route 
-        path="/agent/summary" 
-        element={
-          <RequireAuth role="AGENT">
-            <SummaryDashboard />
-          </RequireAuth>
-        } 
-      />
-      
-      {/* SUPERVISOR ROUTES */}
-      <Route
-        path="/supervisor/dashboard"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorDashboard />
-          </RequireAuth>
-        }
-      />
+          <Route
+            path="/agent/summary"
+            element={
+              <RequireAuth role="AGENT">
+                <SummaryDashboard />
+              </RequireAuth>
+            }
+          />
 
-      <Route
-        path="/supervisor/create-user"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorCreateUserPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/supervisor/project-allocation"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <ProjectAllocationPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/supervisor/summarydashboard"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorSummaryDashboard />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/supervisor/follow-ups"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorFollowUpPage />
-          </RequireAuth>
-        }
-      />
-      <Route
-        path="/supervisor/export-data"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorExportPage />
-          </RequireAuth>
-        }
-      />      <Route
-        path="/supervisor/whatsapp/audit"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <SupervisorWhatsAppAudit />
-          </RequireAuth>
-        }
-      />      
-      <Route
-        path="/supervisor/customer-search"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <GlobalCustomerSearch />
-          </RequireAuth>
-        }
-      />
-      
-      <Route
-        path="/supervisor/whatsapp/templates"
-        element={
-          <RequireAuth role="SUPERVISOR">
-            <WhatsAppTemplateManagement />
-          </RequireAuth>
-        }
-      />
-      
-    </Routes>
+          {/* SUPERVISOR ROUTES */}
+          <Route
+            path="/supervisor/dashboard"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorDashboard />
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/supervisor/create-user"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorCreateUserPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/project-allocation"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <ProjectAllocationPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/summarydashboard"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorSummaryDashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/follow-ups"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorFollowUpPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/export-data"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorExportPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/whatsapp/audit"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <SupervisorWhatsAppAudit />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/supervisor/customer-search"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <GlobalCustomerSearch />
+              </RequireAuth>
+            }
+          />
+
+          <Route
+            path="/supervisor/whatsapp/templates"
+            element={
+              <RequireAuth role="SUPERVISOR">
+                <WhatsAppTemplateManagement />
+              </RequireAuth>
+            }
+          />
+
+        </Routes>
+      </PageTransition>
+    </AnimatePresence>
   );
 }

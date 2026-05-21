@@ -1,13 +1,17 @@
-// auth.api.ts
-import axios from 'axios';
-import type { LoginRequest } from '@/contracts/auth';
+// ============================================================================
+// frontend/src/features/auth/auth.api.ts
+// ----------------------------------------------------------------------------
+// Phase 0 (May 2026):
+//   Migrated to the shared http client. Behavior is identical:
+//     - same endpoint (POST /auth/login)
+//     - same payload
+//     - same cookie semantics (withCredentials is set on the http instance)
+//     - same throw-on-failure contract (LoginPage's catch block keeps working)
+// ============================================================================
 
-const API_BASE = 'http://localhost:3000';
+import type { LoginRequest } from "@/contracts/auth";
+import { http } from "@/lib/http";
 
 export async function login(payload: LoginRequest): Promise<void> {
-  await axios.post(
-    `${API_BASE}/auth/login`,
-    payload,
-    { withCredentials: true }
-  );
+  await http.post("/auth/login", payload);
 }

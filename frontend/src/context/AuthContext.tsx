@@ -1,6 +1,22 @@
+// ============================================================================
+// frontend/src/context/AuthContext.tsx
+// ----------------------------------------------------------------------------
+// Phase 0 (May 2026):
+//   - Removed hardcoded "http://localhost:3000" - now uses the shared http
+//     client (lib/http.ts) which reads baseURL from apiBase.ts (env-driven).
+//   - Listens for the "auth:unauthorized" window event dispatched by the
+//     http 401 interceptor and clears local state. We deliberately do NOT
+//     navigate from here; RequireAuth already redirects to /login when user
+//     becomes null. logout() still does a hard /login navigation (unchanged).
+//
+//   Public API (user, loading, refreshUser, logout) is byte-identical, so no
+//   consumer (RequireAuth, LogoutButton, AppShell, feature pages) needs to
+//   change.
+// ============================================================================
+
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import axios from "axios";
+import { http } from "@/lib/http";
 
 export interface User {
   id: number;
@@ -18,7 +34,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const API_BASE = "http://localhost:3000";
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -26,11 +41,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshUser = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/auth/me`, {
-        withCredentials: true,
-      });
+      const res = await http.get<User>("/auth/me");
       setUser(res.data);
-      return res.data; // ✅ RETURN USER
+      return res.data;
     } catch {
       setUser(null);
       return null;
@@ -40,13 +53,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const logout = async () => {
-    await axios.post(`${API_BASE}/auth/logout`, {}, { withCredentials: true });
+    try {
+      await http.post("/auth/logout", {});
+    } catch {
+      // Even if the server-side call fails (network error, expired token,
+      // etc.) we still clear local state and force navigation. Logout must
+      // never be blocked.
+    }
     setUser(null);
     window.location.href = "/login";
   };
 
   useEffect(() => {
     refreshUser();
+
+    // 401 from any http-instance call -> drop client session state.
+    // No navigation here; RequireAuth handles redirects when user is null.
+    const handleUnauthorized = () => {
+      setUser(null);
+      setLoading(false);
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () =>
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
   }, []);
 
   return (

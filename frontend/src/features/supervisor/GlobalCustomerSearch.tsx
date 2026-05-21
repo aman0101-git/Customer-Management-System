@@ -1,23 +1,73 @@
 import { useState, useEffect } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
 import { format, parseISO } from "date-fns";
-import { 
-  Loader2, 
-  Search, 
-  ArrowLeft, 
-  User, 
-  Briefcase, 
+import { getOverdueInfo } from "@/lib/urgency";
+import {
+  Loader2,
+  Search,
+  ArrowLeft,
+  User,
+  Briefcase,
   Edit2,
-  X
+  X,
+  Phone,
+  Copy,
+  Check,
 } from "lucide-react";
+
+// Phase 10: Contact cell with tel: link + copy-to-clipboard.
+function ContactCell({ contact }: { contact: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  const val = contact ?? "";
+  if (!val) return <span className="text-slate-400 font-mono">—</span>;
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(val).then(() => {
+      setCopied(true);
+      toast.success("Contact copied");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="flex items-center gap-1.5 group/c">
+      <a href={`tel:${val}`} onClick={(e) => e.stopPropagation()}
+        className="font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1 text-sm">
+        <Phone className="w-3 h-3 opacity-0 group-hover/c:opacity-60 shrink-0 transition-opacity" />
+        {val}
+      </a>
+      <button onClick={handleCopy} type="button"
+        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100" title="Copy">
+        {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
+      </button>
+    </div>
+  );
+}
+
+// Phase 8 (May 2026):
+//   - Derive overdue urgency from existing follow_up_date field via getOverdueInfo.
+//   - Rows with overdue leads get a left-border tint (amber->red escalation).
+//   - Urgency chip rendered below the date in the Follow-up column.
+//   - No new API calls required — all signals derived from existing search response.
+//
+//   INACTIVE_STATUSES mirrors urgency.ts — no urgency shown for closed leads.
+const CLOSED_STATUSES = new Set(["visit-done", "booking-done", "lost", "completed"]);
+
+// Phase 5 (May 2026):
+//   - alert()/alert() replaced with sonner toasts for consistency with the
+//     rest of the AMS post-Phase-3.
+//   - Sticky table header so column labels stay visible while scrolling
+//     longer result lists (rare in practice — phone search returns 1-10 rows
+//     — but free and matches the pattern from the other tables).
+//   - 400ms debounce + reassign workflow + modal logic are preserved exactly.
 
 export default function GlobalCustomerSearch() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  
+
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,13 +78,13 @@ export default function GlobalCustomerSearch() {
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  
+
   // Form States
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Debounced Search Logic
+  // Debounced Search Logic (unchanged: exact 10-digit phone)
   useEffect(() => {
     const cleanSearchTerm = searchTerm.trim();
     // Only trigger if it is exactly 10 digits
@@ -50,6 +100,7 @@ export default function GlobalCustomerSearch() {
         } catch (error) {
           console.error("Search failed", error);
           setResults([]); // Clear on error
+          toast.error("Search failed. Please try again.");
         } finally {
           setLoading(false);
         }
@@ -76,24 +127,25 @@ export default function GlobalCustomerSearch() {
     setSelectedAgentId(""); // <-- Reset dropdown
     setSelectedProjectId(""); // <-- Reset dropdown
     setIsEditModalOpen(true);
-    
+
     if (agents.length === 0) {
       try {
         const [agentsRes, projectsRes] = await Promise.all([
-          axios.get("/api/users"), 
-          axios.get("/api/supervisor/summary-dashboard?section=projects") 
+          axios.get("/api/users"),
+          axios.get("/api/supervisor/summary-dashboard?section=projects")
         ]);
         setAgents(agentsRes.data.filter((u: any) => u.role === 'AGENT' && u.is_active === 1));
         setProjects(projectsRes.data);
       } catch (err) {
         console.error("Failed to load options");
+        toast.error("Failed to load agents and projects.");
       }
     }
   };
 
   const handleSaveReassignment = async () => {
     if (!selectedAgentId || !selectedProjectId) {
-      alert("Please select both an Agent and a Project.");
+      toast.error("Please select both an Agent and a Project.");
       return;
     }
 
@@ -103,14 +155,14 @@ export default function GlobalCustomerSearch() {
         new_agent_id: selectedAgentId,
         new_project_id: selectedProjectId
       });
-      
+
       setIsEditModalOpen(false);
-      alert("Customer successfully transferred!");
-      
+      toast.success("Customer successfully transferred.");
+
       // Re-trigger the search to refresh the row
-      setSearchTerm(searchTerm + " "); // Hack to re-trigger useEffect debounce
+      setSearchTerm(searchTerm + " "); // Preserved hack to re-trigger useEffect debounce
     } catch (error) {
-      alert("Failed to reassign customer.");
+      toast.error("Failed to reassign customer.");
     } finally {
       setIsSaving(false);
     }
@@ -119,7 +171,7 @@ export default function GlobalCustomerSearch() {
   return (
     <AppShell sidebar={null}>
       <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 font-sans">
-        
+
         {/* HEADER */}
         <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
           <div className="flex items-center gap-4">
@@ -139,7 +191,7 @@ export default function GlobalCustomerSearch() {
             <Search className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
             <input
               type="text"
-              maxLength={10} // Prevent typing more than 10 characters
+              maxLength={10}
               placeholder="Enter exact 10-digit contact number..."
               className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 outline-none transition-all"
               value={searchTerm}
@@ -170,86 +222,115 @@ export default function GlobalCustomerSearch() {
                <p>{hasSearched && searchTerm.length > 2 ? `No customers found for "${searchTerm}"` : "Enter a name or contact number to begin searching."}</p>
              </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 320px)" }}>
               <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
+                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
                   <tr>
-                    <th className="px-6 py-3">Customer Details</th>
-                    <th className="px-6 py-3">Contact</th>
-                    <th className="px-6 py-3">Assignment & Project</th>
-                    <th className="px-6 py-3">Current Status</th>
-                    <th className="px-6 py-3">Next Follow-up</th>
-                    <th className="px-6 py-3 text-right">Actions</th>
+                    <th className="px-6 py-3 bg-slate-50">Customer Details</th>
+                    <th className="px-6 py-3 bg-slate-50">Contact</th>
+                    <th className="px-6 py-3 bg-slate-50">Assignment & Project</th>
+                    <th className="px-6 py-3 bg-slate-50">Current Status</th>
+                    <th className="px-6 py-3 bg-slate-50">Next Follow-up</th>
+                    <th className="px-6 py-3 bg-slate-50 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {results.map((item) => (
-                    <tr key={item.customer_id} className="transition-colors hover:bg-slate-50 border-l-4 border-l-transparent">
-                      
-                      {/* Customer Details */}
-                      <td className="px-6 py-3">
-                        <div className="font-semibold text-slate-900">{item.customer_name}</div>
-                      </td>
+                  {results.map((item) => {
+                    // Phase 8: derive urgency from existing follow_up_date.
+                    // Skip closed/inactive statuses — no urgency for finished leads.
+                    const isClosed = CLOSED_STATUSES.has(item.status_code ?? "");
+                    const overdueInfo = (!isClosed && item.follow_up_date)
+                      ? getOverdueInfo(item.follow_up_date)
+                      : null;
+                    const isOverdue = overdueInfo && overdueInfo.level > 0;
 
-                      {/* Contact */}
-                      <td className="px-6 py-3 font-mono text-slate-600">
-                        {item.contact}
-                      </td>
+                    // Border-tint class escalates with urgency level
+                    const rowBorderClass = isOverdue
+                      ? overdueInfo!.level >= 3
+                        ? "border-l-4 border-l-red-500"
+                        : overdueInfo!.level >= 2
+                        ? "border-l-4 border-l-rose-400"
+                        : "border-l-4 border-l-amber-400"
+                      : "border-l-4 border-l-transparent";
 
-                      {/* Assignment & Project */}
-                      <td className="px-6 py-3">
-                        {item.agent_name ? (
-                          <>
-                            <div className="flex items-center gap-1 text-sm font-medium text-indigo-700">
-                              <User className="w-3.5 h-3.5" /> {item.agent_name}
-                            </div>
-                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                              <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                            Unassigned
+                    return (
+                      <tr
+                        key={item.customer_id}
+                        className={`transition-colors hover:bg-slate-50 ${rowBorderClass}`}
+                      >
+
+                        {/* Customer Details */}
+                        <td className="px-6 py-3">
+                          <div className="font-semibold text-slate-900">{item.customer_name}</div>
+                        </td>
+
+                        {/* Contact */}
+                        <td className="px-6 py-3">
+                          <ContactCell contact={item.contact} />
+                        </td>
+
+                        {/* Assignment & Project */}
+                        <td className="px-6 py-3">
+                          {item.agent_name ? (
+                            <>
+                              <div className="flex items-center gap-1 text-sm font-medium text-indigo-700">
+                                <User className="w-3.5 h-3.5" /> {item.agent_name}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                              Unassigned
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-6 py-3">
+                          <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
+                            {item.status_code ? item.status_code.replace(/-/g, ' ') : 'N/A'}
                           </span>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Status */}
-                      <td className="px-6 py-3">
-                         <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
-                           {item.status_code ? item.status_code.replace(/-/g, ' ') : 'N/A'}
-                         </span>
-                      </td>
-
-                      {/* Follow Up */}
-                      <td className="px-6 py-3">
-                        {item.follow_up_date ? (
-                           <div className="flex items-center gap-2">
-                              <span className="font-medium text-slate-700">
-                                {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
-                              </span>
-                              {item.follow_up_time && (
-                                <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                  {item.follow_up_time}
+                        {/* Follow Up — Phase 8: urgency chip when overdue */}
+                        <td className="px-6 py-3">
+                          {item.follow_up_date ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-slate-700">
+                                  {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
+                                </span>
+                                {item.follow_up_time && (
+                                  <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                    {item.follow_up_time}
+                                  </span>
+                                )}
+                              </div>
+                              {isOverdue && (
+                                <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold w-fit ${overdueInfo!.badgeClass}`}>
+                                  {overdueInfo!.label}
                                 </span>
                               )}
-                           </div>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
 
-                      {/* Actions */}
-                      <td className="px-6 py-3 text-right">
-                        <button 
-                          onClick={() => openEditModal(item)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" /> Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        {/* Actions */}
+                        <td className="px-6 py-3 text-right">
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -259,18 +340,18 @@ export default function GlobalCustomerSearch() {
         {isEditModalOpen && editingCustomer && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-              
+
               {/* Modal Header */}
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                 <h3 className="text-lg font-bold text-slate-900">Reassign Lead</h3>
-                <button 
-                  onClick={() => setIsEditModalOpen(false)} 
+                <button
+                  onClick={() => setIsEditModalOpen(false)}
                   className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1 rounded-full transition-colors"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
+
               {/* Modal Body */}
               <div className="p-6 space-y-5">
                 {/* Customer Info Read-Only */}
@@ -288,7 +369,7 @@ export default function GlobalCustomerSearch() {
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                     Assign Project
                   </label>
-                  <select 
+                  <select
                     className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     value={selectedProjectId}
                     onChange={(e) => setSelectedProjectId(e.target.value)}
@@ -305,7 +386,7 @@ export default function GlobalCustomerSearch() {
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                     Assign Agent
                   </label>
-                  <select 
+                  <select
                     className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                     value={selectedAgentId}
                     onChange={(e) => setSelectedAgentId(e.target.value)}
@@ -316,7 +397,7 @@ export default function GlobalCustomerSearch() {
                     ))}
                   </select>
                 </div>
-                
+
                 <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
                   <strong>Note:</strong> Reassigning will close the current pipeline and reset the follow-up schedule so the new agent gets a clean slate.
                 </div>
@@ -324,14 +405,14 @@ export default function GlobalCustomerSearch() {
 
               {/* Modal Footer */}
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <button 
+                <button
                   onClick={() => setIsEditModalOpen(false)}
                   className="px-4 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
                   disabled={isSaving}
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={handleSaveReassignment}
                   className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
                   disabled={isSaving || !selectedAgentId || !selectedProjectId}

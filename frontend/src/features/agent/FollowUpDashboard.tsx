@@ -1,89 +1,68 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay, addDays, parseISO, isEqual } from "date-fns";
+import { format, isBefore, isToday, startOfDay, differenceInCalendarDays } from "date-fns";
 import {
-  Loader2,
   Phone,
   Calendar,
   Clock,
   MapPin,
   AlertCircle,
-  RefreshCw,
   ChevronRight,
   Briefcase,
   MessageCircle,
-  CheckCircle2, // <-- Added for the new dropdown icon
+  CheckCircle2,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import AgeDistributionBar from "@/components/system/AgeDistributionBar";
+// Phase 7: shared urgency utility — consistent 4-level escalation across all follow-up views.
+import { getOverdueInfo } from "@/lib/urgency";
 
-// --- NEW TAB MANAGEMENT LOGIC ---
-let waWindowRef: Window | null = null;
+// Phase 1 (May 2026): removed unused imports & dead WhatsApp helpers.
+// Phase 2 (May 2026): migrated /api/agent/customers/followups to useQuery.
+// Phase 6 (May 2026): added overdue-aging distribution bar.
+// Phase 7 (May 2026): urgency chips per overdue row, sort overdue-first.
 
-const openInSingleWhatsAppTab = (url: string) => {
-  let directUrl = url;
-  if (directUrl.includes("api.whatsapp.com")) {
-    directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
-  }
-  waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
-  if (waWindowRef) {
-    waWindowRef.focus();
-  }
-};
-
-// --- STATUS OPTIONS ---
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
   "not-reachable", "virtual-meet", "pending"
 ];
 
+// Sort order: overdue first (oldest first), then today, then upcoming (nearest first).
+const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
+
+async function fetchFollowUps(): Promise<any[]> {
+  const res = await axios.get("/api/agent/customers/followups");
+  return Array.isArray(res.data) ? res.data : [];
+}
+
 export default function FollowUpDashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [data, setData] = useState<any[]>([]);
   const [filter, setFilter] = useState<"all" | "past" | "today" | "future">("all");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all"); // <-- Added status state
-  const [loading, setLoading] = useState(true);
-  const [whatsappLoading, setWhatsappLoading] = useState<number | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
 
-  // --- DATA FETCHING ---
-  useEffect(() => {
-    if (user) fetchFollowUps();
-  }, [user]);
+  const followupsQuery = useQuery({
+    queryKey: ["agent", "followups"],
+    queryFn: fetchFollowUps,
+    enabled: !!user,
+    staleTime: 15_000,
+  });
 
-  const fetchFollowUps = async () => {
-    try {
-      const res = await axios.get("/api/agent/customers/followups");
-      setData(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Failed to fetch followups", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const data: any[] = followupsQuery.data ?? [];
+  const loading = followupsQuery.isLoading;
+  const errored = followupsQuery.isError;
 
-  const handleOpenWhatsApp = (phone: string) => {
-    if (!phone) {
-      alert("Phone number not available");
-      return;
-    }
-    const digits = phone.replace(/\D/g, "");
-    const formatted = digits.length === 10 ? "91" + digits : digits;
-    const waUrl = `https://web.whatsapp.com/send?phone=${formatted}`;
-    openInSingleWhatsAppTab(waUrl);
-  };
-
-  // --- FILTERING & CATEGORIZATION LOGIC ---
   const todayStart = startOfDay(new Date());
 
-  // 1. Filter by status first
-  const statusFilteredData = selectedStatus === "all" 
-    ? data 
+  const statusFilteredData = selectedStatus === "all"
+    ? data
     : data.filter(item => item.status_code === selectedStatus);
 
-  // 2. Then categorize into time buckets
   const categorized = statusFilteredData.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
@@ -99,17 +78,48 @@ export default function FollowUpDashboard() {
     return { ...item, category };
   });
 
-  // 3. KPI Counts update dynamically based on the filtered status
   const counts = {
     past: categorized.filter((i) => i.category === "past").length,
     today: categorized.filter((i) => i.category === "today").length,
     future: categorized.filter((i) => i.category === "future").length,
   };
 
-  const displayList =
-    filter === "all" ? categorized : categorized.filter((i) => i.category === filter);
+  // Phase 7: sort overdue first (oldest = most urgent first), then today, then future (nearest first).
+  // .slice() avoids mutating categorized in place.
+  const displayList = (
+    filter === "all" ? categorized : categorized.filter((i) => i.category === filter)
+  ).slice().sort((a, b) => {
+    const catDiff =
+      (CATEGORY_ORDER[a.category as keyof typeof CATEGORY_ORDER] ?? 2) -
+      (CATEGORY_ORDER[b.category as keyof typeof CATEGORY_ORDER] ?? 2);
+    if (catDiff !== 0) return catDiff;
+    // Within same category: ascending date → oldest overdue first, nearest future first.
+    return new Date(a.follow_up_date).getTime() - new Date(b.follow_up_date).getTime();
+  });
 
-  // --- STYLE HELPER ---
+  // Phase 6: overdue-aging buckets. Pure derivation over the same data.
+  // Buckets:  1d  |  2-3d  |  4-7d  |  8+d (stale)
+  const overdueBuckets = useMemo(() => {
+    const today = startOfDay(new Date());
+    let b1 = 0, b23 = 0, b47 = 0, b8 = 0;
+    for (const item of categorized) {
+      if (item.category !== "past") continue;
+      const f = item.follow_up_date ? new Date(item.follow_up_date) : null;
+      if (!f || isNaN(f.getTime())) continue;
+      const daysLate = differenceInCalendarDays(today, startOfDay(f));
+      if (daysLate <= 1) b1++;
+      else if (daysLate <= 3) b23++;
+      else if (daysLate <= 7) b47++;
+      else b8++;
+    }
+    return [
+      { label: "1 day", count: b1, className: "bg-amber-400" },
+      { label: "2-3 days", count: b23, className: "bg-orange-500" },
+      { label: "4-7 days", count: b47, className: "bg-rose-500" },
+      { label: "8+ days (stale)", count: b8, className: "bg-red-700" },
+    ];
+  }, [categorized]);
+
   const getStyles = (category: string) => {
     switch (category) {
       case "past":
@@ -141,25 +151,41 @@ export default function FollowUpDashboard() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
+      <AppShell sidebar={null}>
+        <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-6 md:p-8 max-w-6xl mx-auto font-sans">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-64" />
+              <Skeleton className="h-4 w-72" />
+            </div>
+            <Skeleton className="h-10 w-44 rounded-lg" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="h-32 rounded-2xl" />
+            ))}
+          </div>
+          <div className="space-y-3">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-xl" />
+            ))}
+          </div>
+        </div>
+      </AppShell>
     );
   }
 
   return (
     <AppShell sidebar={null}>
       <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-6xl mx-auto font-sans">
-        {/* HEADER SECTION */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Daily Follow-ups</h1>
             <p className="text-slate-500 mt-1">Manage your pending calls and visits efficiently.</p>
           </div>
-          
-          {/* REPLACED BUTTON WITH STATUS DROPDOWN */}
+
           <div className="relative min-w-[180px]">
-            <select 
+            <select
               className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
@@ -175,7 +201,19 @@ export default function FollowUpDashboard() {
           </div>
         </div>
 
-        {/* KPI CARDS */}
+        {errored && (
+          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+            <span>Could not load follow-ups. Showing last known data.</span>
+            <button
+              type="button"
+              onClick={() => followupsQuery.refetch()}
+              className="text-red-700 font-semibold hover:underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
           <div
             onClick={() => setFilter(filter === "past" ? "all" : "past")}
@@ -286,25 +324,48 @@ export default function FollowUpDashboard() {
           </div>
         </div>
 
-        {/* LIST SECTION */}
+        {/* Phase 6: overdue-aging distribution. Only renders when there
+            actually are overdue items. */}
+        {counts.past > 0 && (
+          <div className="mb-8">
+            <AgeDistributionBar buckets={overdueBuckets} totalLabel="Overdue" />
+          </div>
+        )}
+
         <div className="space-y-4">
           {displayList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
               <div className="p-4 bg-slate-50 rounded-full mb-4">
                 <Calendar className="w-8 h-8 text-slate-400" />
               </div>
-              <h3 className="text-lg font-semibold text-slate-700">No Pending Follow-ups</h3>
-              <p className="text-slate-500 text-sm">
-                Great job! You have cleared your list for this category.
+              <h3 className="text-lg font-semibold text-slate-700">
+                {filter === "all" ? "No Pending Follow-ups" : `No ${filter === "past" ? "Overdue" : filter === "today" ? "Due Today" : "Upcoming"} Follow-ups`}
+              </h3>
+              <p className="text-slate-500 text-sm mt-1">
+                {filter === "all"
+                  ? "Great job! You have cleared your entire list."
+                  : "Nothing in this category right now."}
               </p>
+              {/* Phase 10: escape hatch when a filter produces empty results */}
+              {filter !== "all" && (
+                <button
+                  onClick={() => setFilter("all")}
+                  className="mt-4 text-sm font-semibold text-indigo-600 hover:underline"
+                >
+                  Show all follow-ups
+                </button>
+              )}
             </div>
           ) : (
             displayList.map((customer) => {
               const style = getStyles(customer.category);
               const formattedDate = format(new Date(customer.follow_up_date), "dd MMM yyyy");
               const formattedTime = customer.follow_up_time?.slice(0, 5) || "--:--";
-
               const rowId: number = customer.agent_customer_id ?? customer.customer_id ?? customer.id;
+              // Phase 7: urgency chip — only derived for overdue items to avoid wasted computation.
+              const overdueInfo = customer.category === "past"
+                ? getOverdueInfo(customer.follow_up_date)
+                : null;
 
               return (
                 <div
@@ -312,7 +373,6 @@ export default function FollowUpDashboard() {
                   className={`group relative bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border-l-[6px] ${style.border}`}
                 >
                   <div className="flex flex-col md:flex-row md:items-center p-5 gap-5">
-                    {/* Left: Status Icon & Date */}
                     <div className="flex md:flex-col items-center md:items-start justify-between md:justify-center md:w-32 md:border-r md:border-slate-100 md:pr-4">
                       <div className="flex items-center gap-2 mb-0 md:mb-2">
                         <div className={`p-2 rounded-lg ${style.iconBg}`}>
@@ -332,7 +392,6 @@ export default function FollowUpDashboard() {
                       </div>
                     </div>
 
-                    {/* Middle: Customer Details */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-3 mb-2 flex-wrap">
                         <h3 className="text-lg font-bold text-slate-900 truncate">
@@ -346,6 +405,12 @@ export default function FollowUpDashboard() {
                         <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 uppercase font-semibold">
                           {customer.status_code?.replace(/-/g, " ")}
                         </span>
+                        {/* Phase 7: escalation chip — shows how far overdue this item is. */}
+                        {overdueInfo && overdueInfo.level > 0 && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
+                            {overdueInfo.label}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
@@ -380,7 +445,6 @@ export default function FollowUpDashboard() {
                       )}
                     </div>
 
-                    {/* Right: Action Buttons */}
                     <div className="flex gap-2 items-center flex-wrap md:flex-nowrap">
                       <button
                         type="button"

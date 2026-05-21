@@ -1,20 +1,21 @@
 import * as React from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
-import { 
-  LogOut, 
-  LayoutDashboard, 
-  Search, 
-  Users, 
-  Clock, 
-  PieChart, 
-  Menu, 
-  UserPlus, 
-  Briefcase, 
-  Settings, 
-  ShieldAlert,      
+import ThemeToggle from "@/components/system/ThemeToggle";
+import {
+  LogOut,
+  LayoutDashboard,
+  Search,
+  Users,
+  Clock,
+  PieChart,
+  Menu,
+  UserPlus,
+  Briefcase,
+  Settings,
+  ShieldAlert,
   FileDown,
-  MessageCircle 
+  MessageCircle
 } from "lucide-react";
 import { NavLink, Link } from "react-router-dom";
 
@@ -51,13 +52,13 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Audit", path: "/supervisor/whatsapp/audit", icon: Clock },
   ];
 
-  // Matches concepts in AdminDashboard (assuming you will create routes for these later, 
+  // Matches concepts in AdminDashboard (assuming you will create routes for these later,
   // or you can just keep 'Dashboard' if it's a single-page view)
+  // Phase 10: Removed /admin/users, /admin/settings, /admin/audit — those routes
+  // do not exist in AppRoutes.tsx and silently failed when clicked. Admin currently
+  // operates from a single dashboard. Add nav items here as real routes are created.
   const adminNav = [
     { name: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
-    { name: "Users", path: "/admin/users", icon: Users },         // Placeholder for future route
-    { name: "Settings", path: "/admin/settings", icon: Settings }, // Placeholder for future route
-    { name: "Audit", path: "/admin/audit", icon: ShieldAlert },    // Placeholder for future route
   ];
 
   if (loading || !user) return null;
@@ -65,13 +66,13 @@ export function AppShell({ sidebar, children }: AppShellProps) {
   // ----------------------------------------------------------------------
   // 2. Determine Role & Theme
   // ----------------------------------------------------------------------
-  
+
   let navItems = agentNav;
   let homeLink = "/agent/dashboard";
-  let themeColor = "text-blue-600";
+  let themeColor = "text-blue-600 dark:text-blue-400";
   let bgTheme = "bg-blue-600";
-  let ringTheme = "ring-blue-200";
-  let activeText = "text-blue-700";
+  let ringTheme = "ring-blue-200 dark:ring-blue-900/40";
+  let activeText = "text-blue-700 dark:text-blue-300";
 
   // Normalize role string (case-insensitive check is safer)
   const role = user.role?.toLowerCase() || "agent";
@@ -79,17 +80,17 @@ export function AppShell({ sidebar, children }: AppShellProps) {
   if (role === "supervisor") {
     navItems = supervisorNav;
     homeLink = "/supervisor/dashboard";
-    themeColor = "text-purple-600";
+    themeColor = "text-purple-600 dark:text-purple-400";
     bgTheme = "bg-purple-600";
-    ringTheme = "ring-purple-200";
-    activeText = "text-purple-700";
+    ringTheme = "ring-purple-200 dark:ring-purple-900/40";
+    activeText = "text-purple-700 dark:text-purple-300";
   } else if (role === "admin") {
     navItems = adminNav;
     homeLink = "/admin/dashboard";
-    themeColor = "text-red-600";
+    themeColor = "text-red-600 dark:text-red-400";
     bgTheme = "bg-red-600";
-    ringTheme = "ring-red-200";
-    activeText = "text-red-700";
+    ringTheme = "ring-red-200 dark:ring-red-900/40";
+    activeText = "text-red-700 dark:text-red-300";
   }
 
   // ----------------------------------------------------------------------
@@ -97,10 +98,10 @@ export function AppShell({ sidebar, children }: AppShellProps) {
   // ----------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen flex bg-[#f8fafc]">
+    <div className="min-h-screen flex bg-[#f8fafc] dark:bg-slate-950 transition-colors">
       {/* Sidebar (Optional) */}
       {sidebar && (
-        <aside className="w-72 hidden md:flex flex-col bg-slate-950 text-slate-200 border-r border-slate-800 shadow-2xl">
+        <aside className="w-72 hidden md:flex flex-col bg-slate-950 dark:bg-slate-900 text-slate-200 border-r border-slate-800 dark:border-slate-800 shadow-2xl">
           <div className="p-6 border-b border-slate-800/50">
              <div className="flex items-center gap-3">
               <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white ${bgTheme}`}>
@@ -115,10 +116,10 @@ export function AppShell({ sidebar, children }: AppShellProps) {
 
       {/* Main Container */}
       <div className="flex-1 flex flex-col">
-        
+
         {/* Header */}
-        <header className="sticky top-0 z-20 h-16 flex items-center justify-between bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 lg:px-10 shadow-sm">
-          
+        <header className="sticky top-0 z-20 h-16 flex items-center justify-between bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 lg:px-10 shadow-sm">
+
           {/* LEFT: Branding & Welcome */}
           <div className="flex items-center w-[250px]">
              {!sidebar && (
@@ -126,7 +127,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
                     <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white shadow-sm ${bgTheme}`}>
                       {user.first_name.charAt(0).toUpperCase()}
                     </div>
-                    <span className="font-bold text-slate-800 text-lg hidden sm:block tracking-tight">
+                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg hidden sm:block tracking-tight">
                       Welcome, <span className={themeColor}>{user.first_name}</span>
                     </span>
                 </Link>
@@ -134,7 +135,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
           </div>
 
           {/* CENTER: Dynamic Navigation */}
-          <nav className="hidden md:flex items-center justify-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/60">
+          <nav className="hidden md:flex items-center justify-center gap-1 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-full border border-slate-200/60 dark:border-slate-700/60">
             {navItems.map((item) => (
               <NavLink
                 key={item.path}
@@ -142,8 +143,8 @@ export function AppShell({ sidebar, children }: AppShellProps) {
                 className={({ isActive }) =>
                   `flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
                     isActive
-                      ? `bg-white ${activeText} shadow-sm ring-1 ${ringTheme}`
-                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-200/50"
+                      ? `bg-white dark:bg-slate-900 ${activeText} shadow-sm ring-1 ${ringTheme}`
+                      : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
                   }`
                 }
               >
@@ -154,27 +155,30 @@ export function AppShell({ sidebar, children }: AppShellProps) {
           </nav>
 
           {/* RIGHT: User Profile & Actions */}
-          <div className="flex items-center justify-end gap-4 w-[250px]">
+          <div className="flex items-center justify-end gap-3 w-[250px]">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-slate-900 leading-none">{user.username}</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-none">{user.username}</p>
               <p className={`text-[10px] uppercase tracking-wider mt-1 font-bold ${themeColor}`}>
                 {user.role}
               </p>
             </div>
 
-            <div className="h-8 w-[1px] bg-slate-200 hidden sm:block"></div>
+            <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+
+            {/* Phase 1: theme toggle slotted in without changing surrounding layout. */}
+            <ThemeToggle />
 
             <Button
               variant="ghost"
               onClick={logout}
               size="sm"
-              className="text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors gap-2"
+              className="text-slate-500 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-950/40 transition-colors gap-2"
             >
               <LogOut className="w-4 h-4" />
               <span className="sr-only sm:not-sr-only sm:inline-block">Logout</span>
             </Button>
-            
-            <Button variant="ghost" size="icon" className="md:hidden text-slate-600">
+
+            <Button variant="ghost" size="icon" className="md:hidden text-slate-600 dark:text-slate-300">
               <Menu className="w-5 h-5" />
             </Button>
           </div>

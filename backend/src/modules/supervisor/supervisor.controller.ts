@@ -4,7 +4,7 @@ import * as Service from "./supervisor.service.js";
 
 export async function getFollowUps(req: Request, res: Response) {
   try {
-    const supervisorId = (req as any).user.id;
+    const supervisorId = req.user!.id;
     const { agentId, projectId, status } = req.query;
 
     const data = await Service.getSupervisorTeamFollowUps(
@@ -23,7 +23,7 @@ export async function getFollowUps(req: Request, res: Response) {
 
 export async function getSummaryDashboard(req: Request, res: Response) {
   try {
-    const supervisorId = (req as any).user.id; 
+    const supervisorId = req.user!.id; 
     const { section, projectId, agentId, startDate, endDate } = req.query;
 
     const targetAgent = (agentId as string) || "all";
@@ -66,7 +66,7 @@ export async function getSummaryDashboard(req: Request, res: Response) {
 // NEW: Export Controller
 export async function exportSupervisorData(req: Request, res: Response) {
   try {
-    const supervisorId = (req as any).user.id;
+    const supervisorId = req.user!.id;
     const { format, agentId, projectId, status, startDate, endDate } = req.query;
 
     // 1. Fetch Data
@@ -164,7 +164,7 @@ export async function exportSupervisorData(req: Request, res: Response) {
 // --- NEW HANDLER ---
 export async function getDrillDownData(req: Request, res: Response) {
   try {
-    const supervisorId = (req as any).user.id;
+    const supervisorId = req.user!.id;
     // Extract Query Params
     const { 
       agentId, projectId, startDate, endDate, 
@@ -215,7 +215,7 @@ export async function searchCustomers(req: Request, res: Response) {
 export async function reassignCustomer(req: Request, res: Response) {
   try {
     const customerId = Number(req.params.id);
-    const supervisorId = (req as any).user?.id;
+    const supervisorId = req.user?.id;
     const { new_agent_id, new_project_id } = req.body;
 
     if (!supervisorId || !new_agent_id || !new_project_id) {
@@ -247,7 +247,7 @@ export async function reassignCustomer(req: Request, res: Response) {
  */
 export async function getWhatsAppAuditLog(req: Request, res: Response) {
   try {
-    const supervisorId = (req as any).user?.id;
+    const supervisorId = req.user?.id;
     const { agentId, startDate, endDate } = req.query;
 
     if (!supervisorId) {

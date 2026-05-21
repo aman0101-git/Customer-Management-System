@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
 import AgentDrillDownModal from "./AgentDrillDownModel";
 import {
@@ -15,6 +16,16 @@ import {
 } from "date-fns";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Loader2, Calendar, Filter, Briefcase, Layers } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import ConversionFunnel from "@/components/system/ConversionFunnel";
+import Sparkline from "@/components/system/Sparkline";
+
+// Phase 2 (May 2026): React Query migration (see queries below).
+// Phase 6 (May 2026):
+//   - ConversionFunnel above the Tab 1 cards: Proposed -> Confirmed -> Done
+//     -> Booking with stage-to-stage conversion %.
+//   - Sparkline above the Tab 2 pipeline matrix: Mon-Sun daily totals.
+//   Both derive from data already fetched; no new endpoints.
 
 /* ---------------- STYLED TABS ---------------- */
 const Tabs = ({ active, setActive, labels }: any) => (
@@ -35,56 +46,123 @@ const Tabs = ({ active, setActive, labels }: any) => (
   </div>
 );
 
-// All possible statuses for Section 3 Rows
 const ALL_STATUSES = [
   "visit-proposed", "visit-confirmed", "virtual-meet", "virtual-meet-confirmed",
   "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending",
 ];
 
+const getDatesFromPeriod = (p: string) => {
+  const now = new Date();
+  let start = now, end = now;
+  if (p === "Today") { start = now; end = now; }
+  else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); }
+  else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); }
+  else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); }
+  else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
+  else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
+
+  return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
+};
+
 export default function SummaryDashboard() {
   const { user, loading: authLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(0);
-  const [projects, setProjects] = useState<any[]>([]);
-
-  // Filters
   const [selectedProject, setSelectedProject] = useState("all");
-  const [period, setPeriod] = useState("This Week"); 
-  
-  // Section 2 Specific
-  const [pipelinePeriod, setPipelinePeriod] = useState("This Week"); 
-  const [mode, setMode] = useState("all"); 
-
-  // Section 3 Specific
+  const [period, setPeriod] = useState("This Week");
+  const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
+  const [mode, setMode] = useState("all");
   const [sec3Period, setSec3Period] = useState("This Week");
 
-  // Data Containers
-  const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
-  const [sec2Data, setSec2Data] = useState<any[]>([]);
-  const [sec3Data, setSec3Data] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // --- DRILL DOWN STATE ---
   const [modalOpen, setModalOpen] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
 
-  // --- DATE LOGIC ---
-  const getDatesFromPeriod = (p: string) => {
-    const now = new Date();
-    let start = now, end = now;
-    if (p === "Today") { start = now; end = now; } 
-    else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); } 
-    else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); } 
-    else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); } 
-    else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); } 
-    else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
+  const projectsQuery = useQuery<any[]>({
+    queryKey: ["agent", "projects"],
+    queryFn: async () => {
+      const res = await axios.get("/api/agent/customers/summary-dashboard?section=projects");
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user,
+    staleTime: 5 * 60_000,
+  });
+  const projects: any[] = projectsQuery.data ?? [];
 
-    return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
-  };
+  const sec1Params = { projectId: selectedProject, period };
+  const sec1Query = useQuery<Record<string, number>>({
+    queryKey: ["agent", "summary", 1, sec1Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(period);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "1", projectId: selectedProject, startDate, endDate },
+      });
+      return res.data || {};
+    },
+    enabled: !!user && activeTab === 0,
+    staleTime: 30_000,
+  });
 
-  // --- DRILL DOWN HANDLER ---
+  const sec2Params = { pipelinePeriod, mode };
+  const sec2Query = useQuery<any[]>({
+    queryKey: ["agent", "summary", 2, sec2Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "2", startDate, endDate, mode },
+      });
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user && activeTab === 1,
+    staleTime: 30_000,
+  });
+
+  const sec3Params = { projectId: selectedProject, sec3Period };
+  const sec3Query = useQuery<any[]>({
+    queryKey: ["agent", "summary", 3, sec3Params],
+    queryFn: async () => {
+      const { startDate, endDate } = getDatesFromPeriod(sec3Period);
+      const res = await axios.get("/api/agent/customers/summary-dashboard", {
+        params: { section: "3", projectId: selectedProject, startDate, endDate },
+      });
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    enabled: !!user && activeTab === 2,
+    staleTime: 30_000,
+  });
+
+  const sec1Data: Record<string, number> = sec1Query.data ?? {};
+  const sec2Data: any[] = sec2Query.data ?? [];
+  const sec3Data: any[] = sec3Query.data ?? [];
+
+  const activeQuery =
+    activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : sec3Query;
+  const loading = activeQuery.isLoading;
+  const errored = activeQuery.isError;
+
+  // Phase 6: conversion funnel derivation for Tab 1.
+  const funnelStages = useMemo(() => [
+    { label: "Visit Proposed", count: sec1Data["visit-proposed"] ?? 0 },
+    { label: "Visit Confirmed", count: sec1Data["visit-confirmed"] ?? 0 },
+    { label: "Visit Done", count: sec1Data["visit-done"] ?? 0 },
+    { label: "Booking Done", count: sec1Data["booking-done"] ?? 0 },
+  ], [sec1Data]);
+
+  // Phase 6: daily totals for Tab 2 sparkline.
+  const sec2DailyTotals = useMemo(() => {
+    const totals = [0, 0, 0, 0, 0, 0, 0];
+    for (const rec of sec2Data) {
+      const d = Number(rec.day_num);
+      if (!d || d < 1 || d > 7) continue;
+      const fresh = Number(rec.fresh) || 0;
+      const repeated = Number(rec.repeated) || 0;
+      const v = mode === "fresh" ? fresh : mode === "repeated" ? repeated : fresh + repeated;
+      totals[d - 1] += v;
+    }
+    return totals;
+  }, [sec2Data, mode]);
+
   const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
     if (!user) return;
     setModalOpen(true);
@@ -93,21 +171,14 @@ export default function SummaryDashboard() {
     setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
 
     try {
-      let usePeriod = period; 
+      let usePeriod = period;
       if (section === 'pipeline') usePeriod = pipelinePeriod;
       if (section === 'volume') usePeriod = sec3Period;
 
       const { startDate, endDate } = getDatesFromPeriod(usePeriod);
 
       const res = await axios.get("/api/agent/customers/drill-down", {
-        params: {
-          projectId: selectedProject,
-          startDate,
-          endDate,
-          statusCode,
-          section,
-          dayNum 
-        }
+        params: { projectId: selectedProject, startDate, endDate, statusCode, section, dayNum }
       });
       setModalData(res.data);
     } catch (e) {
@@ -117,48 +188,7 @@ export default function SummaryDashboard() {
     }
   };
 
-  const fetchProjects = async () => {
-    try {
-      const res = await axios.get(`/api/agent/customers/summary-dashboard?section=projects&_ts=${Date.now()}`);
-      setProjects(Array.isArray(res.data) ? res.data : []);
-    } catch { setProjects([]); }
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const ts = Date.now();
-      
-      if (activeTab === 0) {
-        const { startDate, endDate } = getDatesFromPeriod(period);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "1", projectId: selectedProject, startDate, endDate, _ts: ts },
-        });
-        setSec1Data(res.data || {});
-      }
-      if (activeTab === 1) {
-        const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "2", startDate, endDate, mode, _ts: ts },
-        });
-        setSec2Data(Array.isArray(res.data) ? res.data : []);
-      }
-      if (activeTab === 2) {
-        const { startDate, endDate } = getDatesFromPeriod(sec3Period);
-        const res = await axios.get("/api/agent/customers/summary-dashboard", {
-          params: { section: "3", projectId: selectedProject, startDate, endDate, _ts: ts },
-        });
-        setSec3Data(Array.isArray(res.data) ? res.data : []);
-      }
-    } finally { setLoading(false); }
-  };
-
-  useEffect(() => { fetchProjects(); }, []);
-  useEffect(() => { if (user) fetchData(); }, [activeTab, selectedProject, period, pipelinePeriod, mode, sec3Period, user]);
-
   const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
-
-  /* ---------------- UI COMPONENTS ---------------- */
 
   const FilterBar = ({ children }: any) => (
     <div className="flex flex-col md:flex-row gap-4 mb-8 bg-white p-4 rounded-xl shadow-sm border border-slate-100 items-center justify-between">
@@ -190,13 +220,7 @@ export default function SummaryDashboard() {
     </div>
   );
 
-  /* ---------------- BOX STYLE MATRIX TABLE ---------------- */
-  const MatrixTable = ({ 
-    rows, 
-    data, 
-    totalLabel = "Total", 
-    isPipeline = false 
-  }: any) => {
+  const MatrixTable = ({ rows, data, totalLabel = "Total", isPipeline = false }: any) => {
     const days = [
       { label: "Mon", sql: 1 }, { label: "Tue", sql: 2 }, { label: "Wed", sql: 3 },
       { label: "Thu", sql: 4 }, { label: "Fri", sql: 5 }, { label: "Sat", sql: 6 }, { label: "Sun", sql: 7 },
@@ -238,8 +262,8 @@ export default function SummaryDashboard() {
                       colTotals[d.sql] += c;
 
                       return (
-                        <td 
-                          key={d.label} 
+                        <td
+                          key={d.label}
                           onClick={() => c > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume', d.sql)}
                           className={`p-2 text-center border border-slate-300 transition-all ${c > 0 ? "text-blue-600 font-bold bg-blue-50/50 cursor-pointer hover:bg-blue-100" : "text-slate-300"}`}
                         >
@@ -247,7 +271,7 @@ export default function SummaryDashboard() {
                         </td>
                       );
                     })}
-                    <td 
+                    <td
                         onClick={() => rowTotal > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume')}
                         className={`p-2 text-center font-bold text-slate-800 bg-slate-50 border border-slate-300 transition-all ${rowTotal > 0 ? "cursor-pointer hover:bg-slate-200" : ""}`}
                     >
@@ -256,15 +280,15 @@ export default function SummaryDashboard() {
                   </tr>
                 );
               })}
-              
+
               <tr className="bg-slate-100 font-bold">
                 <td className="p-2 text-slate-800 uppercase text-xs tracking-wider border border-slate-300">{totalLabel}</td>
                 {days.map(d => {
                     grandTotal += colTotals[d.sql];
                     const val = colTotals[d.sql];
                     return (
-                        <td 
-                          key={d.label} 
+                        <td
+                          key={d.label}
                           onClick={() => val > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume', d.sql)}
                           className={`p-2 text-center border border-slate-300 transition-all ${val > 0 ? "text-blue-800 cursor-pointer hover:bg-slate-200" : "text-slate-300 font-normal"}`}
                         >
@@ -272,7 +296,7 @@ export default function SummaryDashboard() {
                         </td>
                     )
                 })}
-                <td 
+                <td
                     onClick={() => grandTotal > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume')}
                     className={`p-2 text-center text-lg text-blue-900 bg-blue-100 border border-slate-300 transition-all ${grandTotal > 0 ? "cursor-pointer hover:bg-blue-200" : ""}`}
                 >
@@ -286,14 +310,20 @@ export default function SummaryDashboard() {
     );
   };
 
-  /* ---------------- SECTIONS ---------------- */
-
   const renderSection1 = () => (
     <div className="space-y-4 animate-in fade-in duration-500">
       <FilterBar>
         <StyledSelect icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)} options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} />
         <StyledSelect icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)} options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>} />
       </FilterBar>
+
+      {/* Phase 6: conversion funnel above the cards */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+          Conversion funnel
+        </div>
+        <ConversionFunnel stages={funnelStages} accentClass="bg-indigo-500 dark:bg-indigo-400" />
+      </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
@@ -308,8 +338,8 @@ export default function SummaryDashboard() {
           ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50"],
           ["Lost", "lost", "text-slate-600", "bg-slate-50"],
         ].map(([label, code, colorClass, bgClass]) => (
-          <Card 
-            key={code} 
+          <Card
+            key={code}
             onClick={() => handleDrillDown(code as string, 'cards')}
             className="border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer"
           >
@@ -338,6 +368,20 @@ export default function SummaryDashboard() {
         <StyledSelect icon={Calendar} value={pipelinePeriod} onChange={(e: any) => setPipelinePeriod(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>} />
         <StyledSelect icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh (Same Day)</option><option value="repeated">Repeated (Pushed)</option></>} />
       </FilterBar>
+
+      {/* Phase 6: week-at-a-glance sparkline above the matrix. */}
+      <div className="bg-white rounded-xl border border-slate-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Daily pipeline trend</div>
+          <div className="text-[11px] text-slate-400 mt-0.5">Mon-Sun, sum across pipeline statuses</div>
+        </div>
+        <Sparkline
+          data={sec2DailyTotals}
+          labels={["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]}
+          ariaLabel="Daily pipeline trend"
+        />
+      </div>
+
       <MatrixTable rows={[{ label: "Visit Proposed", code: "visit-proposed" }, { label: "Visit Confirmed", code: "visit-confirmed" }, { label: "Virtual Meet Confirmed", code: "virtual-meet-confirmed" }]} data={sec2Data} totalLabel="Total Pipeline" isPipeline={true} />
     </div>
   );
@@ -370,10 +414,27 @@ export default function SummaryDashboard() {
 
       <Tabs active={activeTab} setActive={setActiveTab} labels={["Visits & Booking", "Weekly Pipeline", "Status Counts"]} />
 
+      {errored && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+          <span>Could not load this section. Showing last known data.</span>
+          <button
+            type="button"
+            onClick={() => activeQuery.refetch()}
+            className="text-red-700 font-semibold hover:underline"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-xl border border-slate-100 shadow-sm">
-          <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-          <p className="text-slate-500 font-medium">Fetching analytics...</p>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm p-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-64 rounded-lg" />
         </div>
       ) : (
         <>
@@ -383,13 +444,12 @@ export default function SummaryDashboard() {
         </>
       )}
 
-      {/* --- ADDED MODAL COMPONENT --- */}
-      <AgentDrillDownModal 
-        isOpen={modalOpen} 
-        onClose={setModalOpen} 
-        title={modalTitle} 
-        data={modalData} 
-        loading={modalLoading} 
+      <AgentDrillDownModal
+        isOpen={modalOpen}
+        onClose={setModalOpen}
+        title={modalTitle}
+        data={modalData}
+        loading={modalLoading}
       />
     </div>
     </AppShell>
