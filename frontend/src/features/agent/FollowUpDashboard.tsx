@@ -18,16 +18,21 @@ import {
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import AgeDistributionBar from "@/components/system/AgeDistributionBar";
+// Phase 7: shared urgency utility — consistent 4-level escalation across all follow-up views.
+import { getOverdueInfo } from "@/lib/urgency";
 
 // Phase 1 (May 2026): removed unused imports & dead WhatsApp helpers.
 // Phase 2 (May 2026): migrated /api/agent/customers/followups to useQuery.
-// Phase 6 (May 2026): added overdue-aging distribution bar so an agent can
-//   triage cold leads vs. recoverable misses. Pure derivation; no new fetch.
+// Phase 6 (May 2026): added overdue-aging distribution bar.
+// Phase 7 (May 2026): urgency chips per overdue row, sort overdue-first.
 
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
   "not-reachable", "virtual-meet", "pending"
 ];
+
+// Sort order: overdue first (oldest first), then today, then upcoming (nearest first).
+const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
 
 async function fetchFollowUps(): Promise<any[]> {
   const res = await axios.get("/api/agent/customers/followups");
@@ -79,8 +84,18 @@ export default function FollowUpDashboard() {
     future: categorized.filter((i) => i.category === "future").length,
   };
 
-  const displayList =
-    filter === "all" ? categorized : categorized.filter((i) => i.category === filter);
+  // Phase 7: sort overdue first (oldest = most urgent first), then today, then future (nearest first).
+  // .slice() avoids mutating categorized in place.
+  const displayList = (
+    filter === "all" ? categorized : categorized.filter((i) => i.category === filter)
+  ).slice().sort((a, b) => {
+    const catDiff =
+      (CATEGORY_ORDER[a.category as keyof typeof CATEGORY_ORDER] ?? 2) -
+      (CATEGORY_ORDER[b.category as keyof typeof CATEGORY_ORDER] ?? 2);
+    if (catDiff !== 0) return catDiff;
+    // Within same category: ascending date → oldest overdue first, nearest future first.
+    return new Date(a.follow_up_date).getTime() - new Date(b.follow_up_date).getTime();
+  });
 
   // Phase 6: overdue-aging buckets. Pure derivation over the same data.
   // Buckets:  1d  |  2-3d  |  4-7d  |  8+d (stale)
@@ -333,8 +348,11 @@ export default function FollowUpDashboard() {
               const style = getStyles(customer.category);
               const formattedDate = format(new Date(customer.follow_up_date), "dd MMM yyyy");
               const formattedTime = customer.follow_up_time?.slice(0, 5) || "--:--";
-
               const rowId: number = customer.agent_customer_id ?? customer.customer_id ?? customer.id;
+              // Phase 7: urgency chip — only derived for overdue items to avoid wasted computation.
+              const overdueInfo = customer.category === "past"
+                ? getOverdueInfo(customer.follow_up_date)
+                : null;
 
               return (
                 <div
@@ -374,6 +392,12 @@ export default function FollowUpDashboard() {
                         <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 uppercase font-semibold">
                           {customer.status_code?.replace(/-/g, " ")}
                         </span>
+                        {/* Phase 7: escalation chip — shows how far overdue this item is. */}
+                        {overdueInfo && overdueInfo.level > 0 && (
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
+                            {overdueInfo.label}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">

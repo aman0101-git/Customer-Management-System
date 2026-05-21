@@ -6,6 +6,7 @@ import { API_BASE } from "@/apiBase";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, AlertTriangle } from "lucide-react";
+import { getOverdueInfo, getIdleDays } from "@/lib/urgency";
 import {
   isSameDay,
   subDays,
@@ -33,6 +34,11 @@ import {
 //   - Spinner-italic "Syncing with server..." replaced with a proper
 //     skeleton; added an explicit error state with a Retry button.
 //   - Workflow / route / API contracts unchanged.
+//
+// Phase 7 (May 2026):
+//   - Per-row urgency left-border tint (amber level 1+, rose level 3+).
+//   - Overdue chip below Follow Up date cell for active leads.
+//   - Idle Xd chip in Updated cell for leads idle 7+ days.
 
 // --- Icons for Sidebar ---
 const FilterIcon = ({ className }: { className?: string }) => (
@@ -443,12 +449,25 @@ export default function AgentCustomersPage() {
                           const followUpDateDisplay = isDoneStatus ? formatDateTime(c.done_date).d : formatDateTime(c.follow_up_date).d;
                           const followUpTimeDisplay = isDoneStatus ? "Done Date" : safe(c.follow_up_time);
 
+                          // Phase 7: urgency signals — skipped for done/completed leads.
+                          const overdueInfo = (!isDoneStatus && !isCompleted)
+                            ? getOverdueInfo(c.follow_up_date)
+                            : null;
+                          const idleDays = getIdleDays(c.updated_at, c.status_code);
+                          const isStale = idleDays >= 7;
+
                           return (
                             <tr
                               key={c.id}
                               ref={virtualizer.measureElement}
                               data-index={vi.index}
-                              className="hover:bg-slate-50 transition-colors group"
+                              className={`hover:bg-slate-50 transition-colors group ${
+                                overdueInfo && overdueInfo.level >= 3
+                                  ? "border-l-4 border-l-rose-400"
+                                  : overdueInfo && overdueInfo.level >= 1
+                                  ? "border-l-4 border-l-amber-400"
+                                  : ""
+                              }`}
                             >
                               <td className="px-5 py-4">
                                 <div className="text-sm font-bold text-slate-800">{safe(c.name)}</div>
@@ -470,6 +489,11 @@ export default function AgentCustomersPage() {
                                   {followUpDateDisplay}
                                 </div>
                                 <div className="text-[10px] text-slate-400 font-medium">{followUpTimeDisplay}</div>
+                                {overdueInfo && overdueInfo.level > 0 && (
+                                  <span className={`mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
+                                    {overdueInfo.label}
+                                  </span>
+                                )}
                               </td>
                               <td className="px-5 py-4">
                                 <div className="text-xs font-semibold text-slate-600">{assigned.d}</div>
@@ -478,6 +502,11 @@ export default function AgentCustomersPage() {
                               <td className="px-5 py-4">
                                 <div className="text-xs font-semibold text-slate-600">{updated.d}</div>
                                 <div className="text-[10px] text-slate-400">{updated.t}</div>
+                                {isStale && (
+                                  <span className="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold bg-slate-100 text-slate-500 border-slate-300">
+                                    Idle {idleDays}d
+                                  </span>
+                                )}
                               </td>
                               <td className="px-5 py-4">
                                 <div className="flex items-center gap-2">
