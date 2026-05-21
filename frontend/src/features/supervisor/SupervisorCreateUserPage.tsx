@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
 import CreateUserForm from "../admin/CreateUserForm";
 import ConfirmDialog from "@/components/system/ConfirmDialog";
+import AccountabilityBadge from "@/components/system/AccountabilityBadge";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
-import { Users, UserPlus, Search, ShieldCheck, Briefcase, X, Filter } from "lucide-react";
+import { Users, UserPlus, Search, ShieldCheck, Briefcase, X, Filter, AlertTriangle } from "lucide-react";
 import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer";
 import { useAuth } from "@/context/AuthContext";
 
@@ -18,6 +19,12 @@ import { useAuth } from "@/context/AuthContext";
 //     dashboard's cached agent picklist refreshes.
 //   - The allocation drawer (AgentProjectAllocationDrawer) is intentionally
 //     untouched — allocation engine is out of scope for Phase 3.
+//
+// Phase 8 (May 2026):
+//   - Added team accountability bar (Active / Inactive / Unassigned metric cards).
+//   - Unassigned active agents (project_count === 0) get amber left-border tint
+//     and an AccountabilityBadge in the Assignments column.
+//   - All metrics derived from existing /api/users response — no extra API calls.
 
 type User = {
   id: number;
@@ -140,6 +147,16 @@ export default function SupervisorCreateUserPage() {
   const togglePending =
     toggleStatusMutation.isPending && toggleStatusMutation.variables?.id === confirmTarget?.id;
 
+  // Phase 8: Accountability metrics derived from existing API response.
+  // No extra network calls — all computed from the agents[] array already in state.
+  const accountabilityMetrics = useMemo(() => {
+    const active     = agents.filter(a => a.is_active === 1).length;
+    const inactive   = agents.filter(a => a.is_active === 0).length;
+    // "Unassigned" = active agent with zero projects (a management concern)
+    const unassigned = agents.filter(a => a.is_active === 1 && a.project_count === 0).length;
+    return { active, inactive, unassigned };
+  }, [agents]);
+
   return (
     <AppShell sidebar={null}>
       <div className="min-h-screen bg-slate-50/50 p-6">
@@ -193,6 +210,54 @@ export default function SupervisorCreateUserPage() {
             </div>
           </div>
 
+          {/* Phase 8: Team Accountability Bar — derived from existing /api/users response */}
+          {agents.length > 0 && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active</div>
+                  <div className="text-2xl font-black text-emerald-600 mt-0.5">{accountabilityMetrics.active}</div>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 block" />
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-5 py-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Inactive</div>
+                  <div className={`text-2xl font-black mt-0.5 ${accountabilityMetrics.inactive > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
+                    {accountabilityMetrics.inactive}
+                  </div>
+                </div>
+                <div className="w-9 h-9 rounded-full bg-slate-50 border border-slate-100 flex items-center justify-center">
+                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400 block" />
+                </div>
+              </div>
+
+              <div className={`rounded-xl border shadow-sm px-5 py-3.5 flex items-center justify-between ${
+                accountabilityMetrics.unassigned > 0
+                  ? 'bg-amber-50 border-amber-200'
+                  : 'bg-white border-slate-200'
+              }`}>
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
+                    {accountabilityMetrics.unassigned > 0 && <AlertTriangle className="w-3 h-3 text-amber-500" />}
+                    Unassigned
+                  </div>
+                  <div className={`text-2xl font-black mt-0.5 ${accountabilityMetrics.unassigned > 0 ? 'text-amber-600' : 'text-slate-300'}`}>
+                    {accountabilityMetrics.unassigned}
+                  </div>
+                </div>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                  accountabilityMetrics.unassigned > 0 ? 'bg-amber-100 border border-amber-200' : 'bg-slate-50 border border-slate-100'
+                }`}>
+                  <Briefcase className={`w-4 h-4 ${accountabilityMetrics.unassigned > 0 ? 'text-amber-500' : 'text-slate-300'}`} />
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Table Card */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-visible">
             <div className="overflow-visible">
@@ -225,7 +290,13 @@ export default function SupervisorCreateUserPage() {
                         toggleStatusMutation.isPending &&
                         toggleStatusMutation.variables?.id === u.id;
                       return (
-                        <tr key={u.id} className={`transition-colors group ${!u.is_active ? 'bg-slate-50 opacity-75' : 'hover:bg-slate-50/80'}`}>
+                        <tr key={u.id} className={`transition-colors group ${
+                          !u.is_active
+                            ? 'bg-slate-50 opacity-75'
+                            : u.project_count === 0
+                            ? 'hover:bg-amber-50/40 border-l-4 border-l-amber-300'
+                            : 'hover:bg-slate-50/80'
+                        }`}>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-4">
                               <UserAvatar first={u.first_name} last={u.last_name} />
@@ -253,14 +324,18 @@ export default function SupervisorCreateUserPage() {
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Briefcase className="w-4 h-4 text-slate-400" />
                               {u.project_count > 0 ? (
-                                <span className="font-bold text-slate-700">{u.project_count} Projects</span>
+                                <span className="font-bold text-slate-700">{u.project_count} Project{u.project_count !== 1 ? 's' : ''}</span>
                               ) : (
-                                <span className="text-slate-400 italic text-xs">No assignments</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-slate-400 italic text-xs">No assignments</span>
+                                  {u.is_active === 1 && (
+                                    <AccountabilityBadge signal="unassigned" />
+                                  )}
+                                </div>
                               )}
                             </div>
                           </td>
                           <td className="px-6 py-4 text-right whitespace-nowrap">
-                            {/* New Inline Buttons */}
                             <button
                               className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors mr-2 disabled:opacity-60 disabled:cursor-not-allowed"
                               onClick={(e) => {
@@ -317,10 +392,6 @@ export default function SupervisorCreateUserPage() {
             </DrawerHeader>
             <div className="flex-1 overflow-y-auto px-8 py-8 bg-white">
               <div className="bg-white p-1 rounded-2xl">
-                {/* When the form succeeds it closes the drawer and triggers
-                    loadAgents() so the table reflects the new agent. The
-                    cached ['supervisor','agents'] query is invalidated
-                    automatically by CreateUserForm's onSuccess. */}
                 <CreateUserForm
                   allowedRoles={['AGENT']}
                   onSuccess={() => {

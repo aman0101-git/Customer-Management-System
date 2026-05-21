@@ -5,6 +5,7 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
 import { format, parseISO } from "date-fns";
+import { getOverdueInfo } from "@/lib/urgency";
 import {
   Loader2,
   Search,
@@ -14,6 +15,15 @@ import {
   Edit2,
   X
 } from "lucide-react";
+
+// Phase 8 (May 2026):
+//   - Derive overdue urgency from existing follow_up_date field via getOverdueInfo.
+//   - Rows with overdue leads get a left-border tint (amber->red escalation).
+//   - Urgency chip rendered below the date in the Follow-up column.
+//   - No new API calls required — all signals derived from existing search response.
+//
+//   INACTIVE_STATUSES mirrors urgency.ts — no urgency shown for closed leads.
+const CLOSED_STATUSES = new Set(["visit-done", "booking-done", "lost", "completed"]);
 
 // Phase 5 (May 2026):
 //   - alert()/alert() replaced with sonner toasts for consistency with the
@@ -150,7 +160,7 @@ export default function GlobalCustomerSearch() {
             <Search className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
             <input
               type="text"
-              maxLength={10} // Prevent typing more than 10 characters
+              maxLength={10}
               placeholder="Enter exact 10-digit contact number..."
               className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 outline-none transition-all"
               value={searchTerm}
@@ -194,73 +204,102 @@ export default function GlobalCustomerSearch() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {results.map((item) => (
-                    <tr key={item.customer_id} className="transition-colors hover:bg-slate-50 border-l-4 border-l-transparent">
+                  {results.map((item) => {
+                    // Phase 8: derive urgency from existing follow_up_date.
+                    // Skip closed/inactive statuses — no urgency for finished leads.
+                    const isClosed = CLOSED_STATUSES.has(item.status_code ?? "");
+                    const overdueInfo = (!isClosed && item.follow_up_date)
+                      ? getOverdueInfo(item.follow_up_date)
+                      : null;
+                    const isOverdue = overdueInfo && overdueInfo.level > 0;
 
-                      {/* Customer Details */}
-                      <td className="px-6 py-3">
-                        <div className="font-semibold text-slate-900">{item.customer_name}</div>
-                      </td>
+                    // Border-tint class escalates with urgency level
+                    const rowBorderClass = isOverdue
+                      ? overdueInfo!.level >= 3
+                        ? "border-l-4 border-l-red-500"
+                        : overdueInfo!.level >= 2
+                        ? "border-l-4 border-l-rose-400"
+                        : "border-l-4 border-l-amber-400"
+                      : "border-l-4 border-l-transparent";
 
-                      {/* Contact */}
-                      <td className="px-6 py-3 font-mono text-slate-600">
-                        {item.contact}
-                      </td>
+                    return (
+                      <tr
+                        key={item.customer_id}
+                        className={`transition-colors hover:bg-slate-50 ${rowBorderClass}`}
+                      >
 
-                      {/* Assignment & Project */}
-                      <td className="px-6 py-3">
-                        {item.agent_name ? (
-                          <>
-                            <div className="flex items-center gap-1 text-sm font-medium text-indigo-700">
-                              <User className="w-3.5 h-3.5" /> {item.agent_name}
-                            </div>
-                            <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                              <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                            Unassigned
+                        {/* Customer Details */}
+                        <td className="px-6 py-3">
+                          <div className="font-semibold text-slate-900">{item.customer_name}</div>
+                        </td>
+
+                        {/* Contact */}
+                        <td className="px-6 py-3 font-mono text-slate-600">
+                          {item.contact}
+                        </td>
+
+                        {/* Assignment & Project */}
+                        <td className="px-6 py-3">
+                          {item.agent_name ? (
+                            <>
+                              <div className="flex items-center gap-1 text-sm font-medium text-indigo-700">
+                                <User className="w-3.5 h-3.5" /> {item.agent_name}
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                              Unassigned
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-6 py-3">
+                          <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
+                            {item.status_code ? item.status_code.replace(/-/g, ' ') : 'N/A'}
                           </span>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Status */}
-                      <td className="px-6 py-3">
-                         <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
-                           {item.status_code ? item.status_code.replace(/-/g, ' ') : 'N/A'}
-                         </span>
-                      </td>
-
-                      {/* Follow Up */}
-                      <td className="px-6 py-3">
-                        {item.follow_up_date ? (
-                           <div className="flex items-center gap-2">
-                              <span className="font-medium text-slate-700">
-                                {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
-                              </span>
-                              {item.follow_up_time && (
-                                <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                  {item.follow_up_time}
+                        {/* Follow Up — Phase 8: urgency chip when overdue */}
+                        <td className="px-6 py-3">
+                          {item.follow_up_date ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-slate-700">
+                                  {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
+                                </span>
+                                {item.follow_up_time && (
+                                  <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                    {item.follow_up_time}
+                                  </span>
+                                )}
+                              </div>
+                              {isOverdue && (
+                                <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold w-fit ${overdueInfo!.badgeClass}`}>
+                                  {overdueInfo!.label}
                                 </span>
                               )}
-                           </div>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
 
-                      {/* Actions */}
-                      <td className="px-6 py-3 text-right">
-                        <button
-                          onClick={() => openEditModal(item)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" /> Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                        {/* Actions */}
+                        <td className="px-6 py-3 text-right">
+                          <button
+                            onClick={() => openEditModal(item)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" /> Edit
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
