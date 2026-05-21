@@ -2,24 +2,28 @@ import { Request, Response } from "express";
 import * as Service from "./customer.service.js";
 
 // Get merged customer + agent_customer for edit
+// Phase 9: Added missing try/catch — DB failures previously propagated uncaught.
 export async function getAgentCustomerById(req: Request, res: Response) {
-  const agentId = req.user?.id; // Type is number | undefined
-  const agentCustomerId = Number(req.params.id);
+  try {
+    const agentId = req.user?.id;
+    const agentCustomerId = Number(req.params.id);
 
-  // This check is your "Type Guard"
-  if (agentId === undefined) { 
-    return res.status(401).json({ message: "Unauthorized" }); 
+    if (agentId === undefined) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    if (!agentCustomerId) return res.status(400).json({ message: "Missing id" });
+
+    const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId);
+
+    if (!result) return res.status(404).json({ message: "Not found" });
+
+    const history = await Service.getCustomerRemarkHistory(agentCustomerId);
+    res.json({ ...result, history });
+  } catch (err) {
+    console.error("Error fetching agent customer:", err);
+    return res.status(500).json({ message: "Failed to fetch customer" });
   }
-
-  if (!agentCustomerId) return res.status(400).json({ message: "Missing id" });
-
-  // Add the '!' after agentId to assert it is a number
-  const result = await Service.getAgentCustomerMerged(agentCustomerId, agentId!);
-  
-  if (!result) return res.status(404).json({ message: "Not found" });
-
-  const history = await Service.getCustomerRemarkHistory(agentCustomerId);
-  res.json({ ...result, history });
 }
 
 // Mark agent customer as completed
@@ -103,31 +107,37 @@ export async function createCustomer(req: Request, res: Response) {
   }
 }
 
+// Phase 9: Added missing try/catch — updateAgentCustomer had no error handling.
 export async function updateAgentCustomer(req: Request, res: Response) {
-  const agentId = req.user?.id;
+  try {
+    const agentId = req.user?.id;
 
-  if (!agentId) {
-    return res.status(401).json({ message: "Unauthorized" });
+    if (!agentId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const agentCustomerId = Number(req.params.agentCustomerId);
+
+    const updated = await Service.updateAgentCustomer(
+      agentCustomerId,
+      agentId,
+      req.body
+    );
+
+    if (!updated) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    return res.json(updated);
+  } catch (err) {
+    console.error("Error updating agent customer:", err);
+    return res.status(500).json({ message: "Failed to update customer" });
   }
-
-  const agentCustomerId = Number(req.params.agentCustomerId);
-
-  const updated = await Service.updateAgentCustomer(
-    agentCustomerId,
-    agentId,
-    req.body
-  );
-
-  if (!updated) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
-  return res.json(updated);
 }
 
 export async function getSummaryDashboard(req: Request, res: Response) {
   try {
-    const agentId = (req as any).user.id;
+    const agentId = req.user!.id;
     const { section, projectId, period, timeFilter, startDate, endDate } = req.query;
 
     // Helper to calculate dates if standard period (Today, This Week) is passed
@@ -172,7 +182,7 @@ export async function getSummaryDashboard(req: Request, res: Response) {
 
 export async function getFollowUps(req: Request, res: Response) {
   try {
-    const agentId = (req as any).user.id;
+    const agentId = req.user!.id;
     const data = await Service.getAgentFollowUps(agentId);
     res.json(data);
   } catch (error) {
@@ -184,7 +194,7 @@ export async function getFollowUps(req: Request, res: Response) {
 // --- NEW HANDLER ---
 export async function getDrillDownData(req: Request, res: Response) {
   try {
-    const agentId = (req as any).user.id;
+    const agentId = req.user!.id;
     if (!agentId) return res.status(401).json({ message: "Unauthorized" });
 
     const { 
