@@ -1,57 +1,47 @@
-import * as React from "react"
-import { cva, type VariantProps } from "class-variance-authority"
-import { cn } from "@/lib/utils"
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+import { cn } from "@/lib/utils";
+
+/**
+ * PHASE 1 — Card primitive.
+ *
+ * Public API is preserved 1:1:
+ *   <Card accent="none|blue|green|yellow|purple|pink|red" className=... />
+ *   CardHeader, CardTitle, CardDescription, CardContent, CardFooter.
+ *
+ * Refinements:
+ *   - Backgrounds and text now use CSS tokens (bg-card / text-card-foreground)
+ *     so dark mode works without each consumer adding `dark:` variants.
+ *   - Accent strip colors are HSL-driven for dark-mode parity.
+ *   - Hover lift toned down from -1.5 to -0.5 and shadow upgrade is shallower —
+ *     enterprise feel, not marketing-page bounce.
+ *   - Card-internal "decorative glow" replaced with a token-aware subtle
+ *     highlight that's nearly invisible in dark mode.
+ */
 
 const cardVariants = cva(
   `
-  group relative rounded-xl
-  border border-slate-200/60
-  bg-white
-  shadow-[0_2px_4px_rgba(0,0,0,0.02),0_1px_2px_rgba(0,0,0,0.06)]
-  transition-all duration-300 ease-in-out
-  hover:-translate-y-1.5 hover:shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.1)]
+  group relative rounded-xl overflow-hidden
+  border border-border
+  bg-card text-card-foreground
+  shadow-elevation-1
+  transition-[transform,box-shadow,background-color] duration-300 ease-ams-out
+  hover:-translate-y-0.5 hover:shadow-elevation-3
   px-8 py-7 min-h-[170px] min-w-[270px] max-w-full
-  overflow-hidden
   `,
   {
     variants: {
       accent: {
-        none: "text-slate-900",
-
-        blue: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-blue-600
-          hover:bg-gradient-to-br hover:from-white hover:to-blue-50/30
-        `,
-
-        green: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-emerald-500
-          hover:bg-gradient-to-br hover:from-white hover:to-emerald-50/30
-        `,
-
-        yellow: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-amber-500
-          hover:bg-gradient-to-br hover:from-white hover:to-amber-50/30
-        `,
-
-        purple: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-violet-600
-          hover:bg-gradient-to-br hover:from-white hover:to-violet-50/30
-        `,
-
-        pink: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-pink-500
-          hover:bg-gradient-to-br hover:from-white hover:to-pink-50/30
-        `,
-
-        red: `
-          after:absolute after:top-0 after:left-0 after:h-full after:w-[4px] after:bg-red-600
-          hover:bg-gradient-to-br hover:from-white hover:to-red-50/30
-        `,
+        none: "",
+        blue:   "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(217_91%_60%)] dark:after:bg-[hsl(217_91%_66%)]",
+        green:  "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(142_71%_38%)] dark:after:bg-[hsl(142_70%_50%)]",
+        yellow: "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(32_95%_50%)]  dark:after:bg-[hsl(38_92%_60%)]",
+        purple: "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(263_70%_60%)] dark:after:bg-[hsl(263_70%_68%)]",
+        pink:   "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(340_75%_55%)] dark:after:bg-[hsl(340_75%_65%)]",
+        red:    "after:absolute after:top-0 after:left-0 after:h-full after:w-[3px] after:bg-[hsl(0_72%_51%)]   dark:after:bg-[hsl(0_72%_55%)]",
       },
     },
-    defaultVariants: {
-      accent: "none",
-    },
+    defaultVariants: { accent: "none" },
   }
 );
 
@@ -60,19 +50,21 @@ export interface CardProps
     VariantProps<typeof cardVariants> {}
 
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, accent, ...props }, ref) => (
+  ({ className, accent, children, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(cardVariants({ accent }), className)}
       {...props}
     >
-      {/* Decorative subtle glow effect on hover */}
-      <div className="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-slate-50 opacity-0 transition-opacity group-hover:opacity-100" />
-      <div className="relative z-10">{props.children}</div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-accent/40 opacity-0 transition-opacity duration-300 group-hover:opacity-60 dark:group-hover:opacity-20"
+      />
+      <div className="relative z-10">{children}</div>
     </div>
   )
-)
-Card.displayName = "Card"
+);
+Card.displayName = "Card";
 
 export const CardHeader = React.forwardRef<
   HTMLDivElement,
@@ -83,8 +75,8 @@ export const CardHeader = React.forwardRef<
     className={cn("flex flex-col gap-1.5 px-0 pt-0 mb-4", className)}
     {...props}
   />
-))
-CardHeader.displayName = "CardHeader"
+));
+CardHeader.displayName = "CardHeader";
 
 export const CardTitle = React.forwardRef<
   HTMLDivElement,
@@ -92,11 +84,14 @@ export const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-xl font-bold tracking-tight text-slate-900", className)}
+    className={cn(
+      "text-xl font-semibold tracking-tight text-foreground",
+      className
+    )}
     {...props}
   />
-))
-CardTitle.displayName = "CardTitle"
+));
+CardTitle.displayName = "CardTitle";
 
 export const CardDescription = React.forwardRef<
   HTMLDivElement,
@@ -104,19 +99,22 @@ export const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn("text-sm font-medium text-slate-500 leading-relaxed", className)}
+    className={cn(
+      "text-sm font-medium text-muted-foreground leading-relaxed",
+      className
+    )}
     {...props}
   />
-))
-CardDescription.displayName = "CardDescription"
+));
+CardDescription.displayName = "CardDescription";
 
 export const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
   <div ref={ref} className={cn("px-0 py-0", className)} {...props} />
-))
-CardContent.displayName = "CardContent"
+));
+CardContent.displayName = "CardContent";
 
 export const CardFooter = React.forwardRef<
   HTMLDivElement,
@@ -127,5 +125,5 @@ export const CardFooter = React.forwardRef<
     className={cn("flex items-center justify-end gap-2 pt-6", className)}
     {...props}
   />
-))
-CardFooter.displayName = "CardFooter"
+));
+CardFooter.displayName = "CardFooter";

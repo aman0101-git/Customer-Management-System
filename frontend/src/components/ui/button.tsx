@@ -4,13 +4,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * PHASE 1 — Button primitive.
+ *
+ * Public API is identical: variant in {default, destructive, outline, secondary,
+ * ghost, link} and size in {default, sm, lg, icon}.
+ *
+ * Refinements:
+ *   - Token-driven backgrounds + foregrounds work natively in dark mode.
+ *   - Hover uses subtle elevation + opacity shift instead of shadow jump.
+ *   - Active state is a quieter 1px push.
+ *   - Focus ring uses 2px ring + 2px offset against the page background.
+ */
 const buttonVariants = cva(
   `
   inline-flex items-center justify-center gap-2 whitespace-nowrap
-  rounded-md text-sm font-medium
-  transition-all duration-150
+  rounded-md text-sm font-medium select-none
+  transition-[background-color,box-shadow,color,transform] duration-150 ease-ams-out
   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
-  focus-visible:ring-offset-2
+  focus-visible:ring-offset-2 focus-visible:ring-offset-background
   disabled:pointer-events-none disabled:opacity-50
   active:translate-y-[1px]
   [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0
@@ -19,15 +31,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-sm hover:shadow-md hover:bg-primary/90",
+          "bg-primary text-primary-foreground shadow-elevation-1 hover:bg-primary/90 hover:shadow-elevation-2",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:shadow-md hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-elevation-1 hover:bg-destructive/90 hover:shadow-elevation-2",
         outline:
-          "border border-input bg-background shadow-sm hover:shadow-md hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-background text-foreground shadow-elevation-1 hover:bg-accent hover:text-accent-foreground hover:shadow-elevation-2",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:shadow-md hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground shadow-elevation-1 hover:bg-secondary/80 hover:shadow-elevation-2",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground",
+          "text-foreground hover:bg-accent hover:text-accent-foreground",
         link:
           "text-primary underline-offset-4 hover:underline",
       },

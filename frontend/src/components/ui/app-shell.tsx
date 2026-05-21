@@ -1,3 +1,28 @@
+// ============================================================================
+// PHASE 1 — AppShell
+// ----------------------------------------------------------------------------
+// Modernized navigation chrome.
+//
+// Preserved (backward compatible):
+//   - Role-aware navigation arrays (agentNav, supervisorNav, adminNav) — same
+//     items, same routes, same order. Pages depend on the role color cues
+//     (agent=indigo, supervisor=violet, admin=rose) so those remain but are
+//     mapped through tokens / consistent hue families.
+//   - <AppShell sidebar={...}>{children}</AppShell> contract.
+//   - LogoutButton-style logout action wired to useAuth().logout.
+//   - Theme toggle slot.
+//
+// Refinements:
+//   - Replaced inline `bg-[#f8fafc]` with `bg-background` so dark mode works
+//     without conditional classes scattered everywhere.
+//   - Sidebar uses the new --sidebar token family.
+//   - Header is a real sticky surface (bg-card/85 + backdrop-blur) with a
+//     hairline border that reads correctly in both modes.
+//   - Active nav pill uses brand+accent tinting so the role color reads as
+//     accent, not background — quieter, more enterprise.
+//   - Mobile menu trigger kept as a placeholder; real drawer slated for phase 2.
+// ============================================================================
+
 import * as React from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -12,10 +37,8 @@ import {
   Menu,
   UserPlus,
   Briefcase,
-  Settings,
-  ShieldAlert,
   FileDown,
-  MessageCircle
+  MessageCircle,
 } from "lucide-react";
 import { NavLink, Link } from "react-router-dom";
 
@@ -24,128 +47,136 @@ export interface AppShellProps {
   children: React.ReactNode;
 }
 
+type RoleTheme = {
+  initialBg: string;
+  accentText: string;
+  activeText: string;
+  activeRing: string;
+};
+
+const ROLE_THEMES: Record<"agent" | "supervisor" | "admin", RoleTheme> = {
+  agent: {
+    initialBg:  "bg-[hsl(234_89%_60%)] dark:bg-[hsl(234_89%_66%)]",
+    accentText: "text-[hsl(234_89%_50%)] dark:text-[hsl(234_89%_72%)]",
+    activeText: "text-[hsl(234_89%_45%)] dark:text-[hsl(234_89%_75%)]",
+    activeRing: "ring-[hsl(234_89%_60%/0.25)] dark:ring-[hsl(234_89%_66%/0.35)]",
+  },
+  supervisor: {
+    initialBg:  "bg-[hsl(263_70%_60%)] dark:bg-[hsl(263_70%_68%)]",
+    accentText: "text-[hsl(263_70%_50%)] dark:text-[hsl(263_70%_72%)]",
+    activeText: "text-[hsl(263_70%_45%)] dark:text-[hsl(263_70%_76%)]",
+    activeRing: "ring-[hsl(263_70%_60%/0.25)] dark:ring-[hsl(263_70%_68%/0.35)]",
+  },
+  admin: {
+    initialBg:  "bg-[hsl(0_72%_51%)]   dark:bg-[hsl(0_72%_55%)]",
+    accentText: "text-[hsl(0_72%_42%)] dark:text-[hsl(0_72%_65%)]",
+    activeText: "text-[hsl(0_72%_42%)] dark:text-[hsl(0_72%_70%)]",
+    activeRing: "ring-[hsl(0_72%_51%/0.25)] dark:ring-[hsl(0_72%_55%/0.35)]",
+  },
+};
+
 export function AppShell({ sidebar, children }: AppShellProps) {
   const { user, logout, loading } = useAuth();
 
-  // ----------------------------------------------------------------------
-  // 1. Define Navigation Configurations
-  // ----------------------------------------------------------------------
-
   const agentNav = [
-    { name: "Dashboard", path: "/agent/dashboard", icon: LayoutDashboard },
-    { name: "Lookup", path: "/agent/customers/resolve", icon: Search },
-    { name: "Customers", path: "/agent/customers", icon: Users },
-    { name: "Follow-ups", path: "/agent/followups", icon: Clock },
-    { name: "Summary", path: "/agent/summary", icon: PieChart },
+    { name: "Dashboard",  path: "/agent/dashboard",          icon: LayoutDashboard },
+    { name: "Lookup",     path: "/agent/customers/resolve",  icon: Search },
+    { name: "Customers",  path: "/agent/customers",          icon: Users },
+    { name: "Follow-ups", path: "/agent/followups",          icon: Clock },
+    { name: "Summary",    path: "/agent/summary",            icon: PieChart },
   ];
 
-  // Matches routes in SupervisorDashboard
   const supervisorNav = [
-    { name: "Dashboard", path: "/supervisor/dashboard", icon: LayoutDashboard }, // Added a home link
-    { name: "Agents", path: "/supervisor/create-user", icon: UserPlus },
-    { name: "Projects", path: "/supervisor/project-allocation", icon: Briefcase },
-    { name: "Follow ups", path: "/supervisor/follow-ups", icon: Clock },
-    { name: "Summary", path: "/supervisor/summarydashboard", icon: PieChart },
-    { name: "Exports", path: "/supervisor/export-data", icon: FileDown },
-    { name: "Search", path: "/supervisor/customer-search", icon: Search },
-    { name: "Templates", path: "/supervisor/whatsapp/templates", icon: MessageCircle },
-    { name: "Audit", path: "/supervisor/whatsapp/audit", icon: Clock },
+    { name: "Dashboard",  path: "/supervisor/dashboard",          icon: LayoutDashboard },
+    { name: "Agents",     path: "/supervisor/create-user",        icon: UserPlus },
+    { name: "Projects",   path: "/supervisor/project-allocation", icon: Briefcase },
+    { name: "Follow ups", path: "/supervisor/follow-ups",         icon: Clock },
+    { name: "Summary",    path: "/supervisor/summarydashboard",   icon: PieChart },
+    { name: "Exports",    path: "/supervisor/export-data",        icon: FileDown },
+    { name: "Search",     path: "/supervisor/customer-search",    icon: Search },
+    { name: "Templates",  path: "/supervisor/whatsapp/templates", icon: MessageCircle },
+    { name: "Audit",      path: "/supervisor/whatsapp/audit",     icon: Clock },
   ];
 
-  // Matches concepts in AdminDashboard (assuming you will create routes for these later,
-  // or you can just keep 'Dashboard' if it's a single-page view)
-  // Phase 10: Removed /admin/users, /admin/settings, /admin/audit — those routes
-  // do not exist in AppRoutes.tsx and silently failed when clicked. Admin currently
-  // operates from a single dashboard. Add nav items here as real routes are created.
+  // Phase 10 note (kept): admin nav holds only the routes that actually exist.
   const adminNav = [
     { name: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
   ];
 
   if (loading || !user) return null;
 
-  // ----------------------------------------------------------------------
-  // 2. Determine Role & Theme
-  // ----------------------------------------------------------------------
+  const role = (user.role?.toLowerCase() || "agent") as
+    | "agent"
+    | "supervisor"
+    | "admin";
 
   let navItems = agentNav;
   let homeLink = "/agent/dashboard";
-  let themeColor = "text-blue-600 dark:text-blue-400";
-  let bgTheme = "bg-blue-600";
-  let ringTheme = "ring-blue-200 dark:ring-blue-900/40";
-  let activeText = "text-blue-700 dark:text-blue-300";
-
-  // Normalize role string (case-insensitive check is safer)
-  const role = user.role?.toLowerCase() || "agent";
-
   if (role === "supervisor") {
     navItems = supervisorNav;
     homeLink = "/supervisor/dashboard";
-    themeColor = "text-purple-600 dark:text-purple-400";
-    bgTheme = "bg-purple-600";
-    ringTheme = "ring-purple-200 dark:ring-purple-900/40";
-    activeText = "text-purple-700 dark:text-purple-300";
   } else if (role === "admin") {
     navItems = adminNav;
     homeLink = "/admin/dashboard";
-    themeColor = "text-red-600 dark:text-red-400";
-    bgTheme = "bg-red-600";
-    ringTheme = "ring-red-200 dark:ring-red-900/40";
-    activeText = "text-red-700 dark:text-red-300";
   }
-
-  // ----------------------------------------------------------------------
-  // 3. Render
-  // ----------------------------------------------------------------------
+  const theme = ROLE_THEMES[role] ?? ROLE_THEMES.agent;
 
   return (
-    <div className="min-h-screen flex bg-[#f8fafc] dark:bg-slate-950 transition-colors">
-      {/* Sidebar (Optional) */}
+    <div className="min-h-screen flex bg-background text-foreground transition-colors">
       {sidebar && (
-        <aside className="w-72 hidden md:flex flex-col bg-slate-950 dark:bg-slate-900 text-slate-200 border-r border-slate-800 dark:border-slate-800 shadow-2xl">
-          <div className="p-6 border-b border-slate-800/50">
-             <div className="flex items-center gap-3">
-              <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white ${bgTheme}`}>
+        <aside className="w-72 hidden md:flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border shadow-elevation-2">
+          <div className="p-6 border-b border-sidebar-border">
+            <div className="flex items-center gap-3">
+              <div
+                className={`h-9 w-9 rounded-lg flex items-center justify-center font-bold text-white shadow-elevation-1 ${theme.initialBg}`}
+              >
                 {user.first_name.charAt(0).toUpperCase()}
               </div>
-              <span className="text-xl font-bold tracking-tight text-white">AMS <span className={`text-sm font-normal ${themeColor}`}>PRO</span></span>
+              <span className="text-lg font-bold tracking-tight text-sidebar-foreground">
+                AMS
+                <span className={`ml-1 text-xs font-semibold ${theme.accentText}`}>
+                  PRO
+                </span>
+              </span>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto py-4">{sidebar}</div>
         </aside>
       )}
 
-      {/* Main Container */}
-      <div className="flex-1 flex flex-col">
-
-        {/* Header */}
-        <header className="sticky top-0 z-20 h-16 flex items-center justify-between bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 px-6 lg:px-10 shadow-sm">
-
-          {/* LEFT: Branding & Welcome */}
-          <div className="flex items-center w-[250px]">
-             {!sidebar && (
-                <Link to={homeLink} className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                    <div className={`h-8 w-8 rounded-lg flex items-center justify-center font-bold text-white shadow-sm ${bgTheme}`}>
-                      {user.first_name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="font-bold text-slate-800 dark:text-slate-100 text-lg hidden sm:block tracking-tight">
-                      Welcome, <span className={themeColor}>{user.first_name}</span>
-                    </span>
-                </Link>
-             )}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header className="sticky top-0 z-20 h-16 flex items-center justify-between bg-card/85 backdrop-blur-md border-b border-border px-4 sm:px-6 lg:px-10">
+          <div className="flex items-center min-w-0 lg:w-[250px]">
+            {!sidebar && (
+              <Link
+                to={homeLink}
+                className="flex items-center gap-2.5 hover:opacity-90 transition-opacity"
+              >
+                <div
+                  className={`h-9 w-9 rounded-lg flex items-center justify-center font-bold text-white shadow-elevation-1 ${theme.initialBg}`}
+                >
+                  {user.first_name.charAt(0).toUpperCase()}
+                </div>
+                <span className="font-semibold text-foreground text-base hidden sm:inline-block tracking-tight">
+                  Welcome, <span className={theme.accentText}>{user.first_name}</span>
+                </span>
+              </Link>
+            )}
           </div>
 
-          {/* CENTER: Dynamic Navigation */}
-          <nav className="hidden md:flex items-center justify-center gap-1 bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-full border border-slate-200/60 dark:border-slate-700/60">
+          <nav className="hidden md:flex items-center justify-center gap-1 bg-muted/60 dark:bg-muted/40 border border-border p-1 rounded-full">
             {navItems.map((item) => (
               <NavLink
                 key={item.path}
                 to={item.path}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                  [
+                    "flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium",
+                    "transition-[background-color,color,box-shadow] duration-200 ease-ams-out",
                     isActive
-                      ? `bg-white dark:bg-slate-900 ${activeText} shadow-sm ring-1 ${ringTheme}`
-                      : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-200/50 dark:hover:bg-slate-700/50"
-                  }`
+                      ? `bg-card ${theme.activeText} shadow-elevation-1 ring-1 ${theme.activeRing}`
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/60",
+                  ].join(" ")
                 }
               >
                 <item.icon className="w-4 h-4" />
@@ -154,38 +185,43 @@ export function AppShell({ sidebar, children }: AppShellProps) {
             ))}
           </nav>
 
-          {/* RIGHT: User Profile & Actions */}
-          <div className="flex items-center justify-end gap-3 w-[250px]">
+          <div className="flex items-center justify-end gap-2 sm:gap-3 lg:w-[250px]">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-none">{user.username}</p>
-              <p className={`text-[10px] uppercase tracking-wider mt-1 font-bold ${themeColor}`}>
+              <p className="text-sm font-semibold text-foreground leading-none">
+                {user.username}
+              </p>
+              <p
+                className={`text-[10px] uppercase tracking-wider mt-1 font-bold ${theme.accentText}`}
+              >
                 {user.role}
               </p>
             </div>
 
-            <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+            <div className="h-7 w-px bg-border hidden sm:block" />
 
-            {/* Phase 1: theme toggle slotted in without changing surrounding layout. */}
             <ThemeToggle />
 
             <Button
               variant="ghost"
               onClick={logout}
               size="sm"
-              className="text-slate-500 dark:text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:text-red-400 dark:hover:bg-red-950/40 transition-colors gap-2"
+              className="text-muted-foreground hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/15 gap-2"
             >
               <LogOut className="w-4 h-4" />
               <span className="sr-only sm:not-sr-only sm:inline-block">Logout</span>
             </Button>
 
-            <Button variant="ghost" size="icon" className="md:hidden text-slate-600 dark:text-slate-300">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden text-muted-foreground"
+              aria-label="Open menu"
+            >
               <Menu className="w-5 h-5" />
             </Button>
           </div>
-
         </header>
 
-        {/* Content */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8 relative">
           {children}
         </main>
