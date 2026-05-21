@@ -54,11 +54,11 @@ export function AppShell({ sidebar, children }: AppShellProps) {
 
   // Matches concepts in AdminDashboard (assuming you will create routes for these later,
   // or you can just keep 'Dashboard' if it's a single-page view)
+  // Phase 10: Removed /admin/users, /admin/settings, /admin/audit — those routes
+  // do not exist in AppRoutes.tsx and silently failed when clicked. Admin currently
+  // operates from a single dashboard. Add nav items here as real routes are created.
   const adminNav = [
     { name: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
-    { name: "Users", path: "/admin/users", icon: Users },         // Placeholder for future route
-    { name: "Settings", path: "/admin/settings", icon: Settings }, // Placeholder for future route
-    { name: "Audit", path: "/admin/audit", icon: ShieldAlert },    // Placeholder for future route
   ];
 
   if (loading || !user) return null;

@@ -5,7 +5,8 @@ import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/apiBase";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, AlertTriangle } from "lucide-react";
+import { Search, AlertTriangle, Phone, Copy, Check } from "lucide-react";
+import { toast } from "sonner";
 import { getOverdueInfo, getIdleDays } from "@/lib/urgency";
 import {
   isSameDay,
@@ -19,26 +20,20 @@ import {
 } from "date-fns";
 
 // Phase 5 (May 2026):
-//   - Added a name/contact search input wrapped in useDeferredValue. The input
-//     stays responsive while the filtered array re-derives at lower priority.
-//   - filteredCustomers, uniqueProjects, statusCounts moved behind useMemo so
-//     they no longer recompute on every render. The sidebar accordion was
-//     running 11 separate filter+length passes per render; that's now one
-//     pass into a Map.
-//   - Virtualized the table body via @tanstack/react-virtual. Backend caps at
-//     LIMIT 5000; rendering 5000 <tr> nodes is the bottleneck we are paying
-//     off. Spacer-row pattern keeps the <table>/<thead>/<tbody> semantics
-//     intact (no display:grid rewrite).
-//   - Sticky <thead> so column labels stay visible while scrolling the
-//     virtualized body.
-//   - Spinner-italic "Syncing with server..." replaced with a proper
-//     skeleton; added an explicit error state with a Retry button.
-//   - Workflow / route / API contracts unchanged.
+//   - Added a name/contact search input wrapped in useDeferredValue.
+//   - filteredCustomers, uniqueProjects, statusCounts moved behind useMemo.
+//   - Virtualized the table body via @tanstack/react-virtual.
+//   - Sticky <thead> so column labels stay visible while scrolling.
+//   - Skeleton loader + explicit error state with Retry button.
 //
 // Phase 7 (May 2026):
 //   - Per-row urgency left-border tint (amber level 1+, rose level 3+).
 //   - Overdue chip below Follow Up date cell for active leads.
 //   - Idle Xd chip in Updated cell for leads idle 7+ days.
+//
+// Phase 10 (May 2026):
+//   - Wired the Complete button onClick (previously rendered but non-functional).
+//   - Added tel: link + copy-to-clipboard on contact numbers.
 
 // --- Icons for Sidebar ---
 const FilterIcon = ({ className }: { className?: string }) => (
@@ -71,6 +66,47 @@ const StatusBadge = ({ status }: { status: string }) => {
   );
 };
 
+// Phase 10: Contact cell — tel: link + copy-to-clipboard icon.
+function ContactCell({ contact }: { contact: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  const val = contact ?? "";
+  if (!val || val === "-") return <span className="text-sm font-mono text-slate-400">-</span>;
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(val).then(() => {
+      setCopied(true);
+      toast.success("Contact copied");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 group/contact">
+      <a
+        href={`tel:${val}`}
+        onClick={(e) => e.stopPropagation()}
+        className="text-sm font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1"
+        title={`Call ${val}`}
+      >
+        <Phone className="w-3 h-3 opacity-0 group-hover/contact:opacity-60 transition-opacity shrink-0" />
+        {val}
+      </a>
+      <button
+        onClick={handleCopy}
+        className="opacity-0 group-hover/contact:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100"
+        title="Copy number"
+        type="button"
+      >
+        {copied
+          ? <Check className="w-3 h-3 text-emerald-500" />
+          : <Copy className="w-3 h-3 text-slate-400" />}
+      </button>
+    </div>
+  );
+}
+
 const STATUS_FILTERS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed",
   "visit-proposed", "not-reachable", "lost", "visit-done",
@@ -80,9 +116,6 @@ const STATUS_FILTERS = [
 const NON_EDITABLE_STATUSES = ["visit-done", "booking-done", "lost"];
 const COMPLETABLE_STATUSES = ["visit-done", "booking-done", "lost"];
 
-// Visible-window header offset: AppShell header (h-16) + content padding +
-// page header. Anything close-enough works because the scroll container is
-// inside a fixed-height parent.
 const TABLE_VIRTUAL_ROW_ESTIMATE = 76;
 
 export default function AgentCustomersPage() {
@@ -101,13 +134,15 @@ export default function AgentCustomersPage() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
 
-  // Phase 5: search input + deferred value for low-priority filtering.
   const [searchInput, setSearchInput] = useState("");
   const deferredSearch = useDeferredValue(searchInput);
 
   // Sidebar Accordion State
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isProjectOpen, setIsProjectOpen] = useState(false);
+
+  // Phase 10: track in-flight complete call per agentCustomerId
+  const [completingId, setCompletingId] = useState<number | null>(null);
 
   const loadData = async () => {
     try {
@@ -132,7 +167,28 @@ export default function AgentCustomersPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  // --- Derive Unique Projects from Customers for Sidebar ---
+  // Phase 10: complete handler — calls PATCH /api/agent/customers/:id/complete
+  const handleComplete = async (agentCustomerId: number) => {
+    setCompletingId(agentCustomerId);
+    try {
+      const res = await fetch(`${API_BASE}/api/agent/customers/${agentCustomerId}/complete`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      if (res.status === 403) {
+        toast.error("You are not allowed to complete this customer.");
+        return;
+      }
+      if (!res.ok) throw new Error("Failed to complete");
+      toast.success("Customer marked as completed.");
+      await loadData();
+    } catch {
+      toast.error("Could not complete customer. Please try again.");
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
   const uniqueProjects = useMemo(() => {
     const projectMap = new Map<number, string>();
     customers.forEach(c => {
@@ -143,7 +199,6 @@ export default function AgentCustomersPage() {
     return Array.from(projectMap.entries()).map(([id, name]) => ({ id, name }));
   }, [customers]);
 
-  // Phase 5: status counts memoized into a Map -> O(N) once instead of 11*O(N).
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of customers) {
@@ -154,8 +209,6 @@ export default function AgentCustomersPage() {
     return counts;
   }, [customers]);
 
-  // Phase 5: filteredCustomers memoized. deferredSearch is the lower-priority
-  // input so the search box stays responsive while the array recomputes.
   const filteredCustomers = useMemo(() => {
     const needle = deferredSearch.trim().toLowerCase();
     const today = new Date();
@@ -209,7 +262,6 @@ export default function AgentCustomersPage() {
     };
   };
 
-  // --- Virtualizer wiring ---
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
     count: filteredCustomers.length,
@@ -226,12 +278,11 @@ export default function AgentCustomersPage() {
       ? totalSize - virtualItems[virtualItems.length - 1].end
       : 0;
 
-  // --- LOADING / ERROR / READY state branches share the same shell ---
   return (
     <AppShell sidebar={null}>
       <div className="relative w-full min-h-[80vh] bg-slate-50">
 
-        {/* Sidebar — unchanged structure */}
+        {/* Sidebar */}
         <aside className="fixed left-0 top-16 bottom-0 z-40 bg-white border-r border-slate-200 shadow-xl transition-all duration-300 w-16 hover:w-64 group flex flex-col overflow-hidden">
           <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 p-2 space-y-4 mt-2">
 
@@ -321,7 +372,7 @@ export default function AgentCustomersPage() {
           </div>
         </aside>
 
-        {/* --- Main Content (Pushed by margin) --- */}
+        {/* Main Content */}
         <div className="flex-1 p-6 ml-16">
           <div className="flex flex-col gap-4 mb-6">
             <div className="flex justify-between items-center">
@@ -364,7 +415,6 @@ export default function AgentCustomersPage() {
               </div>
             </div>
 
-            {/* Phase 5: search input + result count */}
             <div className="flex items-center gap-3">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
@@ -389,18 +439,13 @@ export default function AgentCustomersPage() {
                 <AlertTriangle className="w-4 h-4" />
                 {errorMessage}
               </span>
-              <button
-                type="button"
-                onClick={loadData}
-                className="font-semibold hover:underline"
-              >
+              <button type="button" onClick={loadData} className="font-semibold hover:underline">
                 Retry
               </button>
             </div>
           )}
 
           <div className="w-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            {/* LOADING SKELETON */}
             {loading ? (
               <div className="p-4 space-y-3">
                 <Skeleton className="h-10 rounded-lg" />
@@ -425,10 +470,33 @@ export default function AgentCustomersPage() {
                   <tbody className="divide-y divide-slate-100">
                     {filteredCustomers.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-10 text-center text-slate-400 font-medium">
-                          {customers.length === 0
-                            ? "No customers assigned yet."
-                            : "No records found for this filter."}
+                        <td colSpan={9} className="p-16 text-center">
+                          <div className="flex flex-col items-center gap-3 text-slate-400">
+                            <Search className="w-8 h-8 opacity-40" />
+                            <p className="font-semibold text-slate-600 text-sm">
+                              {customers.length === 0
+                                ? "No customers assigned yet"
+                                : "No records match your filters"}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              {customers.length === 0
+                                ? "Use the Lookup tab to search and add new leads."
+                                : "Try adjusting the status, project, or date filters above."}
+                            </p>
+                            {customers.length > 0 && (statusFilter || projectFilter !== "all" || dateRangeType !== "all" || searchInput) && (
+                              <button
+                                onClick={() => {
+                                  setStatusFilter(null);
+                                  setProjectFilter("all");
+                                  setDateRangeType("all");
+                                  setSearchInput("");
+                                }}
+                                className="mt-1 text-xs font-semibold text-indigo-600 hover:underline"
+                              >
+                                Clear all filters
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ) : (
@@ -449,12 +517,12 @@ export default function AgentCustomersPage() {
                           const followUpDateDisplay = isDoneStatus ? formatDateTime(c.done_date).d : formatDateTime(c.follow_up_date).d;
                           const followUpTimeDisplay = isDoneStatus ? "Done Date" : safe(c.follow_up_time);
 
-                          // Phase 7: urgency signals — skipped for done/completed leads.
                           const overdueInfo = (!isDoneStatus && !isCompleted)
                             ? getOverdueInfo(c.follow_up_date)
                             : null;
                           const idleDays = getIdleDays(c.updated_at, c.status_code);
                           const isStale = idleDays >= 7;
+                          const isCompleting = completingId === c.id;
 
                           return (
                             <tr
@@ -475,7 +543,9 @@ export default function AgentCustomersPage() {
                                   Owner: {user?.first_name} {user?.last_name}
                                 </div>
                               </td>
-                              <td className="px-5 py-4"><div className="text-sm font-mono text-slate-600">{safe(c.contact)}</div></td>
+                              <td className="px-5 py-4">
+                                <ContactCell contact={c.contact} />
+                              </td>
                               <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project_name)}</td>
                               <td className="px-4 py-4"><StatusBadge status={c.status_code} /></td>
                               <td className="px-4 py-4">
@@ -511,12 +581,21 @@ export default function AgentCustomersPage() {
                               <td className="px-5 py-4">
                                 <div className="flex items-center gap-2">
                                   {canEdit && (
-                                    <button onClick={() => navigate(`/agent/customers/resolve?edit=${c.id}`)} className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 font-bold text-[11px] shadow-sm">Edit</button>
+                                    <button
+                                      onClick={() => navigate(`/agent/customers/resolve?edit=${c.id}`)}
+                                      className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 font-bold text-[11px] shadow-sm"
+                                    >
+                                      Edit
+                                    </button>
                                   )}
                                   {canComplete && (
                                     <button
-                                      className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm"
-                                    >Complete</button>
+                                      onClick={() => handleComplete(c.id)}
+                                      disabled={isCompleting}
+                                      className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                                    >
+                                      {isCompleting ? "..." : "Complete"}
+                                    </button>
                                   )}
                                 </div>
                               </td>

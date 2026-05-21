@@ -66,6 +66,8 @@ export default function SupervisorCreateUserPage() {
   const [agents, setAgents] = useState<User[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  // Phase 10: active/inactive quick filter
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
 
   // State for Project Management Drawer
   const [selectedAgent, setSelectedAgent] = useState<User | null>(null);
@@ -135,14 +137,20 @@ export default function SupervisorCreateUserPage() {
     setProjectDrawerOpen(true);
   };
 
-  // Filter and Sort logic (Active users on top)
+  // Phase 10: Filter and Sort — search + active/inactive toggle + active-first sort.
   const filteredAgents = agents
-    .filter(agent =>
-      agent.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agent.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      agent.username.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-    .sort((a, b) => b.is_active - a.is_active); // Sorts 1 (Active) before 0 (Inactive)
+    .filter(agent => {
+      const matchesSearch =
+        agent.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        agent.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        agent.username.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && agent.is_active === 1) ||
+        (statusFilter === "inactive" && agent.is_active === 0);
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => b.is_active - a.is_active);
 
   const togglePending =
     toggleStatusMutation.isPending && toggleStatusMutation.variables?.id === confirmTarget?.id;
@@ -186,21 +194,36 @@ export default function SupervisorCreateUserPage() {
 
           {/* Controls & Metrics Bar */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="md:col-span-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex items-center">
+            <div className="md:col-span-3 bg-white p-1.5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2">
               <div className="pl-3 pr-2 text-slate-400">
                 <Search className="w-5 h-5" />
               </div>
               <input
                 type="text"
                 placeholder="Search your agents by name or username..."
-                className="w-full h-10 outline-none text-sm text-slate-700 placeholder:text-slate-400"
+                className="flex-1 h-10 outline-none text-sm text-slate-700 placeholder:text-slate-400"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <div className="border-l border-slate-100 pl-2">
-                <button className="p-2 hover:bg-slate-50 rounded-lg text-slate-500 transition-colors">
-                  <Filter className="w-4 h-4" />
-                </button>
+              {/* Phase 10: Active / Inactive quick-filter toggle */}
+              <div className="flex items-center border-l border-slate-100 pl-2 gap-1">
+                {(["all", "active", "inactive"] as const).map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setStatusFilter(opt)}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wide transition-all ${
+                      statusFilter === opt
+                        ? opt === "active"
+                          ? "bg-emerald-600 text-white"
+                          : opt === "inactive"
+                          ? "bg-slate-600 text-white"
+                          : "bg-indigo-600 text-white"
+                        : "text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
               </div>
             </div>
 

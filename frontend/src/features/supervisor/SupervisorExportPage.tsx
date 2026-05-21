@@ -169,6 +169,61 @@ export default function SupervisorExportPage() {
             Report Criteria
           </h2>
 
+          {/* Phase 10: Date quick-set presets — saves manual date entry for common ranges */}
+          {!filtersLoading && (
+            <div className="flex flex-wrap gap-2 mb-5">
+              {[
+                {
+                  label: "Today",
+                  fn: () => {
+                    const d = new Date().toISOString().split("T")[0];
+                    setStartDate(d); setEndDate(d);
+                  },
+                },
+                {
+                  label: "This Week",
+                  fn: () => {
+                    const now = new Date();
+                    const day = now.getDay(); // 0=Sun
+                    const mon = new Date(now); mon.setDate(now.getDate() - ((day + 6) % 7));
+                    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+                    setStartDate(mon.toISOString().split("T")[0]);
+                    setEndDate(sun.toISOString().split("T")[0]);
+                  },
+                },
+                {
+                  label: "This Month",
+                  fn: () => {
+                    const now = new Date();
+                    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+                    const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    setStartDate(first.toISOString().split("T")[0]);
+                    setEndDate(last.toISOString().split("T")[0]);
+                  },
+                },
+                {
+                  label: "Last Month",
+                  fn: () => {
+                    const now = new Date();
+                    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    const last  = new Date(now.getFullYear(), now.getMonth(), 0);
+                    setStartDate(first.toISOString().split("T")[0]);
+                    setEndDate(last.toISOString().split("T")[0]);
+                  },
+                },
+              ].map(({ label, fn }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={fn}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-600 transition-all"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Skeleton while agents/projects load from API (or warm up from cache) */}
           {filtersLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

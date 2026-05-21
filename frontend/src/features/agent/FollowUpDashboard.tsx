@@ -338,10 +338,23 @@ export default function FollowUpDashboard() {
               <div className="p-4 bg-slate-50 rounded-full mb-4">
                 <Calendar className="w-8 h-8 text-slate-400" />
               </div>
-              <h3 className="text-lg font-semibold text-slate-700">No Pending Follow-ups</h3>
-              <p className="text-slate-500 text-sm">
-                Great job! You have cleared your list for this category.
+              <h3 className="text-lg font-semibold text-slate-700">
+                {filter === "all" ? "No Pending Follow-ups" : `No ${filter === "past" ? "Overdue" : filter === "today" ? "Due Today" : "Upcoming"} Follow-ups`}
+              </h3>
+              <p className="text-slate-500 text-sm mt-1">
+                {filter === "all"
+                  ? "Great job! You have cleared your entire list."
+                  : "Nothing in this category right now."}
               </p>
+              {/* Phase 10: escape hatch when a filter produces empty results */}
+              {filter !== "all" && (
+                <button
+                  onClick={() => setFilter("all")}
+                  className="mt-4 text-sm font-semibold text-indigo-600 hover:underline"
+                >
+                  Show all follow-ups
+                </button>
+              )}
             </div>
           ) : (
             displayList.map((customer) => {

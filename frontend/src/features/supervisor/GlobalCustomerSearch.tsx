@@ -13,8 +13,39 @@ import {
   User,
   Briefcase,
   Edit2,
-  X
+  X,
+  Phone,
+  Copy,
+  Check,
 } from "lucide-react";
+
+// Phase 10: Contact cell with tel: link + copy-to-clipboard.
+function ContactCell({ contact }: { contact: string | null | undefined }) {
+  const [copied, setCopied] = useState(false);
+  const val = contact ?? "";
+  if (!val) return <span className="text-slate-400 font-mono">—</span>;
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(val).then(() => {
+      setCopied(true);
+      toast.success("Contact copied");
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="flex items-center gap-1.5 group/c">
+      <a href={`tel:${val}`} onClick={(e) => e.stopPropagation()}
+        className="font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1 text-sm">
+        <Phone className="w-3 h-3 opacity-0 group-hover/c:opacity-60 shrink-0 transition-opacity" />
+        {val}
+      </a>
+      <button onClick={handleCopy} type="button"
+        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100" title="Copy">
+        {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
+      </button>
+    </div>
+  );
+}
 
 // Phase 8 (May 2026):
 //   - Derive overdue urgency from existing follow_up_date field via getOverdueInfo.
@@ -234,8 +265,8 @@ export default function GlobalCustomerSearch() {
                         </td>
 
                         {/* Contact */}
-                        <td className="px-6 py-3 font-mono text-slate-600">
-                          {item.contact}
+                        <td className="px-6 py-3">
+                          <ContactCell contact={item.contact} />
                         </td>
 
                         {/* Assignment & Project */}
