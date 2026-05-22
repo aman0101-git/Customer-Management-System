@@ -1,3 +1,23 @@
+// ============================================================================
+// PHASE 2 — AgentCustomersPage
+// ----------------------------------------------------------------------------
+// All Phase 5/7/10 logic preserved verbatim:
+//   - name/contact search with useDeferredValue
+//   - useMemo'd filteredCustomers / uniqueProjects / statusCounts
+//   - @tanstack/react-virtual virtualization
+//   - sticky thead, skeleton, error state with Retry
+//   - per-row urgency left-border tint and chips
+//   - PATCH /complete handler with toast feedback
+//   - ContactCell tel: link + clipboard copy
+//
+// Visual changes:
+//   - StatusBadge now token-driven via a semantic map (success/warning/danger).
+//   - Hover-expand sidebar surfaces tokenized (bg-card / bg-accent / brand).
+//   - Table header / cells use design-system tokens.
+//   - EmptyState helper used for "no records match filters".
+//   - Date cells stop hard-coding emerald/text-slate-* and use tokens.
+// ============================================================================
+
 import { AppShell } from "@/components/ui/app-shell";
 import { useEffect, useMemo, useRef, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +27,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, AlertTriangle, Phone, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import EmptyState from "@/components/system/EmptyState";
 import { getOverdueInfo, getIdleDays } from "@/lib/urgency";
 import {
   isSameDay,
@@ -16,61 +38,59 @@ import {
   startOfMonth,
   endOfMonth,
   isWithinInterval,
-  parseISO
+  parseISO,
 } from "date-fns";
 
-// Phase 5 (May 2026):
-//   - Added a name/contact search input wrapped in useDeferredValue.
-//   - filteredCustomers, uniqueProjects, statusCounts moved behind useMemo.
-//   - Virtualized the table body via @tanstack/react-virtual.
-//   - Sticky <thead> so column labels stay visible while scrolling.
-//   - Skeleton loader + explicit error state with Retry button.
-//
-// Phase 7 (May 2026):
-//   - Per-row urgency left-border tint (amber level 1+, rose level 3+).
-//   - Overdue chip below Follow Up date cell for active leads.
-//   - Idle Xd chip in Updated cell for leads idle 7+ days.
-//
-// Phase 10 (May 2026):
-//   - Wired the Complete button onClick (previously rendered but non-functional).
-//   - Added tel: link + copy-to-clipboard on contact numbers.
-
-// --- Icons for Sidebar ---
 const FilterIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
 );
 const ProjectIcon = ({ className }: { className?: string }) => (
-  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M17 21v-8.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V21"/><path d="M19 10a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1"/><path d="M1 21h22"/></svg>
+  <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 21h18" /><path d="M5 21V7l8-4 8 4v14" /><path d="M17 21v-8.5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0-.5.5V21" />
+    <path d="M19 10a1 1 0 0 0 1-1v-1a1 1 0 0 0-1-1" /><path d="M1 21h22" />
+  </svg>
 );
 const ChevronDown = ({ className }: { className?: string }) => (
-  <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  <svg className={className} width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="m6 9 6 6 6-6" />
+  </svg>
 );
 
+// PHASE 2: token-driven status palette.
+type Tone = "success" | "warning" | "danger" | "muted";
+const STATUS_TONE: Record<string, Tone> = {
+  "booking-done": "success",
+  "visit-done": "success",
+  "visit-proposed": "warning",
+  "visit-confirmed": "warning",
+  "virtual-meet-confirmed": "warning",
+  "virtual-meet": "warning",
+  pending: "danger",
+  sdow: "danger",
+  "follow-up": "danger",
+};
+const TONE_CLASSES: Record<Tone, string> = {
+  success: "bg-success/15 text-success border-success/30",
+  warning: "bg-warning/15 text-warning border-warning/30",
+  danger:  "bg-danger/15  text-danger  border-danger/30",
+  muted:   "bg-muted      text-muted-foreground border-border",
+};
+
 const StatusBadge = ({ status }: { status: string }) => {
-  const styles: any = {
-    "booking-done": "bg-emerald-100 text-emerald-700 border-emerald-200",
-    "visit-done": "bg-emerald-100 text-emerald-700 border-emerald-200",
-    "visit-proposed": "bg-amber-100 text-amber-700 border-amber-200",
-    "visit-confirmed": "bg-amber-100 text-amber-700 border-amber-200",
-    "virtual-meet-confirmed": "bg-amber-100 text-amber-700 border-amber-200",
-    "virtual-meet": "bg-amber-100 text-amber-700 border-amber-200",
-    "pending": "bg-rose-100 text-rose-700 border-rose-200",
-    "sdow": "bg-rose-100 text-rose-700 border-rose-200",
-    "follow-up": "bg-rose-100 text-rose-700 border-rose-200",
-  };
-  const currentStyle = styles[status] || "bg-slate-100 text-slate-600 border-slate-200";
+  const tone = STATUS_TONE[status] ?? "muted";
   return (
-    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${currentStyle}`}>
+    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${TONE_CLASSES[tone]}`}>
       {status.replace("-", " ")}
     </span>
   );
 };
 
-// Phase 10: Contact cell — tel: link + copy-to-clipboard icon.
 function ContactCell({ contact }: { contact: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
   const val = contact ?? "";
-  if (!val || val === "-") return <span className="text-sm font-mono text-slate-400">-</span>;
+  if (!val || val === "-") return <span className="text-sm font-mono text-muted-foreground">-</span>;
 
   const handleCopy = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -87,7 +107,7 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
       <a
         href={`tel:${val}`}
         onClick={(e) => e.stopPropagation()}
-        className="text-sm font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1"
+        className="text-sm font-mono text-foreground hover:text-brand transition-colors flex items-center gap-1"
         title={`Call ${val}`}
       >
         <Phone className="w-3 h-3 opacity-0 group-hover/contact:opacity-60 transition-opacity shrink-0" />
@@ -95,13 +115,13 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
       </a>
       <button
         onClick={handleCopy}
-        className="opacity-0 group-hover/contact:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100"
+        className="opacity-0 group-hover/contact:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent"
         title="Copy number"
         type="button"
       >
         {copied
-          ? <Check className="w-3 h-3 text-emerald-500" />
-          : <Copy className="w-3 h-3 text-slate-400" />}
+          ? <Check className="w-3 h-3 text-success" />
+          : <Copy className="w-3 h-3 text-muted-foreground" />}
       </button>
     </div>
   );
@@ -110,12 +130,11 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
 const STATUS_FILTERS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed",
   "visit-proposed", "not-reachable", "lost", "visit-done",
-  "virtual-meet", "booking-done", "pending"
+  "virtual-meet", "booking-done", "pending",
 ];
 
 const NON_EDITABLE_STATUSES = ["visit-done", "booking-done", "lost"];
 const COMPLETABLE_STATUSES = ["visit-done", "booking-done", "lost"];
-
 const TABLE_VIRTUAL_ROW_ESTIMATE = 76;
 
 export default function AgentCustomersPage() {
@@ -127,7 +146,6 @@ export default function AgentCustomersPage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Filter state
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [dateRangeType, setDateRangeType] = useState("all");
@@ -137,11 +155,9 @@ export default function AgentCustomersPage() {
   const [searchInput, setSearchInput] = useState("");
   const deferredSearch = useDeferredValue(searchInput);
 
-  // Sidebar Accordion State
   const [isStatusOpen, setIsStatusOpen] = useState(false);
   const [isProjectOpen, setIsProjectOpen] = useState(false);
 
-  // Phase 10: track in-flight complete call per agentCustomerId
   const [completingId, setCompletingId] = useState<number | null>(null);
 
   const loadData = async () => {
@@ -156,7 +172,6 @@ export default function AgentCustomersPage() {
       const resProj = await fetch(`${API_BASE}/api/projects`, { credentials: "include" });
       if (!resProj.ok) throw new Error("Failed to load projects");
       setProjects(await resProj.json());
-
     } catch (err: any) {
       console.error(err);
       setErrorMessage(err?.message || "Failed to load customer directory");
@@ -167,7 +182,6 @@ export default function AgentCustomersPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  // Phase 10: complete handler — calls PATCH /api/agent/customers/:id/complete
   const handleComplete = async (agentCustomerId: number) => {
     setCompletingId(agentCustomerId);
     try {
@@ -192,9 +206,7 @@ export default function AgentCustomersPage() {
   const uniqueProjects = useMemo(() => {
     const projectMap = new Map<number, string>();
     customers.forEach(c => {
-      if (c.project_id && c.project_name) {
-        projectMap.set(c.project_id, c.project_name);
-      }
+      if (c.project_id && c.project_name) projectMap.set(c.project_id, c.project_name);
     });
     return Array.from(projectMap.entries()).map(([id, name]) => ({ id, name }));
   }, [customers]);
@@ -232,18 +244,18 @@ export default function AgentCustomersPage() {
         case "this-week":
           return isWithinInterval(customerDate, {
             start: startOfWeek(today, { weekStartsOn: 1 }),
-            end: endOfWeek(today, { weekStartsOn: 1 })
+            end: endOfWeek(today, { weekStartsOn: 1 }),
           });
         case "this-month":
           return isWithinInterval(customerDate, {
             start: startOfMonth(today),
-            end: endOfMonth(today)
+            end: endOfMonth(today),
           });
         case "custom":
           if (!customStart || !customEnd) return true;
           return isWithinInterval(customerDate, {
             start: new Date(customStart),
-            end: new Date(customEnd)
+            end: new Date(customEnd),
           });
         default: return true;
       }
@@ -251,14 +263,13 @@ export default function AgentCustomersPage() {
   }, [customers, projectFilter, statusFilter, dateRangeType, customStart, customEnd, deferredSearch]);
 
   const safe = (val: any) => val === null || val === undefined || val === "" ? "-" : val;
-
   const formatDateTime = (dateStr: string | null | undefined) => {
     if (!dateStr) return { d: "-", t: "" };
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return { d: "-", t: "" };
     return {
-      d: d.toLocaleDateString('en-GB'),
-      t: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+      d: d.toLocaleDateString("en-GB"),
+      t: d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
     };
   };
 
@@ -274,80 +285,78 @@ export default function AgentCustomersPage() {
   const totalSize = virtualizer.getTotalSize();
   const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
   const paddingBottom =
-    virtualItems.length > 0
-      ? totalSize - virtualItems[virtualItems.length - 1].end
-      : 0;
+    virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
 
   return (
     <AppShell sidebar={null}>
-      <div className="relative w-full min-h-[80vh] bg-slate-50">
+      <div className="relative w-full min-h-[80vh]">
 
-        {/* Sidebar */}
-        <aside className="fixed left-0 top-16 bottom-0 z-40 bg-white border-r border-slate-200 shadow-xl transition-all duration-300 w-16 hover:w-64 group flex flex-col overflow-hidden">
-          <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 p-2 space-y-4 mt-2">
+        {/* Sidebar — hover-expand filter panel */}
+        <aside className="fixed left-0 top-16 bottom-0 z-40 bg-card text-card-foreground border-r border-border shadow-elevation-2 transition-all duration-300 w-16 hover:w-64 group flex flex-col overflow-hidden">
+          <div className="h-full overflow-y-auto p-2 space-y-4 mt-2">
 
-            {/* BLOCK 1: STATUS */}
+            {/* STATUS block */}
             <div className="rounded-xl overflow-hidden transition-all duration-200">
               <button
                 onClick={() => setIsStatusOpen(!isStatusOpen)}
-                className={`w-full flex items-center p-2 transition-colors rounded-lg ${statusFilter ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}
+                className={`w-full flex items-center p-2 transition-colors rounded-lg ${statusFilter ? "bg-brand/10" : "hover:bg-accent/60"}`}
               >
-                <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-md transition-colors ${statusFilter ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-600'}`}>
+                <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-md transition-colors ${statusFilter ? "bg-brand text-brand-foreground shadow-elevation-1" : "bg-muted text-muted-foreground group-hover:bg-brand/10 group-hover:text-brand"}`}>
                   <FilterIcon className="w-4 h-4" />
                 </div>
                 <div className="ml-3 flex-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-hidden whitespace-nowrap">
-                  <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">Status</span>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isStatusOpen ? 'rotate-180' : ''}`} />
+                  <span className="font-bold text-xs text-foreground uppercase tracking-wider">Status</span>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isStatusOpen ? "rotate-180" : ""}`} />
                 </div>
               </button>
 
               {isStatusOpen && (
-                <div className="hidden group-hover:block pl-12 pr-2 pt-2 space-y-1 animate-in fade-in slide-in-from-left-2 duration-200">
+                <div className="hidden group-hover:block pl-12 pr-2 pt-2 space-y-1 animate-fade-in">
                   <button
                     onClick={() => setStatusFilter(null)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${statusFilter === null ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${statusFilter === null ? "bg-foreground text-background" : "text-muted-foreground hover:bg-accent/60"}`}
                   >
                     <span>All Statuses</span>
-                    <span className="opacity-70">{customers.length}</span>
+                    <span className="opacity-70 tabular-nums">{customers.length}</span>
                   </button>
-                  {STATUS_FILTERS.filter(s => s !== 'lost').map(status => {
-                     const count = statusCounts.get(status) ?? 0;
-                     const isActive = statusFilter === status;
-                     return (
-                       <button
-                         key={status}
-                         onClick={() => setStatusFilter(status)}
-                         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${isActive ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-slate-600 hover:bg-slate-100'}`}
-                       >
-                         <span className="capitalize">{status.replace(/-/g, ' ')}</span>
-                         <span className="bg-white/50 px-1.5 py-0.5 rounded text-[10px]">{count}</span>
-                       </button>
-                     );
+                  {STATUS_FILTERS.filter(s => s !== "lost").map(status => {
+                    const count = statusCounts.get(status) ?? 0;
+                    const isActive = statusFilter === status;
+                    return (
+                      <button
+                        key={status}
+                        onClick={() => setStatusFilter(status)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isActive ? "bg-brand/10 text-brand border border-brand/20" : "text-muted-foreground hover:bg-accent/60"}`}
+                      >
+                        <span className="capitalize">{status.replace(/-/g, " ")}</span>
+                        <span className="bg-background/60 px-1.5 py-0.5 rounded text-[10px] tabular-nums">{count}</span>
+                      </button>
+                    );
                   })}
                 </div>
               )}
             </div>
 
-            {/* BLOCK 2: PROJECTS */}
+            {/* PROJECTS block */}
             <div className="rounded-xl overflow-hidden transition-all duration-200">
               <button
                 onClick={() => setIsProjectOpen(!isProjectOpen)}
-                className={`w-full flex items-center p-2 transition-colors rounded-lg ${projectFilter !== 'all' ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
+                className={`w-full flex items-center p-2 transition-colors rounded-lg ${projectFilter !== "all" ? "bg-success/10" : "hover:bg-accent/60"}`}
               >
-                <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-md transition-colors ${projectFilter !== 'all' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500 group-hover:bg-emerald-50 group-hover:text-emerald-600'}`}>
+                <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-md transition-colors ${projectFilter !== "all" ? "bg-success text-success-foreground shadow-elevation-1" : "bg-muted text-muted-foreground group-hover:bg-success/10 group-hover:text-success"}`}>
                   <ProjectIcon className="w-4 h-4" />
                 </div>
                 <div className="ml-3 flex-1 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-hidden whitespace-nowrap">
-                  <span className="font-bold text-xs text-slate-700 uppercase tracking-wider">Projects</span>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isProjectOpen ? 'rotate-180' : ''}`} />
+                  <span className="font-bold text-xs text-foreground uppercase tracking-wider">Projects</span>
+                  <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isProjectOpen ? "rotate-180" : ""}`} />
                 </div>
               </button>
 
               {isProjectOpen && (
-                <div className="hidden group-hover:block pl-12 pr-2 pt-2 space-y-1 animate-in fade-in slide-in-from-left-2 duration-200">
+                <div className="hidden group-hover:block pl-12 pr-2 pt-2 space-y-1 animate-fade-in">
                   <button
                     onClick={() => setProjectFilter("all")}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${projectFilter === "all" ? 'bg-emerald-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${projectFilter === "all" ? "bg-success text-success-foreground" : "text-muted-foreground hover:bg-accent/60"}`}
                   >
                     <span>All Projects</span>
                   </button>
@@ -355,14 +364,14 @@ export default function AgentCustomersPage() {
                     const isActive = projectFilter === String(p.id);
                     const count = customers.filter(c => c.project_id === p.id).length;
                     return (
-                       <button
-                         key={p.id}
-                         onClick={() => setProjectFilter(String(p.id))}
-                         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'text-slate-600 hover:bg-slate-100'}`}
-                       >
-                         <span className="truncate pr-2">{p.name}</span>
-                         <span className="bg-white/50 px-1.5 py-0.5 rounded text-[10px]">{count}</span>
-                       </button>
+                      <button
+                        key={p.id}
+                        onClick={() => setProjectFilter(String(p.id))}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${isActive ? "bg-success/10 text-success border border-success/20" : "text-muted-foreground hover:bg-accent/60"}`}
+                      >
+                        <span className="truncate pr-2">{p.name}</span>
+                        <span className="bg-background/60 px-1.5 py-0.5 rounded text-[10px] tabular-nums">{count}</span>
+                      </button>
                     );
                   })}
                 </div>
@@ -373,16 +382,15 @@ export default function AgentCustomersPage() {
         </aside>
 
         {/* Main Content */}
-        <div className="flex-1 p-6 ml-16">
+        <div className="flex-1 ml-16">
           <div className="flex flex-col gap-4 mb-6">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold text-slate-800">Customer Directory</h1>
-              <div className="flex items-center gap-3 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
-
-                <div className="flex items-center gap-2 border-r pr-3 border-slate-100">
-                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Project:</span>
+            <div className="flex justify-between items-center flex-wrap gap-3">
+              <h1 className="text-xl font-semibold tracking-tight text-foreground">Customer Directory</h1>
+              <div className="flex items-center gap-3 bg-card text-card-foreground p-2 rounded-xl border border-border shadow-elevation-1">
+                <div className="flex items-center gap-2 border-r pr-3 border-border">
+                  <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">Project:</span>
                   <select
-                    className="text-xs font-bold text-slate-700 bg-transparent outline-none cursor-pointer"
+                    className="text-xs font-bold text-foreground bg-transparent outline-none cursor-pointer"
                     value={projectFilter}
                     onChange={(e) => setProjectFilter(e.target.value)}
                   >
@@ -394,7 +402,7 @@ export default function AgentCustomersPage() {
                 </div>
 
                 <select
-                  className="text-xs font-bold text-slate-600 bg-transparent outline-none cursor-pointer px-2"
+                  className="text-xs font-bold text-muted-foreground bg-transparent outline-none cursor-pointer px-2"
                   value={dateRangeType}
                   onChange={(e) => setDateRangeType(e.target.value)}
                 >
@@ -406,10 +414,10 @@ export default function AgentCustomersPage() {
                   <option value="custom">Custom Range</option>
                 </select>
                 {dateRangeType === "custom" && (
-                  <div className="flex items-center gap-2 border-l pl-3 border-slate-100">
-                    <input type="date" className="text-[11px] font-medium text-slate-600 border rounded px-1" value={customStart} onChange={(e) => setCustomStart(e.target.value)} />
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">To</span>
-                    <input type="date" className="text-[11px] font-medium text-slate-600 border rounded px-1" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
+                  <div className="flex items-center gap-2 border-l pl-3 border-border">
+                    <input type="date" className="text-[11px] font-medium text-foreground bg-background border border-input rounded px-1" value={customStart} onChange={(e) => setCustomStart(e.target.value)} />
+                    <span className="text-[10px] text-muted-foreground font-bold uppercase">To</span>
+                    <input type="date" className="text-[11px] font-medium text-foreground bg-background border border-input rounded px-1" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} />
                   </div>
                 )}
               </div>
@@ -417,24 +425,23 @@ export default function AgentCustomersPage() {
 
             <div className="flex items-center gap-3">
               <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
                 <input
                   type="text"
                   placeholder="Search by name or contact..."
-                  className="w-full pl-9 pr-3 py-2 bg-white border border-slate-200 rounded-lg text-sm shadow-sm focus:ring-2 focus:ring-blue-100 outline-none"
+                  className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg text-sm shadow-elevation-1 focus:ring-2 focus:ring-ring/40 focus:border-ring outline-none text-foreground placeholder:text-muted-foreground transition-[border-color,box-shadow]"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                 />
               </div>
-              <span className="text-xs text-slate-500 font-medium">
+              <span className="text-xs text-muted-foreground font-medium">
                 {loading ? "Loading..." : `${filteredCustomers.length} of ${customers.length} customers`}
               </span>
             </div>
           </div>
 
-          {/* ERROR STATE */}
           {errorMessage && !loading && (
-            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+            <div className="mb-4 rounded-xl border border-danger/30 bg-danger/10 text-danger px-4 py-3 text-sm flex items-center justify-between">
               <span className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4" />
                 {errorMessage}
@@ -445,7 +452,7 @@ export default function AgentCustomersPage() {
             </div>
           )}
 
-          <div className="w-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="w-full bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 overflow-hidden">
             {loading ? (
               <div className="p-4 space-y-3">
                 <Skeleton className="h-10 rounded-lg" />
@@ -459,44 +466,44 @@ export default function AgentCustomersPage() {
                 className="overflow-auto"
                 style={{ maxHeight: "calc(100vh - 260px)" }}
               >
-                <table className="w-full text-left border-collapse leading-normal">
-                  <thead className="sticky top-0 z-10 bg-slate-50">
-                    <tr className="border-b border-slate-200">
+                <table className="w-full text-left border-collapse leading-normal tabular-nums-tracking">
+                  <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur-sm">
+                    <tr className="border-b border-border">
                       {["Customer & Owner", "Contact", "Project", "Status", "Final Status", "Follow Up", "Assigned", "Updated", "Actions"].map((head) => (
-                        <th key={head} className="px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-slate-500 bg-slate-50">{head}</th>
+                        <th key={head} className="px-5 py-4 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{head}</th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-border">
                     {filteredCustomers.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="p-16 text-center">
-                          <div className="flex flex-col items-center gap-3 text-slate-400">
-                            <Search className="w-8 h-8 opacity-40" />
-                            <p className="font-semibold text-slate-600 text-sm">
-                              {customers.length === 0
-                                ? "No customers assigned yet"
-                                : "No records match your filters"}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              {customers.length === 0
+                        <td colSpan={9}>
+                          <EmptyState
+                            icon={Search}
+                            title={customers.length === 0 ? "No customers assigned yet" : "No records match your filters"}
+                            description={
+                              customers.length === 0
                                 ? "Use the Lookup tab to search and add new leads."
-                                : "Try adjusting the status, project, or date filters above."}
-                            </p>
-                            {customers.length > 0 && (statusFilter || projectFilter !== "all" || dateRangeType !== "all" || searchInput) && (
-                              <button
-                                onClick={() => {
-                                  setStatusFilter(null);
-                                  setProjectFilter("all");
-                                  setDateRangeType("all");
-                                  setSearchInput("");
-                                }}
-                                className="mt-1 text-xs font-semibold text-indigo-600 hover:underline"
-                              >
-                                Clear all filters
-                              </button>
-                            )}
-                          </div>
+                                : "Try adjusting the status, project, or date filters above."
+                            }
+                            action={
+                              customers.length > 0 &&
+                              (statusFilter || projectFilter !== "all" || dateRangeType !== "all" || searchInput) ? (
+                                <Button
+                                  variant="link"
+                                  className="text-brand"
+                                  onClick={() => {
+                                    setStatusFilter(null);
+                                    setProjectFilter("all");
+                                    setDateRangeType("all");
+                                    setSearchInput("");
+                                  }}
+                                >
+                                  Clear all filters
+                                </Button>
+                              ) : null
+                            }
+                          />
                         </td>
                       </tr>
                     ) : (
@@ -517,9 +524,7 @@ export default function AgentCustomersPage() {
                           const followUpDateDisplay = isDoneStatus ? formatDateTime(c.done_date).d : formatDateTime(c.follow_up_date).d;
                           const followUpTimeDisplay = isDoneStatus ? "Done Date" : safe(c.follow_up_time);
 
-                          const overdueInfo = (!isDoneStatus && !isCompleted)
-                            ? getOverdueInfo(c.follow_up_date)
-                            : null;
+                          const overdueInfo = (!isDoneStatus && !isCompleted) ? getOverdueInfo(c.follow_up_date) : null;
                           const idleDays = getIdleDays(c.updated_at, c.status_code);
                           const isStale = idleDays >= 7;
                           const isCompleting = completingId === c.id;
@@ -529,36 +534,39 @@ export default function AgentCustomersPage() {
                               key={c.id}
                               ref={virtualizer.measureElement}
                               data-index={vi.index}
-                              className={`hover:bg-slate-50 transition-colors group ${
+                              className={`hover:bg-accent/40 transition-colors group ${
                                 overdueInfo && overdueInfo.level >= 3
-                                  ? "border-l-4 border-l-rose-400"
+                                  ? "border-l-4 border-l-danger"
                                   : overdueInfo && overdueInfo.level >= 1
-                                  ? "border-l-4 border-l-amber-400"
+                                  ? "border-l-4 border-l-warning"
                                   : ""
                               }`}
                             >
                               <td className="px-5 py-4">
-                                <div className="text-sm font-bold text-slate-800">{safe(c.name)}</div>
-                                <div className="text-[10px] text-slate-400 font-medium uppercase tracking-tight">
+                                <div className="text-sm font-semibold text-foreground">{safe(c.name)}</div>
+                                <div className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
                                   Owner: {user?.first_name} {user?.last_name}
                                 </div>
                               </td>
                               <td className="px-5 py-4">
                                 <ContactCell contact={c.contact} />
                               </td>
-                              <td className="px-5 py-4 text-sm text-slate-500 font-medium">{safe(c.project_name)}</td>
+                              <td className="px-5 py-4 text-sm text-muted-foreground font-medium">{safe(c.project_name)}</td>
                               <td className="px-4 py-4"><StatusBadge status={c.status_code} /></td>
                               <td className="px-4 py-4">
-                                 <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border
-                                   ${c.final_status === 'COMPLETED' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
-                                    {c.final_status || "PENDING"}
-                                 </span>
+                                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${
+                                  c.final_status === "COMPLETED"
+                                    ? "bg-success/15 text-success border-success/30"
+                                    : "bg-muted text-muted-foreground border-border"
+                                }`}>
+                                  {c.final_status || "PENDING"}
+                                </span>
                               </td>
                               <td className="px-5 py-4">
-                                <div className={`text-xs font-bold ${isDoneStatus ? 'text-emerald-700' : 'text-slate-700'}`}>
+                                <div className={`text-xs font-bold ${isDoneStatus ? "text-success" : "text-foreground"}`}>
                                   {followUpDateDisplay}
                                 </div>
-                                <div className="text-[10px] text-slate-400 font-medium">{followUpTimeDisplay}</div>
+                                <div className="text-[10px] text-muted-foreground font-medium">{followUpTimeDisplay}</div>
                                 {overdueInfo && overdueInfo.level > 0 && (
                                   <span className={`mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
                                     {overdueInfo.label}
@@ -566,14 +574,14 @@ export default function AgentCustomersPage() {
                                 )}
                               </td>
                               <td className="px-5 py-4">
-                                <div className="text-xs font-semibold text-slate-600">{assigned.d}</div>
-                                <div className="text-[10px] text-slate-400">{assigned.t}</div>
+                                <div className="text-xs font-semibold text-foreground">{assigned.d}</div>
+                                <div className="text-[10px] text-muted-foreground">{assigned.t}</div>
                               </td>
                               <td className="px-5 py-4">
-                                <div className="text-xs font-semibold text-slate-600">{updated.d}</div>
-                                <div className="text-[10px] text-slate-400">{updated.t}</div>
+                                <div className="text-xs font-semibold text-foreground">{updated.d}</div>
+                                <div className="text-[10px] text-muted-foreground">{updated.t}</div>
                                 {isStale && (
-                                  <span className="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold bg-slate-100 text-slate-500 border-slate-300">
+                                  <span className="mt-1 inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold bg-muted text-muted-foreground border-border">
                                     Idle {idleDays}d
                                   </span>
                                 )}
@@ -581,21 +589,24 @@ export default function AgentCustomersPage() {
                               <td className="px-5 py-4">
                                 <div className="flex items-center gap-2">
                                   {canEdit && (
-                                    <button
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
                                       onClick={() => navigate(`/agent/customers/resolve?edit=${c.id}`)}
-                                      className="px-3 py-1.5 bg-white text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 font-bold text-[11px] shadow-sm"
+                                      className="text-brand border-brand/30 hover:bg-brand/10 hover:text-brand"
                                     >
                                       Edit
-                                    </button>
+                                    </Button>
                                   )}
                                   {canComplete && (
-                                    <button
+                                    <Button
+                                      size="sm"
                                       onClick={() => handleComplete(c.id)}
                                       disabled={isCompleting}
-                                      className="px-3 py-1.5 text-[11px] font-bold rounded-lg border bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700 shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                                      className="bg-success text-success-foreground hover:bg-success/90"
                                     >
                                       {isCompleting ? "..." : "Complete"}
-                                    </button>
+                                    </Button>
                                   )}
                                 </div>
                               </td>

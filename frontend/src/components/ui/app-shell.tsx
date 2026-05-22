@@ -1,32 +1,28 @@
 // ============================================================================
-// PHASE 1 — AppShell
+// PHASE 1 + 2 — AppShell
 // ----------------------------------------------------------------------------
 // Modernized navigation chrome.
 //
-// Preserved (backward compatible):
+// Phase 1 (preserved):
 //   - Role-aware navigation arrays (agentNav, supervisorNav, adminNav) — same
-//     items, same routes, same order. Pages depend on the role color cues
-//     (agent=indigo, supervisor=violet, admin=rose) so those remain but are
-//     mapped through tokens / consistent hue families.
+//     items, same routes, same order.
 //   - <AppShell sidebar={...}>{children}</AppShell> contract.
 //   - LogoutButton-style logout action wired to useAuth().logout.
 //   - Theme toggle slot.
+//   - Inline `bg-[#f8fafc]` replaced with bg-background.
+//   - Sidebar uses --sidebar token family.
 //
-// Refinements:
-//   - Replaced inline `bg-[#f8fafc]` with `bg-background` so dark mode works
-//     without conditional classes scattered everywhere.
-//   - Sidebar uses the new --sidebar token family.
-//   - Header is a real sticky surface (bg-card/85 + backdrop-blur) with a
-//     hairline border that reads correctly in both modes.
-//   - Active nav pill uses brand+accent tinting so the role color reads as
-//     accent, not background — quieter, more enterprise.
-//   - Mobile menu trigger kept as a placeholder; real drawer slated for phase 2.
+// Phase 2 (new):
+//   - Mobile menu trigger now opens a real <MobileNav> drawer (vaul-based).
+//     Navigation arrays are passed through verbatim so behaviour is identical
+//     across viewports.
 // ============================================================================
 
 import * as React from "react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import ThemeToggle from "@/components/system/ThemeToggle";
+import MobileNav from "@/components/system/MobileNav";
 import {
   LogOut,
   LayoutDashboard,
@@ -77,6 +73,8 @@ const ROLE_THEMES: Record<"agent" | "supervisor" | "admin", RoleTheme> = {
 
 export function AppShell({ sidebar, children }: AppShellProps) {
   const { user, logout, loading } = useAuth();
+  // Phase 2: state for the mobile nav drawer.
+  const [mobileOpen, setMobileOpen] = React.useState(false);
 
   const agentNav = [
     { name: "Dashboard",  path: "/agent/dashboard",          icon: LayoutDashboard },
@@ -98,7 +96,6 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     { name: "Audit",      path: "/supervisor/whatsapp/audit",     icon: Clock },
   ];
 
-  // Phase 10 note (kept): admin nav holds only the routes that actually exist.
   const adminNav = [
     { name: "Dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
   ];
@@ -205,17 +202,20 @@ export function AppShell({ sidebar, children }: AppShellProps) {
               variant="ghost"
               onClick={logout}
               size="sm"
-              className="text-muted-foreground hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/15 gap-2"
+              className="hidden sm:inline-flex text-muted-foreground hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/15 gap-2"
             >
               <LogOut className="w-4 h-4" />
-              <span className="sr-only sm:not-sr-only sm:inline-block">Logout</span>
+              <span>Logout</span>
             </Button>
 
+            {/* Phase 2: real mobile menu trigger. Opens the MobileNav drawer. */}
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden text-muted-foreground"
+              className="md:hidden text-foreground"
               aria-label="Open menu"
+              aria-expanded={mobileOpen}
+              onClick={() => setMobileOpen(true)}
             >
               <Menu className="w-5 h-5" />
             </Button>
@@ -226,6 +226,20 @@ export function AppShell({ sidebar, children }: AppShellProps) {
           {children}
         </main>
       </div>
+
+      {/* Phase 2: MobileNav drawer — controlled from this shell. */}
+      <MobileNav
+        open={mobileOpen}
+        onOpenChange={setMobileOpen}
+        navItems={navItems}
+        theme={theme}
+        user={{
+          first_name: user.first_name,
+          username: user.username,
+          role: user.role,
+        }}
+        onLogout={logout}
+      />
     </div>
   );
 }

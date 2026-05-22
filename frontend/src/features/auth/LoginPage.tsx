@@ -1,3 +1,16 @@
+// ============================================================================
+// PHASE 2 — LoginPage
+// ----------------------------------------------------------------------------
+// Behaviour preserved 1:1: same login API call, same refreshUser flow, same
+// role-based redirect, same error handling.
+//
+// Visual changes:
+//   - Brand mark uses the brand token (was hard-coded blue).
+//   - Submit button uses the default <Button> primary (no more bg-purple-600
+//     override that didn't match either light or dark mode coherently).
+//   - Error notice uses tokenized danger surface.
+// ============================================================================
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "./auth.api";
@@ -26,18 +39,10 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-
-      // 1️⃣ Login → sets cookie
       await login({ username, password });
-
-      // 2️⃣ Fetch identity ONCE
       const loggedInUser = await refreshUser();
+      if (!loggedInUser) throw new Error("Auth failed");
 
-      if (!loggedInUser) {
-        throw new Error("Auth failed");
-      }
-
-      // 3️⃣ Redirect by role
       switch (loggedInUser.role) {
         case "ADMIN":
           navigate("/admin/dashboard", { replace: true });
@@ -57,12 +62,15 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
-  
+
   return (
     <>
-      <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 mb-2">
-        AMS <span className="text-blue-600">Login</span>
+      <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">
+        AMS <span className="text-brand">Login</span>
       </h1>
+      <p className="text-sm text-muted-foreground mb-6">
+        Sign in to access your dashboard.
+      </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -72,6 +80,7 @@ export default function LoginPage() {
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="e.g., FCS0001"
+            autoComplete="username"
           />
         </div>
 
@@ -83,20 +92,17 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="e.g., 1234"
+            autoComplete="current-password"
           />
         </div>
 
         {error && (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
             {error}
           </div>
         )}
 
-        <Button
-          type="submit"
-          className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-          disabled={loading}
-        >
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading ? "Logging in…" : "Login"}
         </Button>
       </form>

@@ -6,7 +6,7 @@ import CreateUserForm from "../admin/CreateUserForm";
 import ConfirmDialog from "@/components/system/ConfirmDialog";
 import AccountabilityBadge from "@/components/system/AccountabilityBadge";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
-import { Users, UserPlus, Search, ShieldCheck, Briefcase, X, Filter, AlertTriangle } from "lucide-react";
+import { Users, UserPlus, Search, ShieldCheck, Briefcase, X, AlertTriangle } from "lucide-react";
 import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer";
 import { useAuth } from "@/context/AuthContext";
 

@@ -1,14 +1,30 @@
 // ============================================================================
-// PHASE 1 — DashboardLayout
+// PHASE 2 — DashboardLayout (DEPRECATED)
 // ----------------------------------------------------------------------------
-// NOTE: This layout is currently orphaned in the route tree — AppShell is the
-// active shell wrapping every dashboard. Kept (and tokenized) for backward
-// compatibility with any external references. Behavior preserved 1:1.
+// DECISION (Phase 2):
+//   AppShell is the formal dashboard wrapper for the AMS. It owns role-aware
+//   navigation, sticky header chrome, theme toggle, mobile drawer, and the
+//   container that AppRoutes wraps every authenticated page in.
+//
+//   DashboardLayout is kept ONLY for backward compatibility with any external
+//   references (potential storybook stories, future scaffold templates, ad-hoc
+//   debug routes). It is NOT referenced anywhere in src/ as of Phase 2.
+//
+// MIGRATION:
+//   New pages → import { AppShell } from "@/components/ui/app-shell";
+//   Old pages currently using <DashboardLayout> (none today) → switch to AppShell.
+//
+// REMOVAL:
+//   Recommend full deletion in Phase 3 after confirming no external usage.
 // ============================================================================
 
 import type { ReactNode } from "react";
 import LogoutButton from "@/features/auth/LogoutButton";
 
+/**
+ * @deprecated Use `AppShell` from `@/components/ui/app-shell` instead.
+ *   This layout will be removed in Phase 3.
+ */
 export default function DashboardLayout({
   title,
   children,
