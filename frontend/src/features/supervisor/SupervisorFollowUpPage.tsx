@@ -1,3 +1,18 @@
+// ============================================================================
+// PHASE 3 — SupervisorFollowUpPage
+// ----------------------------------------------------------------------------
+// All Phase 5/7/10 logic preserved verbatim. Data fetching, category derivation,
+// overdue-bucket computation, AgeDistributionBar, urgency chips, sort order,
+// and ContactCell behaviour are all byte-equivalent.
+//
+// Visual changes:
+//   - PageHeader replaces the bespoke header.
+//   - NativeSelect adopts the recurring select pattern (3x → 1 helper).
+//   - 3 KPI cards converted to StatTile.
+//   - Table surfaces tokenized; row tint uses danger/warning semantic tokens.
+//   - EmptyState helper used for zero data.
+// ============================================================================
+
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
@@ -8,8 +23,7 @@ import {
   Clock,
   AlertCircle,
   Briefcase,
-  User,
-  ArrowLeft,
+  User as UserIcon,
   CheckCircle2,
   Phone,
   Copy,
@@ -18,15 +32,19 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import AgeDistributionBar, { type AgeBucket } from "@/components/system/AgeDistributionBar";
 import { getOverdueInfo } from "@/lib/urgency";
+import PageHeader from "@/components/system/PageHeader";
+import NativeSelect from "@/components/system/NativeSelect";
+import StatTile from "@/components/system/StatTile";
+import EmptyState from "@/components/system/EmptyState";
 
-// Phase 10: Inline contact cell with tel: link + copy icon.
 function ContactCell({ contact }: { contact: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
   const val = contact ?? "";
-  if (!val) return <span className="text-slate-400 font-mono">—</span>;
+  if (!val) return <span className="text-muted-foreground font-mono">—</span>;
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(val).then(() => {
@@ -38,36 +56,21 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
   return (
     <div className="flex items-center gap-1.5 group/c">
       <a href={`tel:${val}`} onClick={(e) => e.stopPropagation()}
-        className="font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1 text-sm">
+        className="font-mono text-foreground hover:text-brand transition-colors flex items-center gap-1 text-sm">
         <Phone className="w-3 h-3 opacity-0 group-hover/c:opacity-60 shrink-0 transition-opacity" />
         {val}
       </a>
       <button onClick={handleCopy} type="button"
-        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100" title="Copy">
-        {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
+        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent" title="Copy">
+        {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
       </button>
     </div>
   );
 }
 
-// Phase 5 (May 2026):
-//   - Sticky table header so column labels stay visible while scrolling.
-//   - Spinner replaced with KPI + table skeleton (consistent with Phase 1
-//     dashboard skeletons).
-//   - counts and displayList memoized; the previous code re-ran 3 filter
-//     passes per render plus another for displayList. Now O(N) once per
-//     data/filter change.
-//   - fetch/filter logic and API contracts unchanged.
-//
-// Phase 7 (May 2026):
-//   - overdueBuckets memo: 4-level age distribution for the supervisor bar.
-//   - AgeDistributionBar rendered below KPI cards when overdue count > 0.
-//   - displayList sorted: overdue oldest-first → today → future nearest-first.
-//   - Per-row urgency chip in Follow Up Date cell (amber → orange → rose → red).
-
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "virtual-meet", "pending"
+  "not-reachable", "virtual-meet", "pending",
 ];
 
 const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
@@ -114,11 +117,7 @@ export default function SupervisorFollowUpPage() {
     setLoading(true);
     try {
       const res = await axios.get(`/api/supervisor/follow-ups`, {
-        params: {
-          agentId: selectedAgent,
-          projectId: selectedProject,
-          status: selectedStatus
-        }
+        params: { agentId: selectedAgent, projectId: selectedProject, status: selectedStatus },
       });
 
       const todayStart = startOfDay(new Date());
@@ -139,7 +138,6 @@ export default function SupervisorFollowUpPage() {
     }
   };
 
-  // O(N) single-pass counts.
   const counts = useMemo(() => {
     let past = 0, today = 0, future = 0;
     for (const i of data) {
@@ -150,7 +148,6 @@ export default function SupervisorFollowUpPage() {
     return { past, today, future };
   }, [data]);
 
-  // Phase 7: 4-level age distribution for overdue leads — drives AgeDistributionBar.
   const overdueBuckets = useMemo((): AgeBucket[] => {
     let b1 = 0, b2 = 0, b3 = 0, b4 = 0;
     const todayStart = startOfDay(new Date());
@@ -163,14 +160,13 @@ export default function SupervisorFollowUpPage() {
       else b4++;
     }
     return [
-      { label: "1 day",    count: b1, className: "bg-amber-400" },
-      { label: "2-3 days", count: b2, className: "bg-orange-400" },
-      { label: "4-7 days", count: b3, className: "bg-rose-400" },
-      { label: "8+ days",  count: b4, className: "bg-red-500" },
+      { label: "1 day",    count: b1, className: "bg-warning" },
+      { label: "2-3 days", count: b2, className: "bg-warning/80" },
+      { label: "4-7 days", count: b3, className: "bg-danger/80" },
+      { label: "8+ days",  count: b4, className: "bg-danger" },
     ];
   }, [data]);
 
-  // Phase 7: sorted — overdue oldest-first → today → future nearest-first.
   const displayList = useMemo(() => {
     const filtered = timeFilter === 'all' ? data : data.filter(i => i.category === timeFilter);
     return filtered.slice().sort((a, b) => {
@@ -184,197 +180,150 @@ export default function SupervisorFollowUpPage() {
 
   const getRowStyle = (category: string) => {
     switch (category) {
-      case 'past':  return "bg-red-50/60 hover:bg-red-100 border-l-4 border-l-red-500";
-      case 'today': return "bg-orange-50/60 hover:bg-orange-100 border-l-4 border-l-orange-500";
-      default:      return "hover:bg-slate-50 border-l-4 border-l-transparent";
+      case 'past':  return "bg-danger/5 hover:bg-danger/10 border-l-4 border-l-danger";
+      case 'today': return "bg-warning/5 hover:bg-warning/10 border-l-4 border-l-warning";
+      default:      return "hover:bg-accent/40 border-l-4 border-l-transparent";
     }
   };
 
   const getStatusBadge = (status: string) => {
-    if (status?.includes('confirmed')) return "bg-green-100 text-green-700 border-green-200";
-    if (status?.includes('proposed'))  return "bg-blue-100 text-blue-700 border-blue-200";
-    return "bg-slate-100 text-slate-600 border-slate-200";
+    if (status?.includes('confirmed')) return "bg-success/15 text-success border-success/30";
+    if (status?.includes('proposed'))  return "bg-info/15 text-info border-info/30";
+    return "bg-muted text-muted-foreground border-border";
   };
+
+  const filtersActive = selectedAgent !== 'all' || selectedProject !== 'all' || selectedStatus !== 'all';
 
   return (
     <AppShell sidebar={null}>
-      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 font-sans">
+      <div className="max-w-7xl mx-auto space-y-6">
 
-        {/* HEADER & FILTERS */}
-        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4">
-            <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-              <ArrowLeft className="w-5 h-5 text-slate-600" />
-            </button>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Follow-up Discipline</h1>
-              <p className="text-sm text-slate-500">Monitor team schedule and overdue calls</p>
-            </div>
-          </div>
+        <PageHeader
+          title="Follow-up Discipline"
+          description="Monitor team schedule and overdue calls."
+          actions={
+            <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
+              <X className="w-4 h-4" />
+              Back
+            </Button>
+          }
+        />
 
-          <div className="flex flex-wrap gap-3">
-            <div className="relative min-w-[180px]">
-              <select
-                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-              >
-                <option value="all">All Agents</option>
-                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-              <User className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-            </div>
-
-            <div className="relative min-w-[180px]">
-              <select
-                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer"
-                value={selectedProject}
-                onChange={(e) => setSelectedProject(e.target.value)}
-              >
-                <option value="all">All Projects</option>
-                {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <Briefcase className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-            </div>
-
-            <div className="relative min-w-[180px]">
-              <select
-                className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value)}
-              >
-                <option value="all">All Status</option>
-                {STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>{status.replace(/-/g, ' ')}</option>
-                ))}
-              </select>
-              <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
-            </div>
-
-            {/* Phase 10: Clear filters — only visible when any filter is active */}
-            {(selectedAgent !== 'all' || selectedProject !== 'all' || selectedStatus !== 'all') && (
-              <button
-                onClick={() => { setSelectedAgent('all'); setSelectedProject('all'); setSelectedStatus('all'); }}
-                className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200"
-                title="Reset all filters"
-              >
-                <X className="w-3.5 h-3.5" /> Clear filters
-              </button>
-            )}
-          </div>
+        {/* Filter row */}
+        <div className="flex flex-wrap gap-3 bg-card text-card-foreground p-4 rounded-xl border border-border shadow-elevation-1">
+          <NativeSelect icon={UserIcon} value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)}>
+            <option value="all">All Agents</option>
+            {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </NativeSelect>
+          <NativeSelect icon={Briefcase} value={selectedProject} onChange={(e) => setSelectedProject(e.target.value)}>
+            <option value="all">All Projects</option>
+            {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </NativeSelect>
+          <NativeSelect icon={CheckCircle2} value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)} className="capitalize">
+            <option value="all">All Status</option>
+            {STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>{status.replace(/-/g, ' ')}</option>
+            ))}
+          </NativeSelect>
+          {filtersActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setSelectedAgent('all'); setSelectedProject('all'); setSelectedStatus('all'); }}
+              title="Reset all filters"
+              className="gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" /> Clear filters
+            </Button>
+          )}
         </div>
 
-        {/* KPI CARDS */}
+        {/* KPI cards */}
         {loading && data.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {[0, 1, 2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div
+            <button
+              type="button"
               onClick={() => setTimeFilter(timeFilter === 'past' ? 'all' : 'past')}
-              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'past' ? 'bg-red-50 border-red-300 ring-2 ring-red-100' : 'bg-white border-slate-200 hover:border-red-300 hover:shadow-md'}`}
+              className={`text-left rounded-xl transition-shadow ${timeFilter === 'past' ? "ring-2 ring-danger/40 shadow-elevation-2" : ""}`}
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Overdue</p>
-                  <h2 className="text-3xl font-bold text-red-600 mt-1">{counts.past}</h2>
-                </div>
-                <div className="p-2 bg-red-100 rounded-lg text-red-600"><AlertCircle className="w-5 h-5" /></div>
-              </div>
-            </div>
-
-            <div
+              <StatTile label="Overdue" value={counts.past} tone="danger" icon={AlertCircle} />
+            </button>
+            <button
+              type="button"
               onClick={() => setTimeFilter(timeFilter === 'today' ? 'all' : 'today')}
-              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'today' ? 'bg-orange-50 border-orange-300 ring-2 ring-orange-100' : 'bg-white border-slate-200 hover:border-orange-300 hover:shadow-md'}`}
+              className={`text-left rounded-xl transition-shadow ${timeFilter === 'today' ? "ring-2 ring-warning/40 shadow-elevation-2" : ""}`}
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Due Today</p>
-                  <h2 className="text-3xl font-bold text-orange-600 mt-1">{counts.today}</h2>
-                </div>
-                <div className="p-2 bg-orange-100 rounded-lg text-orange-600"><Clock className="w-5 h-5" /></div>
-              </div>
-            </div>
-
-            <div
+              <StatTile label="Due Today" value={counts.today} tone="warning" icon={Clock} />
+            </button>
+            <button
+              type="button"
               onClick={() => setTimeFilter(timeFilter === 'future' ? 'all' : 'future')}
-              className={`cursor-pointer p-5 rounded-xl border transition-all ${timeFilter === 'future' ? 'bg-yellow-50 border-yellow-300 ring-2 ring-yellow-100' : 'bg-white border-slate-200 hover:border-yellow-300 hover:shadow-md'}`}
+              className={`text-left rounded-xl transition-shadow ${timeFilter === 'future' ? "ring-2 ring-info/40 shadow-elevation-2" : ""}`}
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Upcoming</p>
-                  <h2 className="text-3xl font-bold text-yellow-600 mt-1">{counts.future}</h2>
-                </div>
-                <div className="p-2 bg-yellow-100 rounded-lg text-yellow-600"><Calendar className="w-5 h-5" /></div>
-              </div>
-            </div>
+              <StatTile label="Upcoming" value={counts.future} tone="info" icon={Calendar} />
+            </button>
           </div>
         )}
 
-        {/* Phase 7: Overdue age distribution bar */}
         {!loading && counts.past > 0 && (
           <AgeDistributionBar buckets={overdueBuckets} totalLabel="Overdue" />
         )}
 
-        {/* DATA TABLE */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+        {/* Table */}
+        <div className="bg-card text-card-foreground border border-border rounded-xl overflow-hidden shadow-elevation-1">
           {loading ? (
             <div className="p-4 space-y-3">
               {[0, 1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 rounded-lg" />)}
             </div>
           ) : displayList.length === 0 ? (
-            <div className="text-center p-20 text-slate-500">No follow-ups found for the selected criteria.</div>
+            <EmptyState
+              icon={Calendar}
+              title="No follow-ups found"
+              description="Nothing matches the current selection."
+            />
           ) : (
             <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 360px)" }}>
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
+              <table className="w-full text-left text-sm tabular-nums-tracking">
+                <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur-sm border-b border-border text-xs uppercase text-muted-foreground font-semibold">
                   <tr>
-                    <th className="px-6 py-3 bg-slate-50">Customer &amp; Agent</th>
-                    <th className="px-6 py-3 bg-slate-50">Contact</th>
-                    <th className="px-6 py-3 bg-slate-50">Project</th>
-                    <th className="px-6 py-3 bg-slate-50">Status</th>
-                    <th className="px-6 py-3 bg-slate-50">Follow Up Date</th>
-                    <th className="px-6 py-3 bg-slate-50">Updated</th>
+                    {["Customer & Agent", "Contact", "Project", "Status", "Follow Up Date", "Updated"].map((h) => (
+                      <th key={h} className="px-6 py-3">{h}</th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {displayList.map((item) => {
-                    const overdueInfo = item.category === 'past'
-                      ? getOverdueInfo(item.follow_up_date)
-                      : null;
-
+                    const overdueInfo = item.category === 'past' ? getOverdueInfo(item.follow_up_date) : null;
                     return (
                       <tr key={item.agent_customer_id} className={`transition-colors ${getRowStyle(item.category)}`}>
-
                         <td className="px-6 py-3">
-                          <div className="font-semibold text-slate-900">{item.customer_name}</div>
-                          <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
-                            <User className="w-3 h-3" /> {item.agent_name}
+                          <div className="font-semibold text-foreground">{item.customer_name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                            <UserIcon className="w-3 h-3" /> {item.agent_name}
                           </div>
                         </td>
-
                         <td className="px-6 py-3"><ContactCell contact={item.contact_number} /></td>
-
-                        <td className="px-6 py-3 text-slate-700">
+                        <td className="px-6 py-3 text-foreground">
                           <div className="flex items-center gap-1">
-                            <Briefcase className="w-3 h-3 text-slate-400" />
+                            <Briefcase className="w-3 h-3 text-muted-foreground" />
                             {item.project_name || '-'}
                           </div>
                         </td>
-
                         <td className="px-6 py-3">
                           <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
                             {item.status_code?.replace(/-/g, ' ')}
                           </span>
                         </td>
-
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
-                            <span className={`font-semibold ${item.category === 'past' ? 'text-red-600' : 'text-slate-700'}`}>
+                            <span className={`font-semibold ${item.category === 'past' ? 'text-danger' : 'text-foreground'}`}>
                               {format(item.parsedDate, "dd MMM yyyy")}
                             </span>
-                            <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                            <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                               {format(item.parsedDate, "h:mm a")}
                             </span>
                           </div>
@@ -384,8 +333,7 @@ export default function SupervisorFollowUpPage() {
                             </span>
                           )}
                         </td>
-
-                        <td className="px-6 py-3 text-xs text-slate-500">
+                        <td className="px-6 py-3 text-xs text-muted-foreground">
                           {format(parseISO(item.updated_at), "dd MMM, HH:mm")}
                         </td>
                       </tr>

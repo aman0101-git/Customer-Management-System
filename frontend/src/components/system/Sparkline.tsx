@@ -12,7 +12,7 @@
 //
 //   Theme-aware: uses currentColor for the stroke + a faded version for fill,
 //   so callers can theme it by setting text-color on the wrapper (e.g.
-//   `text-indigo-500 dark:text-indigo-400`).
+//   `text-brand`).
 // ============================================================================
 
 import { useMemo } from "react";
@@ -72,7 +72,7 @@ export default function Sparkline({
         width={width}
         height={height}
         preserveAspectRatio="none"
-        className="text-indigo-500 dark:text-indigo-400"
+        className="text-brand"
       >
         <path d={areaPath} fill="currentColor" opacity={0.12} />
         <path d={linePath} fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
@@ -87,7 +87,7 @@ export default function Sparkline({
         ))}
       </svg>
       {labels && (
-        <div className="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 px-0.5 mt-1 font-medium">
+        <div className="flex justify-between text-[10px] text-muted-foreground px-0.5 mt-1 font-medium">
           {labels.map((l, i) => (
             <span key={i}>{l}</span>
           ))}

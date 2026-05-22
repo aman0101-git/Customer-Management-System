@@ -1,44 +1,16 @@
 // ============================================================================
-// PHASE 2 — DashboardLayout (DEPRECATED)
+// PHASE 3 — DashboardLayout (REMOVED)
 // ----------------------------------------------------------------------------
-// DECISION (Phase 2):
-//   AppShell is the formal dashboard wrapper for the AMS. It owns role-aware
-//   navigation, sticky header chrome, theme toggle, mobile drawer, and the
-//   container that AppRoutes wraps every authenticated page in.
-//
-//   DashboardLayout is kept ONLY for backward compatibility with any external
-//   references (potential storybook stories, future scaffold templates, ad-hoc
-//   debug routes). It is NOT referenced anywhere in src/ as of Phase 2.
+// This file used to host a deprecated layout wrapper that was orphaned by
+// Phase 1's adoption of AppShell. As of Phase 3, the component has been
+// retired and the file is kept only to surface a clear compile-time error
+// for any forgotten import. Delete the file outright once you can confirm no
+// build tooling / scaffold template references it.
 //
 // MIGRATION:
-//   New pages → import { AppShell } from "@/components/ui/app-shell";
-//   Old pages currently using <DashboardLayout> (none today) → switch to AppShell.
-//
-// REMOVAL:
-//   Recommend full deletion in Phase 3 after confirming no external usage.
+//   import { AppShell } from "@/components/ui/app-shell";
+//   <AppShell sidebar={null}>{children}</AppShell>
 // ============================================================================
 
-import type { ReactNode } from "react";
-import LogoutButton from "@/features/auth/LogoutButton";
-
-/**
- * @deprecated Use `AppShell` from `@/components/ui/app-shell` instead.
- *   This layout will be removed in Phase 3.
- */
-export default function DashboardLayout({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="min-h-screen bg-background text-foreground transition-colors">
-      <header className="flex items-center justify-between border-b border-border bg-card text-card-foreground px-6 py-4 shadow-elevation-1">
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        <LogoutButton />
-      </header>
-      <main className="p-6">{children}</main>
-    </div>
-  );
-}
+// Intentionally no default export. Importing this file will fail at type-check.
+export {};

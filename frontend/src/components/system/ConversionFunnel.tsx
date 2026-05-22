@@ -31,7 +31,7 @@ export interface ConversionFunnelProps {
 export default function ConversionFunnel({
   stages,
   className = "",
-  accentClass = "bg-indigo-500 dark:bg-indigo-400",
+  accentClass = "bg-brand",
   emptyLabel = "No data for the selected period.",
 }: ConversionFunnelProps) {
   const computed = useMemo(() => {
@@ -52,7 +52,7 @@ export default function ConversionFunnel({
 
   if (computed.length === 0) {
     return (
-      <div className="text-xs text-slate-400 dark:text-slate-500 italic">
+      <div className="text-xs text-muted-foreground italic">
         {emptyLabel}
       </div>
     );
@@ -62,25 +62,25 @@ export default function ConversionFunnel({
     <div className={`space-y-2 ${className}`}>
       {computed.map((stage, i) => (
         <div key={stage.label} className="grid grid-cols-[8rem_1fr_auto] items-center gap-3">
-          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 truncate">
+          <span className="text-xs font-semibold text-foreground truncate">
             {stage.label}
           </span>
-          <div className="relative h-5 rounded-md bg-slate-100 dark:bg-slate-800 overflow-hidden">
+          <div className="relative h-5 rounded-md bg-muted overflow-hidden">
             <div
               className={`${accentClass} h-full rounded-md transition-all duration-500`}
               style={{ width: `${Math.max(stage.pctWidth, stage.count > 0 ? 4 : 0)}%` }}
               aria-hidden="true"
             />
-            <span className="absolute inset-0 flex items-center justify-end pr-2 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+            <span className="absolute inset-0 flex items-center justify-end pr-2 text-[11px] font-bold text-foreground">
               {stage.count}
             </span>
           </div>
-          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 min-w-[3.5rem] text-right">
+          <span className="text-[11px] font-bold text-muted-foreground min-w-[3.5rem] text-right">
             {i === 0 ? "—" : stage.convPct === null ? "—" : `${stage.convPct}%`}
           </span>
         </div>
       ))}
-      <p className="text-[10px] text-slate-400 dark:text-slate-500 italic mt-1">
+      <p className="text-[10px] text-muted-foreground italic mt-1">
         Right-column percentages show stage-to-stage conversion vs. previous step.
       </p>
     </div>

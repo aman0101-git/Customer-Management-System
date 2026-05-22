@@ -1,9 +1,19 @@
+// ============================================================================
+// PHASE 3 — SupervisorExportPage
+// ----------------------------------------------------------------------------
+// React Query, blob download, and date-preset logic preserved verbatim.
+// Visual layer tokenized:
+//   - PageHeader replaces hand-rolled title row.
+//   - Date presets use design-system Button outlines.
+//   - Action buttons use brand and success semantics (no more dark: tweaks).
+// ============================================================================
+
 import { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import http from "@/lib/http";
 import { AppShell } from "@/components/ui/app-shell";
-import { ArrowLeft, Calendar as CalendarIcon, Download, Loader2 } from "lucide-react";
+import { Calendar as CalendarIcon, Download, Loader2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   Select,
@@ -18,61 +28,29 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import RouteFallback from "@/components/system/RouteFallback";
+import PageHeader from "@/components/system/PageHeader";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface Agent {
-  id: number;
-  name: string;
-}
-
-interface Project {
-  id: number;
-  name: string;
-}
+interface Agent { id: number; name: string }
+interface Project { id: number; name: string }
 
 const STATUS_OPTIONS = [
-  "follow-up",
-  "sdow",
-  "virtual-meet-confirmed",
-  "visit-confirmed",
-  "visit-proposed",
-  "not-reachable",
-  "virtual-meet",
-  "pending",
-  "completed",
-  "lost",
-  "visit-done",
-  "booking-done",
+  "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
+  "not-reachable", "virtual-meet", "pending", "completed", "lost", "visit-done", "booking-done",
 ] as const;
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export default function SupervisorExportPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // Filter selections
   const [selectedAgent, setSelectedAgent] = useState<string>("all");
   const [selectedProject, setSelectedProject] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
 
-  // Date range — default to today
   const today = new Date().toISOString().split("T")[0];
   const [startDate, setStartDate] = useState<string>(today);
   const [endDate, setEndDate] = useState<string>(today);
 
-  // Per-format loading: null = idle, 'csv'/'xlsx' = that format is generating
   const [loadingFormat, setLoadingFormat] = useState<"csv" | "xlsx" | null>(null);
-
-  // ---------------------------------------------------------------------------
-  // Filter data — reuses query keys from SupervisorSummaryDashboard so data is
-  // served from the 5-min cache when navigating between those pages.
-  // ---------------------------------------------------------------------------
 
   const agentsQuery = useQuery<Agent[]>({
     queryKey: ["supervisor", "agents"],
@@ -98,23 +76,11 @@ export default function SupervisorExportPage() {
   const projects = projectsQuery.data ?? [];
   const filtersLoading = agentsQuery.isLoading || projectsQuery.isLoading;
 
-  // ---------------------------------------------------------------------------
-  // Download handler — blob streaming uses per-request responseType override;
-  // withCredentials is inherited from the shared http instance.
-  // ---------------------------------------------------------------------------
-
   const handleDownload = async (format: "csv" | "xlsx") => {
     setLoadingFormat(format);
     try {
       const response = await http.get("/api/supervisor/export", {
-        params: {
-          format,
-          agentId: selectedAgent,
-          projectId: selectedProject,
-          status: selectedStatus,
-          startDate,
-          endDate,
-        },
+        params: { format, agentId: selectedAgent, projectId: selectedProject, status: selectedStatus, startDate, endDate },
         responseType: "blob",
       });
 
@@ -142,89 +108,62 @@ export default function SupervisorExportPage() {
 
   const isDownloading = loadingFormat !== null;
 
+  const presets: Array<{ label: string; fn: () => void }> = [
+    { label: "Today", fn: () => { const d = new Date().toISOString().split("T")[0]; setStartDate(d); setEndDate(d); } },
+    { label: "This Week", fn: () => {
+        const now = new Date();
+        const day = now.getDay();
+        const mon = new Date(now); mon.setDate(now.getDate() - ((day + 6) % 7));
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+        setStartDate(mon.toISOString().split("T")[0]);
+        setEndDate(sun.toISOString().split("T")[0]);
+      } },
+    { label: "This Month", fn: () => {
+        const now = new Date();
+        const first = new Date(now.getFullYear(), now.getMonth(), 1);
+        const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        setStartDate(first.toISOString().split("T")[0]);
+        setEndDate(last.toISOString().split("T")[0]);
+      } },
+    { label: "Last Month", fn: () => {
+        const now = new Date();
+        const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const last  = new Date(now.getFullYear(), now.getMonth(), 0);
+        setStartDate(first.toISOString().split("T")[0]);
+        setEndDate(last.toISOString().split("T")[0]);
+      } },
+  ];
+
   return (
     <AppShell sidebar={null}>
-      <div className="p-4 md:p-8 max-w-4xl mx-auto font-sans">
+      <div className="max-w-4xl mx-auto">
+        <PageHeader
+          title="Export Data"
+          description="Generate customized reports from the database."
+          actions={
+            <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
+              <X className="w-4 h-4" />
+              Back
+            </Button>
+          }
+        />
 
-        {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-          </button>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Export Data</h1>
-            <p className="text-slate-500 dark:text-slate-400">
-              Generate customized reports from the database.
-            </p>
-          </div>
-        </div>
-
-        {/* Filters Card */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm mb-6">
-          <h2 className="font-semibold text-lg mb-4 flex items-center gap-2 text-slate-900 dark:text-slate-100">
-            <CalendarIcon className="w-5 h-5 text-blue-600" />
+        <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-elevation-1 mb-6">
+          <h2 className="font-semibold text-lg mb-4 flex items-center gap-2 text-foreground">
+            <CalendarIcon className="w-5 h-5 text-brand" />
             Report Criteria
           </h2>
 
-          {/* Phase 10: Date quick-set presets — saves manual date entry for common ranges */}
           {!filtersLoading && (
             <div className="flex flex-wrap gap-2 mb-5">
-              {[
-                {
-                  label: "Today",
-                  fn: () => {
-                    const d = new Date().toISOString().split("T")[0];
-                    setStartDate(d); setEndDate(d);
-                  },
-                },
-                {
-                  label: "This Week",
-                  fn: () => {
-                    const now = new Date();
-                    const day = now.getDay(); // 0=Sun
-                    const mon = new Date(now); mon.setDate(now.getDate() - ((day + 6) % 7));
-                    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-                    setStartDate(mon.toISOString().split("T")[0]);
-                    setEndDate(sun.toISOString().split("T")[0]);
-                  },
-                },
-                {
-                  label: "This Month",
-                  fn: () => {
-                    const now = new Date();
-                    const first = new Date(now.getFullYear(), now.getMonth(), 1);
-                    const last  = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-                    setStartDate(first.toISOString().split("T")[0]);
-                    setEndDate(last.toISOString().split("T")[0]);
-                  },
-                },
-                {
-                  label: "Last Month",
-                  fn: () => {
-                    const now = new Date();
-                    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                    const last  = new Date(now.getFullYear(), now.getMonth(), 0);
-                    setStartDate(first.toISOString().split("T")[0]);
-                    setEndDate(last.toISOString().split("T")[0]);
-                  },
-                },
-              ].map(({ label, fn }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={fn}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 text-slate-600 transition-all"
-                >
+              {presets.map(({ label, fn }) => (
+                <Button key={label} type="button" variant="outline" size="sm" onClick={fn}>
                   {label}
-                </button>
+                </Button>
               ))}
             </div>
           )}
 
-          {/* Skeleton while agents/projects load from API (or warm up from cache) */}
           {filtersLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {Array.from({ length: 5 }).map((_, i) => (
@@ -236,70 +175,45 @@ export default function SupervisorExportPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-              {/* Date Range */}
               <div className="space-y-2">
                 <Label htmlFor="startDate">From Date</Label>
-                <Input
-                  id="startDate"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
+                <Input id="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="endDate">To Date</Label>
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
+                <Input id="endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
               </div>
 
-              {/* Agent */}
               <div className="space-y-2">
                 <Label>Select Agent</Label>
                 <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Agents" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="All Agents" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Agents</SelectItem>
                     {agents.map((a) => (
-                      <SelectItem key={a.id} value={String(a.id)}>
-                        {a.name}
-                      </SelectItem>
+                      <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Project */}
               <div className="space-y-2">
                 <Label>Select Project</Label>
                 <Select value={selectedProject} onValueChange={setSelectedProject}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Projects" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="All Projects" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Projects</SelectItem>
                     {projects.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </SelectItem>
+                      <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Status — full width */}
               <div className="space-y-2 md:col-span-2">
                 <Label>Filter by Status</Label>
                 <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Statuses" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="All Statuses" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     {STATUS_OPTIONS.map((s) => (
@@ -310,23 +224,20 @@ export default function SupervisorExportPage() {
                   </SelectContent>
                 </Select>
               </div>
-
             </div>
           )}
         </div>
 
-        {/* Action Buttons */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Button
-            variant="outline"
             disabled={isDownloading || filtersLoading}
             onClick={() => handleDownload("csv")}
-            className="flex items-center justify-center gap-3 p-4 h-auto bg-green-50 border-2 border-green-200 hover:bg-green-100 hover:border-green-500 text-green-800 dark:bg-green-950/20 dark:border-green-900 dark:hover:border-green-700 dark:text-green-400 rounded-xl font-semibold disabled:opacity-50 transition-all"
+            className="h-auto p-4 gap-3 bg-success text-success-foreground hover:bg-success/90 rounded-xl"
           >
             {loadingFormat === "csv" ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Generating CSV&hellip;
+                Generating CSV…
               </>
             ) : (
               <>
@@ -337,15 +248,14 @@ export default function SupervisorExportPage() {
           </Button>
 
           <Button
-            variant="outline"
             disabled={isDownloading || filtersLoading}
             onClick={() => handleDownload("xlsx")}
-            className="flex items-center justify-center gap-3 p-4 h-auto bg-blue-50 border-2 border-slate-200 hover:border-blue-500 hover:text-blue-600 dark:bg-blue-950/20 dark:border-slate-700 dark:hover:border-blue-700 dark:text-blue-400 rounded-xl font-semibold text-slate-600 disabled:opacity-50 transition-all"
+            className="h-auto p-4 gap-3 rounded-xl"
           >
             {loadingFormat === "xlsx" ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Generating XLSX&hellip;
+                Generating XLSX…
               </>
             ) : (
               <>
@@ -355,7 +265,6 @@ export default function SupervisorExportPage() {
             )}
           </Button>
         </div>
-
       </div>
     </AppShell>
   );
