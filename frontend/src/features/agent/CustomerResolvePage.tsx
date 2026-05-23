@@ -1,19 +1,9 @@
 // ============================================================================
-// PHASE 2 — CustomerResolvePage
+// PHASE 2-5 — CustomerResolvePage
 // ----------------------------------------------------------------------------
-// Form logic, search/edit handlers, WhatsApp send pipeline, and bugfix notes
-// from previous phases preserved verbatim. Only the visual chrome was migrated:
-//
-//   - PageHeader for entry context.
-//   - SectionCard groups (Lead Info, Preferences, Next Action, Remarks) — same
-//     numbered structure but token-driven.
-//   - Buttons now use the design-system <Button> with semantic variants:
-//        Save → default (primary/brand)
-//        Save & Send WA → success (token)
-//        Cancel → secondary
-//   - Hard-coded indigo/blue/emerald/slate replaced with brand/info/success/
-//     muted tokens so dark mode reads correctly.
-//   - Activity history timeline preserved; colors switched to brand/info/muted.
+// Phase 2-4: design system migration, NativeSelect adoption, button hierarchy.
+// Phase 5: standardized success/error flash via sonner — replaces window.alert.
+// Form logic, search/edit handlers, WhatsApp send pipeline preserved verbatim.
 // ============================================================================
 
 import React, { useState, useEffect } from "react";
@@ -23,7 +13,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
 import SectionCard from "@/components/system/SectionCard";
+import NativeSelect from "@/components/system/NativeSelect";
 import { MessageCircle, ArrowLeft, Search as SearchIcon, FilePlus2 } from "lucide-react";
 
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -95,7 +87,6 @@ const getFinalStatus = (statusCode: string) => {
   return "PENDING";
 };
 
-// --- TAB MANAGEMENT LOGIC (unchanged) ---
 let waWindowRef: Window | null = null;
 const openInSingleWhatsAppTab = (url: string) => {
   let directUrl = url;
@@ -106,7 +97,6 @@ const openInSingleWhatsAppTab = (url: string) => {
   if (waWindowRef) waWindowRef.focus();
 };
 
-// Helper — section number pill, token-driven.
 const SectionNumber = ({ n, tone = "muted" }: { n: string; tone?: "muted" | "brand" }) => (
   <span
     className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider tabular-nums ${
@@ -341,10 +331,14 @@ export default function CustomerResolvePage() {
         }
       }
 
+      // Phase 5: success flash so the agent gets explicit confirmation before
+      // the 500ms redirect kicks them back to the dashboard.
+      toast.success(isCreate ? "Customer created" : "Customer updated");
       setTimeout(() => navigate("/agent/dashboard"), 500);
     } catch (err: any) {
       console.error("Error:", err);
-      alert(`Error: ${err.message || "An error occurred"}`);
+      // Phase 5: standardized error flash via sonner (was a window.alert).
+      toast.error(err.message || "An error occurred while saving");
     }
   };
 
@@ -541,19 +535,20 @@ export default function CustomerResolvePage() {
                     <Label htmlFor="form-project" className="text-muted-foreground font-medium ml-1">
                       Project <span className="text-danger">*</span>
                     </Label>
-                    <select
+                    <NativeSelect
                       id="form-project"
                       name="project"
                       value={form.project}
                       onChange={handleFormChange}
                       required
-                      className="block w-full h-11 border border-input rounded-md px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring bg-background text-foreground shadow-elevation-1 transition-[border-color,box-shadow]"
+                      wrapperClassName="w-full"
+                      className="h-11 shadow-elevation-1"
                     >
                       <option value="" disabled>Select project</option>
                       {projects.map((p) => (
                         <option key={p.id} value={String(p.id)}>{p.name}</option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
 
                   <div className="space-y-1.5">
@@ -601,32 +596,34 @@ export default function CustomerResolvePage() {
                       <Label htmlFor={field.id} className="text-muted-foreground font-medium ml-1">
                         {field.label} {field.req && <span className="text-danger">*</span>}
                       </Label>
-                      <select
+                      <NativeSelect
                         id={field.id}
                         name={field.name}
                         value={form[field.name]}
                         onChange={handleFormChange}
                         required={field.req}
-                        className="block w-full h-11 border border-input rounded-md px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring bg-background text-foreground shadow-elevation-1 transition-[border-color,box-shadow]"
+                        wrapperClassName="w-full"
+                        className="h-11 shadow-elevation-1"
                       >
                         <option value="">Select {field.label.toLowerCase()}</option>
                         {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                      </select>
+                      </NativeSelect>
                     </div>
                   ))}
 
                   <div className="space-y-1.5">
                     <Label htmlFor="form-designation" className="text-muted-foreground font-medium ml-1">Designation</Label>
-                    <select
+                    <NativeSelect
                       id="form-designation"
                       name="designation"
                       value={form.designation}
                       onChange={handleFormChange}
-                      className="block w-full h-11 border border-input rounded-md px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring bg-background text-foreground shadow-elevation-1 transition-[border-color,box-shadow]"
+                      wrapperClassName="w-full"
+                      className="h-11 shadow-elevation-1"
                     >
                       <option value="">Select designation</option>
                       {DESIGNATION_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    </NativeSelect>
                   </div>
                 </div>
               </section>
@@ -641,17 +638,18 @@ export default function CustomerResolvePage() {
                     <Label htmlFor="form-status" className="text-muted-foreground font-medium ml-1">
                       Status <span className="text-danger">*</span>
                     </Label>
-                    <select
+                    <NativeSelect
                       id="form-status"
                       name="status"
                       value={form.status}
                       onChange={handleFormChange}
                       required
-                      className="block w-full h-11 border border-input rounded-md px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring bg-background text-foreground"
+                      wrapperClassName="w-full"
+                      className="h-11"
                     >
                       <option value="">Select status</option>
                       {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                    </select>
+                    </NativeSelect>
                   </div>
 
                   <div className="space-y-1.5 opacity-90">

@@ -2,7 +2,7 @@
 // PHASE 3 — WhatsAppTemplateManagement
 // ============================================================================
 // All template CRUD logic preserved. alert() calls swapped for sonner toasts to
-// match the rest of the AMS (the surrounding pages already use sonner).
+// match the rest of the CMS (the surrounding pages already use sonner).
 // Visual layer fully tokenized: PageHeader, SectionCard groupings, NativeSelect
 // in the filter and form, design-system buttons, semantic Active/Inactive chips,
 // EmptyState helpers when sections are empty.

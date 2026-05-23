@@ -1,15 +1,9 @@
 // ============================================================================
-// PHASE 3 — GlobalCustomerSearch
+// PHASE 3 + 4 — GlobalCustomerSearch
 // ----------------------------------------------------------------------------
 // Search logic, debounce, reassignment modal flow preserved byte-equivalent.
-//
-// Visual changes:
-//   - PageHeader replaces hand-rolled title row.
-//   - Search bar uses tokenized surface.
-//   - Result table token-driven; status badge uses semantic tones.
-//   - EmptyState used for both "no results" and "start typing" placeholders.
-//   - Reassign modal converted to <Dialog> primitive — same render shape, but
-//     overlay/dialog tokens, design-system Buttons, NativeSelect for fields.
+// Phase 3 visual layer: PageHeader, EmptyState, Dialog primitive, NativeSelect.
+// Phase 4: spinner-only result loading → skeleton block.
 // ============================================================================
 
 import { useState, useEffect } from "react";
@@ -32,6 +26,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -208,9 +203,13 @@ export default function GlobalCustomerSearch() {
 
         <div className="bg-card text-card-foreground border border-border rounded-xl overflow-hidden shadow-elevation-1 min-h-[400px]">
           {loading ? (
-            <div className="flex flex-col items-center justify-center p-20 gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-brand" />
-              <span className="text-muted-foreground text-sm">Searching database...</span>
+            // Phase 4: skeleton block instead of a bare spinner so the layout
+            // doesn't pop when results arrive.
+            <div className="p-4 space-y-3">
+              <Skeleton className="h-10 rounded-lg" />
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-14 rounded-lg" />
+              ))}
             </div>
           ) : results.length === 0 ? (
             <EmptyState

@@ -1,16 +1,9 @@
 // ============================================================================
-// PHASE 3 — SupervisorFollowUpPage
+// PHASE 3 + 5 — SupervisorFollowUpPage
 // ----------------------------------------------------------------------------
-// All Phase 5/7/10 logic preserved verbatim. Data fetching, category derivation,
-// overdue-bucket computation, AgeDistributionBar, urgency chips, sort order,
-// and ContactCell behaviour are all byte-equivalent.
-//
-// Visual changes:
-//   - PageHeader replaces the bespoke header.
-//   - NativeSelect adopts the recurring select pattern (3x → 1 helper).
-//   - 3 KPI cards converted to StatTile.
-//   - Table surfaces tokenized; row tint uses danger/warning semantic tokens.
-//   - EmptyState helper used for zero data.
+// All Phase 5/7/10 data logic preserved verbatim. Phase 3 visual layer
+// preserved. Phase 5: composes agent's full name (first + last) on the
+// frontend after backend adds agent_last_name to the SELECT.
 // ============================================================================
 
 import { useEffect, useMemo, useState } from "react";
@@ -74,6 +67,15 @@ const STATUS_OPTIONS = [
 ];
 
 const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
+
+// Phase 5: compose agent full name with fallbacks. Backend now returns
+// agent_first_name + agent_last_name; agent_name remains as a legacy first-only alias.
+function composeAgentName(item: any): string {
+  if (item.agent_first_name && item.agent_last_name) {
+    return `${item.agent_first_name} ${item.agent_last_name}`;
+  }
+  return item.agent_first_name || item.agent_name || "—";
+}
 
 export default function SupervisorFollowUpPage() {
   const { user } = useAuth();
@@ -209,7 +211,6 @@ export default function SupervisorFollowUpPage() {
           }
         />
 
-        {/* Filter row */}
         <div className="flex flex-wrap gap-3 bg-card text-card-foreground p-4 rounded-xl border border-border shadow-elevation-1">
           <NativeSelect icon={UserIcon} value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)}>
             <option value="all">All Agents</option>
@@ -238,7 +239,6 @@ export default function SupervisorFollowUpPage() {
           )}
         </div>
 
-        {/* KPI cards */}
         {loading && data.length === 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {[0, 1, 2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
@@ -273,7 +273,6 @@ export default function SupervisorFollowUpPage() {
           <AgeDistributionBar buckets={overdueBuckets} totalLabel="Overdue" />
         )}
 
-        {/* Table */}
         <div className="bg-card text-card-foreground border border-border rounded-xl overflow-hidden shadow-elevation-1">
           {loading ? (
             <div className="p-4 space-y-3">
@@ -303,7 +302,8 @@ export default function SupervisorFollowUpPage() {
                         <td className="px-6 py-3">
                           <div className="font-semibold text-foreground">{item.customer_name}</div>
                           <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                            <UserIcon className="w-3 h-3" /> {item.agent_name}
+                            {/* Phase 5: full name (first + last) composed on the frontend. */}
+                            <UserIcon className="w-3 h-3" /> {composeAgentName(item)}
                           </div>
                         </td>
                         <td className="px-6 py-3"><ContactCell contact={item.contact_number} /></td>

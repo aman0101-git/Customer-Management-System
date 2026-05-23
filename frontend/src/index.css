@@ -5,7 +5,7 @@
 /* ============================================================================
    PHASE 1 — UI MODERNIZATION FOUNDATION (May 2026)
    ----------------------------------------------------------------------------
-   This file is the single source of truth for the AMS design system tokens.
+   This file is the single source of truth for the CMS design system tokens.
 
    Goals:
      - Enterprise, dark-first, operationally efficient UI.
@@ -216,6 +216,16 @@
   /* Numeric content (counts, currency, tables) should align by column. */
   table, .tabular-nums-tracking {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Phase 5: native <option> elements do not inherit Tailwind classes from
+     their parent <select> in most browsers — they pick up the system's
+     default popup palette. In dark mode this caused light text on a light
+     popup background (or vice-versa). Pinning them to the popover tokens
+     fixes the contrast across every native select in the app in one rule. */
+  option {
+    background-color: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
   }
 
   /* Selection — branded, low-distraction. */

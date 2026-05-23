@@ -1,20 +1,28 @@
 // ============================================================================
 // frontend/src/components/system/ThemeProvider.tsx
 // ----------------------------------------------------------------------------
-// Phase 1 (May 2026):
-//   Thin wrapper around next-themes' ThemeProvider that locks in our defaults.
+// Phase 1: thin wrapper around next-themes that locks in our defaults.
+//   - attribute="class"          → toggles `dark` class on <html>.
+//   - defaultTheme="light"       → light by default (does not flip dark
+//                                  for live agents who haven't opted in).
+//   - enableSystem={false}       → do not auto-follow OS preference at boot.
+//   - disableTransitionOnChange  → prevent CSS transitions from firing
+//                                  mid-swap (no theme-flicker).
+//   - storageKey="ams-theme"     → namespaced persistence key.
 //
-//   - attribute="class"          -> swaps the `dark` class on <html>, matching
-//                                   the existing Tailwind config (darkMode:["class"]).
-//   - defaultTheme="light"       -> per Phase 1 spec, light is default. We do
-//                                   NOT enable system preference at boot to
-//                                   avoid surprising 50+ live agents on first
-//                                   load. Users opt in via the toggle.
-//   - enableSystem={false}       -> matches above.
-//   - disableTransitionOnChange  -> prevents CSS transitions from running
-//                                   mid-swap, eliminating layout flicker.
-//   - storageKey="ams-theme"     -> namespaced so we don't collide with other
-//                                   apps' next-themes installs on the same host.
+// Phase 4 — default-theme decision:
+//   The dark-mode token system is verified production-ready end-to-end and
+//   every Phase 1-3 surface renders correctly in both themes. We are
+//   INTENTIONALLY keeping `defaultTheme="light"` for Phase 4 because:
+//
+//     1. Per-user theme choices are persisted via storageKey="ams-theme",
+//        so any user who already toggled to dark keeps dark on next visit.
+//     2. The Phase 4 brief explicitly states the default flip should be a
+//        deliberate product decision, not a styling experiment.
+//     3. A future flip is a one-line change here. Recommended sequence
+//        when ready: (a) stakeholder comms, (b) optional opt-in banner
+//        pointing at the toggle, (c) flip default to "dark",
+//        (d) consider `enableSystem={true}` once dark usage normalizes.
 // ============================================================================
 
 import { ThemeProvider as NextThemesProvider } from "next-themes";

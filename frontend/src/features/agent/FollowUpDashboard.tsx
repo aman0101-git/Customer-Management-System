@@ -48,6 +48,7 @@ import AgeDistributionBar from "@/components/system/AgeDistributionBar";
 import PageHeader from "@/components/system/PageHeader";
 import StatTile from "@/components/system/StatTile";
 import EmptyState from "@/components/system/EmptyState";
+import NativeSelect from "@/components/system/NativeSelect";
 import { getOverdueInfo } from "@/lib/urgency";
 
 const STATUS_OPTIONS = [
@@ -178,23 +179,22 @@ export default function FollowUpDashboard() {
     }
   };
 
-  // Phase 2: status filter select (kept inline, tokenized).
+  // Phase 4: migrated to NativeSelect for consistency with the rest of the CMS.
   const StatusFilterSelect = (
-    <div className="relative min-w-[180px]">
-      <select
-        className="w-full pl-9 pr-4 py-2 bg-card border border-border rounded-lg text-sm font-medium text-foreground shadow-elevation-1 focus:ring-2 focus:ring-ring/40 focus:border-ring outline-none cursor-pointer capitalize transition-[border-color,box-shadow,background-color]"
-        value={selectedStatus}
-        onChange={(e) => setSelectedStatus(e.target.value)}
-      >
-        <option value="all">All Status</option>
-        {STATUS_OPTIONS.map((status) => (
-          <option key={status} value={status}>
-            {status.replace(/-/g, " ")}
-          </option>
-        ))}
-      </select>
-      <CheckCircle2 className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5 pointer-events-none" />
-    </div>
+    <NativeSelect
+      icon={CheckCircle2}
+      value={selectedStatus}
+      onChange={(e) => setSelectedStatus(e.target.value)}
+      wrapperClassName="min-w-[180px]"
+      className="capitalize"
+    >
+      <option value="all">All Status</option>
+      {STATUS_OPTIONS.map((status) => (
+        <option key={status} value={status}>
+          {status.replace(/-/g, " ")}
+        </option>
+      ))}
+    </NativeSelect>
   );
 
   if (authLoading || loading) {

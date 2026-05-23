@@ -130,7 +130,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
                 {user.first_name.charAt(0).toUpperCase()}
               </div>
               <span className="text-lg font-bold tracking-tight text-sidebar-foreground">
-                AMS
+                CMS
                 <span className={`ml-1 text-xs font-semibold ${theme.accentText}`}>
                   PRO
                 </span>

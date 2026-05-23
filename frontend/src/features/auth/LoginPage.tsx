@@ -1,14 +1,8 @@
 // ============================================================================
-// PHASE 2 — LoginPage
+// PHASE 5 — LoginPage
 // ----------------------------------------------------------------------------
-// Behaviour preserved 1:1: same login API call, same refreshUser flow, same
-// role-based redirect, same error handling.
-//
-// Visual changes:
-//   - Brand mark uses the brand token (was hard-coded blue).
-//   - Submit button uses the default <Button> primary (no more bg-purple-600
-//     override that didn't match either light or dark mode coherently).
-//   - Error notice uses tokenized danger surface.
+// Branding refresh: text + icon CMS mark on the left, ThemeToggle on the right.
+// Form behaviour and error-handling preserved byte-equivalent from Phase 2.
 // ============================================================================
 
 import { useState } from "react";
@@ -65,27 +59,32 @@ export default function LoginPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold tracking-tight text-foreground mb-1">
-        AMS <span className="text-brand">Login</span>
-      </h1>
-      <p className="text-sm text-muted-foreground mb-6">
-        Sign in to access your dashboard.
+      <div className="space-y-2 mb-6 text-center">
+        <h1 className="text-4xl font-extrabold tracking-tight">
+          <span className="bg-gradient-to-r from-brand via-brand to-chart-4 dark:from-brand dark:via-brand/80 dark:to-chart-4/80 bg-clip-text text-transparent">
+            CMS LOGIN
+          </span>
+        </h1>
+      </div>
+      <p className="text-base text-muted-foreground mb-8 leading-relaxed text-center">
+        Access your dashboard securely.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <Label htmlFor="username">Username</Label>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2.5">
+          <Label htmlFor="username" className="text-sm font-medium">Username</Label>
           <Input
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="e.g., FCS0001"
             autoComplete="username"
+            className="h-10"
           />
         </div>
 
-        <div>
-          <Label htmlFor="password">Password</Label>
+        <div className="space-y-2.5">
+          <Label htmlFor="password" className="text-sm font-medium">Password</Label>
           <Input
             id="password"
             type="password"
@@ -93,16 +92,17 @@ export default function LoginPage() {
             onChange={(e) => setPassword(e.target.value)}
             placeholder="e.g., 1234"
             autoComplete="current-password"
+            className="h-10"
           />
         </div>
 
         {error && (
-          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger mt-2">
             {error}
           </div>
         )}
 
-        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+        <Button type="submit" className="w-full mt-6" size="lg" disabled={loading}>
           {loading ? "Logging in…" : "Login"}
         </Button>
       </form>

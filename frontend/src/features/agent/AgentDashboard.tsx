@@ -1,17 +1,14 @@
 // ============================================================================
-// PHASE 2 — AgentDashboard
+// PHASE 2 + 5 — AgentDashboard
 // ----------------------------------------------------------------------------
-// Adopts the new design language without changing routing, business logic,
-// auth handling, or feature behaviour.
+// Phase 2 design language preserved: PageHeader, primary CTA, three accent
+// Cards for Customers / Followups / Summary.
 //
-// Changes from phase 0/1:
-//   - PageHeader replaces the ad-hoc gradient pill row at the top.
-//   - Customer Lookup is now a primary Button (with the brand token) instead of
-//     a hand-rolled gradient anchor with hardcoded indigo/blue.
-//   - Cards still use the design-system Card with accent strips; the extra
-//     hover:scale-[1.02] pile-on was removed — Phase 1 Card already has the
-//     restrained -0.5 lift baked in.
-//   - Card titles get icon containers in muted/accent tones for hierarchy.
+// Phase 5 (May 2026):
+//   Adds a small "Quick lookup" navigation strip below the action cards so
+//   agents can jump straight to their three primary workspaces without
+//   re-clicking from the card grid. Uses the same icon language as the
+//   header pill nav for visual continuity.
 // ============================================================================
 
 import { useNavigate, Link } from "react-router-dom";
@@ -26,12 +23,20 @@ import {
   Users,
   AlarmClock,
   Search,
+  ArrowRight,
 } from "lucide-react";
 
 export default function AgentDashboard() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   if (loading || !user) return <RouteFallback />;
+
+  // Phase 5: shared quick-lookup destinations. Kept tight (3 items).
+  const quickLinks = [
+    { label: "Customers",         path: "/agent/customers",  icon: Users },
+    { label: "Follow-ups",        path: "/agent/followups",  icon: AlarmClock },
+    { label: "Summary Dashboard", path: "/agent/summary",    icon: ChartNoAxesCombined },
+  ];
 
   return (
     <AppShell sidebar={null}>
@@ -107,6 +112,41 @@ export default function AgentDashboard() {
           </CardHeader>
         </Card>
       </div>
+
+      {/* Phase 5: Quick lookup strip — small navigation convenience below
+          the action cards. Same surface elevation as the cards but compact. */}
+      <section className="mt-8" aria-label="Quick lookup">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Quick lookup
+          </h2>
+          <span className="text-xs text-muted-foreground">Jump directly to a workspace</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {quickLinks.map(({ label, path, icon: Icon }) => (
+            <Link
+              key={path}
+              to={path}
+              className="
+                group flex items-center justify-between gap-3
+                rounded-lg border border-border bg-card text-card-foreground
+                px-4 py-3 shadow-elevation-1 hover:shadow-elevation-2
+                hover:border-brand/40
+                transition-[box-shadow,border-color,background-color] duration-200 ease-ams-out
+                focus-visible:outline-none
+              "
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground group-hover:bg-brand/15 group-hover:text-brand transition-colors">
+                  <Icon className="w-4 h-4" />
+                </span>
+                <span className="text-sm font-semibold text-foreground truncate">{label}</span>
+              </span>
+              <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-brand group-hover:translate-x-0.5 transition-[color,transform] duration-200 ease-ams-out shrink-0" />
+            </Link>
+          ))}
+        </div>
+      </section>
     </AppShell>
   );
 }

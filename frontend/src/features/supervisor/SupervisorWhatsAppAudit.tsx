@@ -1,12 +1,9 @@
 // ============================================================================
-// PHASE 3 — SupervisorWhatsAppAudit
+// PHASE 3 + 4 — SupervisorWhatsAppAudit
 // ----------------------------------------------------------------------------
 // Fetch logic, debounce, CSV export, status badge color mapping preserved.
-// Visual layer tokenized:
-//   - PageHeader replaces hand-rolled header.
-//   - SectionCard for the filter block.
-//   - EmptyState for zero records.
-//   - Status badge uses semantic tones (success / info / brand / danger).
+// Phase 3 visual layer: PageHeader, SectionCard, EmptyState, semantic badge.
+// Phase 4: spinner-only loading → skeleton row block.
 // ============================================================================
 
 import { useState, useEffect } from "react";
@@ -21,6 +18,7 @@ import PageHeader from "@/components/system/PageHeader";
 import SectionCard from "@/components/system/SectionCard";
 import EmptyState from "@/components/system/EmptyState";
 import NativeSelect from "@/components/system/NativeSelect";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
 interface AuditLogEntry {
@@ -233,8 +231,11 @@ export default function SupervisorWhatsAppAudit() {
 
         <div className="bg-card text-card-foreground rounded-lg border border-border shadow-elevation-1 overflow-hidden">
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-brand" />
+            // Phase 4: skeleton rows instead of a bare spinner so layout is stable.
+            <div className="p-4 space-y-3">
+              {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton key={i} className="h-12 rounded-lg" />
+              ))}
             </div>
           ) : auditData.length === 0 ? (
             <EmptyState

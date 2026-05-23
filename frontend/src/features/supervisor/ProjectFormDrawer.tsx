@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import NativeSelect from "@/components/system/NativeSelect";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -224,18 +225,19 @@ export default function ProjectFormDrawer({
 
                 <div className="space-y-1.5 md:col-span-2">
                   <Label htmlFor="project-status" className="text-foreground">Project Status</Label>
-                  <select
+                  <NativeSelect
                     id="project-status"
-                    className="block w-full h-11 px-3 border border-input rounded-md text-sm bg-background text-foreground focus:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 transition-[border-color,box-shadow] appearance-none aria-[invalid=true]:border-danger"
                     aria-invalid={!!errors.status}
                     aria-describedby={errors.status ? "project-status-error" : undefined}
                     disabled={submitting}
+                    wrapperClassName="w-full"
+                    className="h-11 aria-[invalid=true]:border-danger"
                     {...register("status")}
                   >
                     <option value="active">Active</option>
                     <option value="paused">Paused</option>
                     <option value="done">Completed</option>
-                  </select>
+                  </NativeSelect>
                   {errors.status && (
                     <p id="project-status-error" className="text-xs text-danger">
                       {errors.status.message}

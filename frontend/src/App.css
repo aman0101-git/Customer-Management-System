@@ -4,7 +4,7 @@
    PHASE 1 cleanup:
      - Removed Vite-template legacy: .logo, .read-the-docs, logo-spin, .card,
        and the body { display: flex; place-items: ... } hack that was
-       overriding the layout. These were never used by the AMS UI.
+       overriding the layout. These were never used by the CMS UI.
      - Kept:
          (a) #root reset so the app fills the viewport.
          (b) GPU promotion on .fixed/.absolute — previously added to stop

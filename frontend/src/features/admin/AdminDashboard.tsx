@@ -1,14 +1,9 @@
 // ============================================================================
-// PHASE 3 — AdminDashboard
+// PHASE 3 + 4 — AdminDashboard
 // ----------------------------------------------------------------------------
-// Phase 8 user-overview logic preserved verbatim (lazy-load, metrics derivation,
-// roster sort). Visual layer fully tokenized:
-//   - PageHeader replaces the bare 3-card grid header.
-//   - Card hover pile-on removed (Phase 1 Card owns the lift).
-//   - System breakdown KPIs use StatTile.
-//   - Activity bar uses semantic success/danger tokens.
-//   - Roster table token-driven; role badge uses tokens.
-//   - Close buttons on every Drawer.
+// Phase 8 user-overview logic preserved verbatim. Phase 3 added PageHeader +
+// StatTile + tokenized roster. Phase 4 swapped the spinner-only audit loading
+// for a skeleton block (KPI quartet + activity bar + roster rows).
 // ============================================================================
 
 import { useState, useEffect, useMemo } from "react";
@@ -32,13 +27,13 @@ import {
   Users,
   ShieldCheck,
   AlertTriangle,
-  Loader2,
   Briefcase,
   X,
 } from "lucide-react";
 import CreateUserForm from "./CreateUserForm";
 import PageHeader from "@/components/system/PageHeader";
 import StatTile from "@/components/system/StatTile";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type AuditUser = {
   id: number;
@@ -226,9 +221,19 @@ export default function AdminDashboard() {
 
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {auditLoading && (
-              <div className="flex flex-col items-center justify-center py-20 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-brand" />
-                <span className="text-sm text-muted-foreground">Loading user data...</span>
+              // Phase 4: skeleton block — KPI quartet + activity bar + roster.
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[0, 1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20 rounded-xl" />
+                  ))}
+                </div>
+                <Skeleton className="h-20 rounded-xl" />
+                <div className="space-y-2">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-12 rounded-lg" />
+                  ))}
+                </div>
               </div>
             )}
 
@@ -241,7 +246,6 @@ export default function AdminDashboard() {
 
             {!auditLoading && !auditError && auditUsers.length > 0 && (
               <>
-                {/* System Breakdown KPIs */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <StatTile label="Total Users" value={auditUsers.length} icon={Users} />
                   <StatTile label="Agents"      value={auditMetrics.agents.length}      tone="info"   icon={ShieldCheck} />
@@ -254,7 +258,6 @@ export default function AdminDashboard() {
                   />
                 </div>
 
-                {/* Agent Activity Bar */}
                 {auditMetrics.agents.length > 0 && (
                   <div className="bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 p-4">
                     <div className="flex items-baseline justify-between mb-2">
@@ -299,7 +302,6 @@ export default function AdminDashboard() {
                   </div>
                 )}
 
-                {/* Full User Roster Table */}
                 <div className="bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 overflow-hidden">
                   <div className="px-4 py-3 border-b border-border bg-muted/40">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">All System Users</span>
