@@ -9,7 +9,7 @@
 //
 // Design:
 //   - No external package — pure in-memory Map (acceptable for single-process
-//     deployments; if the AMS ever goes multi-process/multi-instance, replace
+//     deployments; if the CMS ever goes multi-process/multi-instance, replace
 //     with Redis-backed rate limiting at that point).
 //   - Sliding window per IP: stores an array of timestamps for the current
 //     window and evicts expired entries on each check.

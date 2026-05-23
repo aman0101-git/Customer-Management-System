@@ -217,6 +217,7 @@ export async function getSupervisorTeamFollowUps(
             c.contact AS contact_number,
             c.location,
             u.first_name AS agent_first_name,
+            u.last_name AS agent_last_name,
             ac.status_code, ac.follow_up_date, ac.follow_up_time,
             CASE WHEN ac.follow_up_time IS NOT NULL
                  THEN TIMESTAMP(ac.follow_up_date, ac.follow_up_time)
