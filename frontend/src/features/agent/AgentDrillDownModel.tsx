@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { format } from "date-fns";
+import { formatISTDate } from "@/lib/formatIST";
 import { Loader2 } from "lucide-react";
 
 interface DrillDownModalProps {
@@ -81,11 +81,11 @@ export default function AgentDrillDownModal({
                       <td className="px-3 py-2.5 text-foreground text-xs">
                         {row.done_date ? (
                           <span className="text-success font-semibold">
-                            {format(new Date(row.done_date), "dd/MM/yyyy")} (Done)
+                            {formatISTDate(row.done_date)} (Done)
                           </span>
                         ) : row.follow_up_date ? (
                           <span>
-                            {format(new Date(row.follow_up_date), "dd/MM/yyyy")}{" "}
+                            {formatISTDate(row.follow_up_date)}{" "}
                             <span className="text-muted-foreground">
                               @ {row.follow_up_time}
                             </span>

@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import SectionCard from "@/components/system/SectionCard";
 import NativeSelect from "@/components/system/NativeSelect";
 import CustomerTimeline from "@/components/system/CustomerTimeline";
+import { formatISTDate } from "@/lib/formatIST";
+import { celebrateVisitDone } from "@/components/system/VisitDoneCelebration";
 import { MessageCircle, ArrowLeft, Search as SearchIcon, FilePlus2 } from "lucide-react";
 
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -69,18 +71,11 @@ const formatDateForInput = (dateStr: string | null | undefined) => {
   }
 };
 
+// Closeout: render in IST via the shared formatter so this read-only display
+// matches everywhere else in the customer flows.
 const formatDateDisplay = (dateStr: string | null | undefined) => {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "-";
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-    return `${day}/${month}/${year}`;
-  } catch {
-    return "-";
-  }
+  const out = formatISTDate(dateStr);
+  return out === "—" ? "-" : out;
 };
 
 const getFinalStatus = (statusCode: string) => {
@@ -335,6 +330,9 @@ export default function CustomerResolvePage() {
       // Phase 5: success flash so the agent gets explicit confirmation before
       // the 500ms redirect kicks them back to the dashboard.
       toast.success(isCreate ? "Customer created" : "Customer updated");
+      // Closeout: lightweight Visit Done / Booking Done celebration on top of
+      // the regular success flash. No-op for other statuses.
+      celebrateVisitDone(form.status, form.name);
       setTimeout(() => navigate("/agent/dashboard"), 500);
     } catch (err: any) {
       console.error("Error:", err);
@@ -766,9 +764,11 @@ export default function CustomerResolvePage() {
                   {whatsappSending ? (
                     <div className="animate-spin"><MessageCircle className="w-4 h-4" /></div>
                   ) : (
-                    <MessageCircle className="w-4 h-4" />
+                    <>
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Send WhatsApp</span>
+                    </>
                   )}
-                  {isCreate ? "Create & Send WA" : "Save & Send WA"}
                 </Button>
               </div>
             </form>

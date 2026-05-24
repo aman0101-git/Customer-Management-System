@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/system/EmptyState";
 import { getOverdueInfo, getIdleDays } from "@/lib/urgency";
 import { formatISTDate, formatISTTime24 } from "@/lib/formatIST";
+import { celebrateVisitDone } from "@/components/system/VisitDoneCelebration";
 import {
   isSameDay,
   subDays,
@@ -183,7 +184,11 @@ export default function AgentCustomersPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  const handleComplete = async (agentCustomerId: number) => {
+  // Closeout: accept the full row so we can fire the Visit Done celebration
+  // for `visit-done` / `booking-done` codes — keeps the table-side completion
+  // consistent with CustomerResolvePage's celebration trigger.
+  const handleComplete = async (row: any) => {
+    const agentCustomerId: number = row.id;
     setCompletingId(agentCustomerId);
     try {
       const res = await fetch(`${API_BASE}/api/agent/customers/${agentCustomerId}/complete`, {
@@ -196,6 +201,7 @@ export default function AgentCustomersPage() {
       }
       if (!res.ok) throw new Error("Failed to complete");
       toast.success("Customer marked as completed.");
+      celebrateVisitDone(row.status_code, row.name);
       await loadData();
     } catch {
       toast.error("Could not complete customer. Please try again.");
@@ -600,7 +606,7 @@ export default function AgentCustomersPage() {
                                   {canComplete && (
                                     <Button
                                       size="sm"
-                                      onClick={() => handleComplete(c.id)}
+                                      onClick={() => handleComplete(c)}
                                       disabled={isCompleting}
                                       className="bg-success text-success-foreground hover:bg-success/90"
                                     >

@@ -1,20 +1,6 @@
 // ============================================================================
-// PHASE 2 — FollowUpDashboard
-// ----------------------------------------------------------------------------
-// Migrated to the new design system. Business logic is intact:
-//   - Same query, same useQuery key, same categorisation rules.
-//   - Same overdue-bucket derivation, same sort order (overdue first).
-//   - Same Resolve navigation behaviour.
-//
-// Changes:
-//   - AppShell wrapper kept; outer max-w container kept.
-//   - PageHeader replaces the ad-hoc header row.
-//   - The three counter cards are now StatTile (danger / warning / info tones).
-//   - List items use tokenized surfaces. Per-category color mapping kept but
-//     mapped through semantic tokens (danger / warning / muted) so dark mode
-//     reads correctly.
-//   - EmptyState helper used when the list is empty.
-//   - Skeleton block kept; surfaces tokenized.
+// PHASE 2 + CLOSEOUT — FollowUpDashboard
+// Closeout: dates rendered via formatISTDateLong for IST stability.
 // ============================================================================
 
 import { useMemo, useState } from "react";
@@ -24,12 +10,12 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
 import {
-  format,
   isBefore,
   isToday,
   startOfDay,
   differenceInCalendarDays,
 } from "date-fns";
+import { formatISTDateLong } from "@/lib/formatIST";
 import {
   Phone,
   Calendar,
@@ -52,14 +38,8 @@ import NativeSelect from "@/components/system/NativeSelect";
 import { getOverdueInfo } from "@/lib/urgency";
 
 const STATUS_OPTIONS = [
-  "follow-up",
-  "sdow",
-  "virtual-meet-confirmed",
-  "visit-confirmed",
-  "visit-proposed",
-  "not-reachable",
-  "virtual-meet",
-  "pending",
+  "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
+  "not-reachable", "virtual-meet", "pending",
 ];
 
 const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
@@ -97,11 +77,9 @@ export default function FollowUpDashboard() {
   const categorized = statusFilteredData.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
-
     let category = "future";
     if (isBefore(itemDateStart, todayStart)) category = "past";
     else if (isToday(itemDateStart)) category = "today";
-
     return { ...item, category };
   });
 
@@ -126,8 +104,6 @@ export default function FollowUpDashboard() {
       );
     });
 
-  // Overdue-aging buckets — Phase 6 logic preserved, class names kept since
-  // AgeDistributionBar treats className as opaque.
   const overdueBuckets = useMemo(() => {
     const today = startOfDay(new Date());
     let b1 = 0, b23 = 0, b47 = 0, b8 = 0;
@@ -149,7 +125,6 @@ export default function FollowUpDashboard() {
     ];
   }, [categorized]);
 
-  // Token-driven category styling. Replaces the per-category red/orange/yellow.
   const getStyles = (category: string) => {
     switch (category) {
       case "past":
@@ -179,7 +154,6 @@ export default function FollowUpDashboard() {
     }
   };
 
-  // Phase 4: migrated to NativeSelect for consistency with the rest of the CMS.
   const StatusFilterSelect = (
     <NativeSelect
       icon={CheckCircle2}
@@ -235,11 +209,7 @@ export default function FollowUpDashboard() {
         {errored && (
           <div className="mb-6 rounded-lg border border-danger/30 bg-danger/10 text-danger px-4 py-3 text-sm flex items-center justify-between">
             <span>Could not load follow-ups. Showing last known data.</span>
-            <button
-              type="button"
-              onClick={() => followupsQuery.refetch()}
-              className="font-semibold hover:underline"
-            >
+            <button type="button" onClick={() => followupsQuery.refetch()} className="font-semibold hover:underline">
               Retry
             </button>
           </div>
@@ -249,49 +219,23 @@ export default function FollowUpDashboard() {
           <button
             type="button"
             onClick={() => setFilter(filter === "past" ? "all" : "past")}
-            className={`text-left rounded-xl transition-shadow ${
-              filter === "past" ? "ring-2 ring-danger/40 shadow-elevation-2" : ""
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "past" ? "ring-2 ring-danger/40 shadow-elevation-2" : ""}`}
           >
-            <StatTile
-              label="Overdue"
-              value={counts.past}
-              tone="danger"
-              icon={AlertCircle}
-              delta={counts.past > 0 ? "Requires Immediate Action" : "All clear"}
-            />
+            <StatTile label="Overdue" value={counts.past} tone="danger" icon={AlertCircle} delta={counts.past > 0 ? "Requires Immediate Action" : "All clear"} />
           </button>
-
           <button
             type="button"
             onClick={() => setFilter(filter === "today" ? "all" : "today")}
-            className={`text-left rounded-xl transition-shadow ${
-              filter === "today" ? "ring-2 ring-warning/40 shadow-elevation-2" : ""
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "today" ? "ring-2 ring-warning/40 shadow-elevation-2" : ""}`}
           >
-            <StatTile
-              label="Due Today"
-              value={counts.today}
-              tone="warning"
-              icon={Clock}
-              delta={counts.today > 0 ? "Focus here first" : "Nothing today"}
-            />
+            <StatTile label="Due Today" value={counts.today} tone="warning" icon={Clock} delta={counts.today > 0 ? "Focus here first" : "Nothing today"} />
           </button>
-
           <button
             type="button"
             onClick={() => setFilter(filter === "future" ? "all" : "future")}
-            className={`text-left rounded-xl transition-shadow ${
-              filter === "future" ? "ring-2 ring-info/40 shadow-elevation-2" : ""
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "future" ? "ring-2 ring-info/40 shadow-elevation-2" : ""}`}
           >
-            <StatTile
-              label="Upcoming"
-              value={counts.future}
-              tone="info"
-              icon={Calendar}
-              delta={counts.future > 0 ? "Scheduled for later" : "Nothing scheduled"}
-            />
+            <StatTile label="Upcoming" value={counts.future} tone="info" icon={Calendar} delta={counts.future > 0 ? "Scheduled for later" : "Nothing scheduled"} />
           </button>
         </div>
 
@@ -306,72 +250,38 @@ export default function FollowUpDashboard() {
             <div className="rounded-2xl border border-dashed border-border bg-card">
               <EmptyState
                 icon={Calendar}
-                title={
-                  filter === "all"
-                    ? "No Pending Follow-ups"
-                    : `No ${
-                        filter === "past"
-                          ? "Overdue"
-                          : filter === "today"
-                          ? "Due Today"
-                          : "Upcoming"
-                      } Follow-ups`
-                }
-                description={
-                  filter === "all"
-                    ? "Great job — you've cleared your entire list."
-                    : "Nothing in this category right now."
-                }
-                action={
-                  filter !== "all" ? (
-                    <Button
-                      variant="link"
-                      onClick={() => setFilter("all")}
-                      className="text-brand"
-                    >
-                      Show all follow-ups
-                    </Button>
-                  ) : null
-                }
+                title={filter === "all" ? "No Pending Follow-ups" : `No ${filter === "past" ? "Overdue" : filter === "today" ? "Due Today" : "Upcoming"} Follow-ups`}
+                description={filter === "all" ? "Great job — you've cleared your entire list." : "Nothing in this category right now."}
+                action={filter !== "all" ? (
+                  <Button variant="link" onClick={() => setFilter("all")} className="text-brand">
+                    Show all follow-ups
+                  </Button>
+                ) : null}
               />
             </div>
           ) : (
             displayList.map((customer) => {
               const style = getStyles(customer.category);
-              const formattedDate = format(
-                new Date(customer.follow_up_date),
-                "dd MMM yyyy"
-              );
-              const formattedTime =
-                customer.follow_up_time?.slice(0, 5) || "--:--";
-              const rowId: number =
-                customer.agent_customer_id ?? customer.customer_id ?? customer.id;
-              const overdueInfo =
-                customer.category === "past"
-                  ? getOverdueInfo(customer.follow_up_date)
-                  : null;
+              // Closeout: IST formatter — locale-independent display.
+              const formattedDate = formatISTDateLong(customer.follow_up_date);
+              const formattedTime = customer.follow_up_time?.slice(0, 5) || "--:--";
+              const rowId: number = customer.agent_customer_id ?? customer.customer_id ?? customer.id;
+              const overdueInfo = customer.category === "past" ? getOverdueInfo(customer.follow_up_date) : null;
 
               return (
-                <div
-                  key={rowId}
-                  className={`group relative bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 hover:shadow-elevation-2 transition-shadow overflow-hidden border-l-[6px] ${style.border}`}
-                >
+                <div key={rowId} className={`group relative bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 hover:shadow-elevation-2 transition-shadow overflow-hidden border-l-[6px] ${style.border}`}>
                   <div className="flex flex-col md:flex-row md:items-center p-5 gap-5">
                     <div className="flex md:flex-col items-center md:items-start justify-between md:justify-center md:w-32 md:border-r md:border-border md:pr-4">
                       <div className="flex items-center gap-2 mb-0 md:mb-2">
                         <div className={`p-2 rounded-lg ${style.iconBg}`}>
                           <Calendar className="w-4 h-4" />
                         </div>
-                        <span
-                          className={`text-xs font-bold uppercase tracking-wide md:hidden ${style.dateColor}`}
-                        >
+                        <span className={`text-xs font-bold uppercase tracking-wide md:hidden ${style.dateColor}`}>
                           {style.label}
                         </span>
                       </div>
                       <div className="text-right md:text-left">
-                        <p className={`text-sm font-bold ${style.dateColor}`}>
-                          {formattedDate}
-                        </p>
+                        <p className={`text-sm font-bold ${style.dateColor}`}>{formattedDate}</p>
                         <p className="text-xs text-muted-foreground flex items-center justify-end md:justify-start gap-1">
                           <Clock className="w-3 h-3" /> {formattedTime}
                         </p>
@@ -380,69 +290,48 @@ export default function FollowUpDashboard() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <h3 className="text-lg font-bold text-foreground truncate">
-                          {customer.name}
-                        </h3>
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-md border uppercase font-bold tracking-wider ${style.badge}`}
-                        >
+                        <h3 className="text-lg font-bold text-foreground truncate">{customer.name}</h3>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md border uppercase font-bold tracking-wider ${style.badge}`}>
                           {style.label}
                         </span>
                         <Badge variant="outline" className="uppercase tracking-wide">
                           {customer.status_code?.replace(/-/g, " ")}
                         </Badge>
                         {overdueInfo && overdueInfo.level > 0 && (
-                          <span
-                            className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}
-                          >
+                          <span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
                             {overdueInfo.label}
                           </span>
                         )}
                       </div>
 
                       <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
-                        <a
-                          href={`tel:${customer.contact}`}
-                          className="flex items-center gap-2 hover:text-brand transition-colors group/link"
-                        >
+                        <a href={`tel:${customer.contact}`} className="flex items-center gap-2 hover:text-brand transition-colors group/link">
                           <Phone className="w-4 h-4 text-muted-foreground group-hover/link:text-brand" />
-                          <span className="font-medium font-mono text-foreground">
-                            {customer.contact}
-                          </span>
+                          <span className="font-medium font-mono text-foreground">{customer.contact}</span>
                         </a>
-
                         {customer.project_name && (
                           <div className="flex items-center gap-2">
                             <Briefcase className="w-4 h-4 text-muted-foreground" />
                             <span className="text-foreground">{customer.project_name}</span>
                           </div>
                         )}
-
                         {customer.location && (
                           <div className="flex items-center gap-2">
                             <MapPin className="w-4 h-4 text-muted-foreground" />
-                            <span className="truncate max-w-[150px] text-foreground">
-                              {customer.location}
-                            </span>
+                            <span className="truncate max-w-[150px] text-foreground">{customer.location}</span>
                           </div>
                         )}
                       </div>
 
                       {customer.remark && (
                         <div className="mt-3 text-xs text-muted-foreground bg-muted/50 p-2 rounded-md border border-border line-clamp-1">
-                          <span className="font-semibold text-foreground">
-                            Last Remark:
-                          </span>{" "}
-                          {customer.remark}
+                          <span className="font-semibold text-foreground">Last Remark:</span> {customer.remark}
                         </div>
                       )}
                     </div>
 
                     <div className="flex gap-2 items-center flex-wrap md:flex-nowrap">
-                      <Button
-                        onClick={() => navigate(`/agent/customers/resolve?edit=${rowId}`)}
-                        className="w-full md:w-auto gap-2 bg-success text-success-foreground hover:bg-success/90"
-                      >
+                      <Button onClick={() => navigate(`/agent/customers/resolve?edit=${rowId}`)} className="w-full md:w-auto gap-2 bg-success text-success-foreground hover:bg-success/90">
                         <MessageCircle className="w-4 h-4" />
                         <span>Resolve</span>
                         <ChevronRight className="w-4 h-4" />
