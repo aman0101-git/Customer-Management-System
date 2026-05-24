@@ -16,6 +16,7 @@ import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import SectionCard from "@/components/system/SectionCard";
 import NativeSelect from "@/components/system/NativeSelect";
+import CustomerTimeline from "@/components/system/CustomerTimeline";
 import { MessageCircle, ArrowLeft, Search as SearchIcon, FilePlus2 } from "lucide-react";
 
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
@@ -720,59 +721,9 @@ export default function CustomerResolvePage() {
                       <Label className="text-muted-foreground text-[10px] uppercase font-bold tracking-widest mb-5 block">
                         Activity History
                       </Label>
-                      <div className="border border-border rounded-xl bg-muted/30 overflow-hidden">
-                        <div className="max-h-72 overflow-y-auto p-5">
-                          <div className="relative border-l-2 border-brand/30 ml-3 space-y-6">
-                            {history.map((item, idx) => (
-                              <div key={idx} className="relative pl-6">
-                                <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-background flex items-center justify-center shadow-elevation-1 ${
-                                  item.action_type === "CREATE" ? "bg-info" :
-                                  item.action_type === "STATUS_CHANGE" ? "bg-brand" : "bg-muted-foreground"
-                                }`}></div>
-
-                                <div className="bg-card p-3.5 rounded-lg border border-border shadow-elevation-1 transition-all hover:border-brand/30 hover:shadow-elevation-2">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {item.action_type === "CREATE" && (
-                                        <span className="text-[10px] font-bold text-info bg-info/10 px-2 py-0.5 rounded uppercase border border-info/30">Lead Created</span>
-                                      )}
-                                      {item.action_type === "STATUS_CHANGE" && (
-                                        <span className="text-[10px] font-bold text-brand bg-brand/10 px-2 py-0.5 rounded uppercase border border-brand/30">Status Changed</span>
-                                      )}
-                                      {item.action_type === "EDIT" && (
-                                        <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded uppercase border border-border">Remark Added</span>
-                                      )}
-                                      <span className="text-[10px] font-semibold text-muted-foreground">
-                                        {new Date(item.date).toLocaleDateString("en-GB")} @ {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {item.action_type === "STATUS_CHANGE" && item.old_status && item.new_status && (
-                                    <div className="flex items-center gap-2 mt-2 mb-2 text-xs font-bold">
-                                      <span className="text-muted-foreground line-through capitalize px-2 py-0.5 bg-muted rounded border border-border">{item.old_status.replace(/-/g, " ")}</span>
-                                      <span className="text-muted-foreground">→</span>
-                                      <span className="text-success capitalize px-2 py-0.5 bg-success/10 rounded border border-success/30">{item.new_status.replace(/-/g, " ")}</span>
-                                    </div>
-                                  )}
-
-                                  {item.action_type === "CREATE" && item.new_status && (
-                                    <div className="mt-1.5 mb-2 text-xs font-bold text-info capitalize flex items-center gap-1.5">
-                                      Initial Status: <span className="bg-info/10 border border-info/30 px-2 py-0.5 rounded">{item.new_status.replace(/-/g, " ")}</span>
-                                    </div>
-                                  )}
-
-                                  {item.remark && (
-                                    <div className="text-sm text-foreground leading-relaxed font-medium italic bg-muted/40 p-2.5 rounded-md border border-border mt-2">
-                                      "{item.remark}"
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+                      {/* Phase 6: shared timeline component — same DOM the
+                          supervisor sees in GlobalCustomerSearch journey panel. */}
+                      <CustomerTimeline history={history} scroll maxHeight="18rem" />
                     </div>
                   )}
                 </div>
