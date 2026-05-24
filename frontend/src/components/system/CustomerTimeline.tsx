@@ -15,6 +15,7 @@
 
 import EmptyState from "@/components/system/EmptyState";
 import { History } from "lucide-react";
+import { formatISTDate, formatISTTime24 } from "@/lib/formatIST";
 
 export interface CustomerTimelineEntry {
   date: string | Date;
@@ -68,9 +69,10 @@ export function CustomerTimeline({
     <div className="relative border-l-2 border-brand/30 ml-3 space-y-6">
       {history.map((item, idx) => {
         const badge = actionBadge(item.action_type);
-        const dateObj = typeof item.date === "string" ? new Date(item.date) : item.date;
-        const dateLabel = dateObj.toLocaleDateString("en-GB");
-        const timeLabel = dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        // Closeout: render all timeline stamps in IST 24-hour format so
+        // the agent/supervisor read consistent values regardless of locale.
+        const dateLabel = formatISTDate(item.date);
+        const timeLabel = formatISTTime24(item.date);
 
         return (
           <div key={idx} className="relative pl-6">

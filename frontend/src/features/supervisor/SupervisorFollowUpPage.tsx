@@ -10,7 +10,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { AppShell } from "@/components/ui/app-shell";
-import { differenceInCalendarDays, format, isBefore, isToday, startOfDay, parseISO } from "date-fns";
+import { differenceInCalendarDays, isBefore, isToday, startOfDay, parseISO } from "date-fns";
+import { formatISTDateLong, formatISTTime24, formatISTDateTime24 } from "@/lib/formatIST";
 import {
   Calendar,
   Clock,
@@ -321,10 +322,11 @@ export default function SupervisorFollowUpPage() {
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
                             <span className={`font-semibold ${item.category === 'past' ? 'text-danger' : 'text-foreground'}`}>
-                              {format(item.parsedDate, "dd MMM yyyy")}
+                              {/* Closeout: IST + 24h time. Was "h:mm a" (12h locale). */}
+                              {formatISTDateLong(item.parsedDate)}
                             </span>
                             <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                              {format(item.parsedDate, "h:mm a")}
+                              {formatISTTime24(item.parsedDate)}
                             </span>
                           </div>
                           {overdueInfo && overdueInfo.level > 0 && (
@@ -334,7 +336,7 @@ export default function SupervisorFollowUpPage() {
                           )}
                         </td>
                         <td className="px-6 py-3 text-xs text-muted-foreground">
-                          {format(parseISO(item.updated_at), "dd MMM, HH:mm")}
+                          {formatISTDateTime24(item.updated_at)}
                         </td>
                       </tr>
                     );

@@ -22,8 +22,8 @@ import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, parseISO } from "date-fns";
 import { getOverdueInfo } from "@/lib/urgency";
+import { formatISTDateLong } from "@/lib/formatIST";
 import {
   Loader2,
   Search,
@@ -387,11 +387,13 @@ export default function GlobalCustomerSearch() {
                               <div className="flex flex-col gap-1">
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium text-foreground">
-                                    {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
+                                    {/* Closeout: IST formatter. follow_up_time
+                                        is wall-clock IST already; trim seconds. */}
+                                    {formatISTDateLong(item.follow_up_date)}
                                   </span>
                                   {item.follow_up_time && (
                                     <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded whitespace-nowrap">
-                                      {item.follow_up_time}
+                                      {String(item.follow_up_time).slice(0, 5)}
                                     </span>
                                   )}
                                 </div>

@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/system/EmptyState";
 import { getOverdueInfo, getIdleDays } from "@/lib/urgency";
+import { formatISTDate, formatISTTime24 } from "@/lib/formatIST";
 import {
   isSameDay,
   subDays,
@@ -263,14 +264,12 @@ export default function AgentCustomersPage() {
   }, [customers, projectFilter, statusFilter, dateRangeType, customStart, customEnd, deferredSearch]);
 
   const safe = (val: any) => val === null || val === undefined || val === "" ? "-" : val;
+  // Closeout: render dates/times in IST 24h via the shared helper so the table
+  // is stable regardless of the agent's browser locale.
   const formatDateTime = (dateStr: string | null | undefined) => {
-    if (!dateStr) return { d: "-", t: "" };
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return { d: "-", t: "" };
-    return {
-      d: d.toLocaleDateString("en-GB"),
-      t: d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
-    };
+    const d = formatISTDate(dateStr);
+    const t = formatISTTime24(dateStr);
+    return { d: d === "—" ? "-" : d, t: t === "—" ? "" : t };
   };
 
   const scrollRef = useRef<HTMLDivElement | null>(null);

@@ -20,6 +20,7 @@ import EmptyState from "@/components/system/EmptyState";
 import NativeSelect from "@/components/system/NativeSelect";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { formatISTDateTime24 } from "@/lib/formatIST";
 
 interface AuditLogEntry {
   id: number;
@@ -128,17 +129,10 @@ export default function SupervisorWhatsAppAudit() {
     document.body.removeChild(link);
   };
 
+  // Closeout: IST 24h via shared helper. Removes browser-locale drift.
   const formatDateTime = (dateStr: string | undefined) => {
-    if (!dateStr) return "-";
-    try {
-      const date = new Date(dateStr);
-      return date.toLocaleString("en-GB", {
-        day: "2-digit", month: "2-digit", year: "numeric",
-        hour: "2-digit", minute: "2-digit",
-      });
-    } catch {
-      return dateStr;
-    }
+    const out = formatISTDateTime24(dateStr);
+    return out === "—" ? "-" : out;
   };
 
   const formatMessagePreview = (message: string) =>
