@@ -248,16 +248,37 @@ export async function getSupervisorTeamFollowUps(
 // ----------------------------------------------------------------------------
 // EXPORT  — no JSON scan; chunked log fetch
 // ----------------------------------------------------------------------------
+// Phase 6: Parse a query-string value that may be a single id, "all", a
+// comma-separated list of ids, or already an array. Returns either:
+//   - the literal string "all" (means "no filter, include everything")
+//   - a string[] of one-or-more ids ready for an IN(?) binding
+// Backward compatibility: a single value like "12" turns into ["12"], which
+// the SQL builder still handles correctly via IN(?).
+function parseMultiFilter(raw: string | string[] | undefined): "all" | string[] {
+  if (raw === undefined || raw === null) return "all";
+  const list = (Array.isArray(raw) ? raw : String(raw).split(","))
+    .map(v => String(v).trim())
+    .filter(v => v.length > 0);
+  if (list.length === 0 || list.includes("all")) return "all";
+  return list;
+}
+
 export async function getExportData(
   supervisorId: number,
-  agentId: string,
-  projectId: string,
-  status: string,
+  agentId: string | string[],
+  projectId: string | string[],
+  status: string | string[],
   startDate: string,
   endDate: string,
   mode: string = 'all'
 ) {
   const params: any[] = [supervisorId];
+
+  // Phase 6: parse all three filters into either "all" or a list. Backward
+  // compatible with single-value callers; the singleton case binds via IN(?).
+  const agentFilter   = parseMultiFilter(agentId);
+  const projectFilter = parseMultiFilter(projectId);
+  const statusFilter  = parseMultiFilter(status);
 
   let sql = `
     SELECT
@@ -281,24 +302,33 @@ export async function getExportData(
     WHERE 1=1
   `;
 
-  if (agentId && agentId !== 'all') {
-    sql += " AND ac.agent_id = ?";
-    params.push(agentId);
+  if (agentFilter !== "all") {
+    sql += " AND ac.agent_id IN (?)";
+    params.push(agentFilter);
   }
-  if (projectId && projectId !== 'all') {
-    sql += " AND c.project_id = ?";
-    params.push(projectId);
+  if (projectFilter !== "all") {
+    sql += " AND c.project_id IN (?)";
+    params.push(projectFilter);
   }
-  if (status && status !== 'all') {
-    sql += " AND ac.status_code = ?";
-    params.push(status);
+  if (statusFilter !== "all") {
+    sql += " AND ac.status_code IN (?)";
+    params.push(statusFilter);
   }
 
   if (startDate && endDate) {
-    if (['visit-done', 'booking-done'].includes(status)) {
+    // Phase 6: when ANY non-"done" / "booking-done" code is included in the
+    // status filter list, we still need the OR branch for the closed-codes.
+    const statusIsClosedOnly =
+      statusFilter !== "all" &&
+      statusFilter.every(s => s === "visit-done" || s === "booking-done");
+    const statusIsActiveOnly =
+      statusFilter !== "all" &&
+      !statusFilter.some(s => s === "visit-done" || s === "booking-done");
+
+    if (statusIsClosedOnly) {
       sql += ` AND ${dateRange("ac.done_date")}`;
       params.push(startDate, endDate);
-    } else if (status && status !== 'all') {
+    } else if (statusIsActiveOnly) {
       sql += ` AND ${dateRange("ac.updated_at")}`;
       params.push(startDate, endDate);
     } else {
@@ -489,9 +519,19 @@ export async function getSupervisorDrillDown(
 // ----------------------------------------------------------------------------
 export async function searchGlobalCustomers(contactNumber: string) {
   const [rows] = await db.query(
+    // Phase 6: also expose ac.id (agent_customer_id) for journey lookup, and
+    // ac.agent_id + c.project_id so the supervisor's reassign modal can
+    // pre-fill the current assignment ("transfer auto-select"). Existing
+    // fields are preserved 1:1; only new columns added.
     `SELECT c.id AS customer_id, c.name AS customer_name, c.contact,
+            c.project_id,
+            ac.id AS agent_customer_id,
+            ac.agent_id,
             ac.status_code, ac.follow_up_date, ac.follow_up_time,
-            p.name AS project_name, u.first_name AS agent_name
+            p.name AS project_name,
+            u.first_name AS agent_name,
+            u.first_name AS agent_first_name,
+            u.last_name AS agent_last_name
        FROM customers c
        LEFT JOIN agent_customers ac ON c.id = ac.customer_id AND ac.is_active = 1
        LEFT JOIN projects p ON c.project_id = p.id
@@ -502,6 +542,55 @@ export async function searchGlobalCustomers(contactNumber: string) {
     [contactNumber]
   );
   return rows;
+}
+
+// ----------------------------------------------------------------------------
+// Phase 6 — CUSTOMER JOURNEY (supervisor read-only audit view)
+// ----------------------------------------------------------------------------
+// Returns the same shape as agent's getCustomerRemarkHistory: an array of
+// { date, action_type, old_status, new_status, remark }. Enforces supervisor
+// ownership via the users.supervisor_id JOIN so a supervisor can never read
+// the journey of an agent they don't manage.
+export async function getSupervisorCustomerJourney(
+  agentCustomerId: number,
+  supervisorId: number
+) {
+  // Ownership guard: ensure this agent_customer belongs to one of supervisor's agents.
+  const [owners]: any = await db.query(
+    `SELECT ac.id
+       FROM agent_customers ac
+       JOIN users u ON u.id = ac.agent_id AND u.supervisor_id = ?
+      WHERE ac.id = ?
+      LIMIT 1`,
+    [supervisorId, agentCustomerId]
+  );
+  if (!owners || owners.length === 0) return null;
+
+  const [rows]: any = await db.query(
+    `SELECT created_at, action_type, old_value, new_value
+       FROM agent_customer_logs
+      WHERE agent_customer_id = ?
+      ORDER BY created_at DESC
+      LIMIT 200`,
+    [agentCustomerId]
+  );
+
+  return rows.map((log: any) => {
+    let newVal: any = {}, oldVal: any = {};
+    try { newVal = log.new_value ? JSON.parse(log.new_value) : {}; } catch {}
+    try { oldVal = log.old_value ? JSON.parse(log.old_value) : {}; } catch {}
+    return {
+      date: log.created_at,
+      action_type: log.action_type,
+      old_status: oldVal.status_code || null,
+      new_status: newVal.status_code || null,
+      remark: newVal.remark && newVal.remark.trim() !== "" ? newVal.remark : null,
+    };
+  }).filter((item: any) =>
+    item.action_type === 'CREATE' ||
+    item.action_type === 'STATUS_CHANGE' ||
+    item.remark
+  );
 }
 
 // ----------------------------------------------------------------------------
