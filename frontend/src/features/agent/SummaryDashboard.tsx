@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { AppShell } from "@/components/ui/app-shell";
+import AgentDrillDownModal from "./AgentDrillDownModel";
 import {
   format,
   startOfWeek,
@@ -35,17 +37,8 @@ const Tabs = ({ active, setActive, labels }: any) => (
 
 // All possible statuses for Section 3 Rows
 const ALL_STATUSES = [
-  "visit-proposed",
-  "visit-confirmed",
-  "virtual-meet",
-  "virtual-meet-confirmed",
-  "visit-done",
-  "booking-done",
-  "lost",
-  "follow-up",
-  "sdow",
-  "not-reachable",
-  "pending",
+  "visit-proposed", "visit-confirmed", "virtual-meet", "virtual-meet-confirmed",
+  "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending",
 ];
 
 export default function SummaryDashboard() {
@@ -56,7 +49,7 @@ export default function SummaryDashboard() {
 
   // Filters
   const [selectedProject, setSelectedProject] = useState("all");
-  const [period, setPeriod] = useState("This Week"); // Sec 1 Only
+  const [period, setPeriod] = useState("This Week"); 
   
   // Section 2 Specific
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week"); 
@@ -69,52 +62,66 @@ export default function SummaryDashboard() {
   const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
   const [sec2Data, setSec2Data] = useState<any[]>([]);
   const [sec3Data, setSec3Data] = useState<any[]>([]);
-  
   const [loading, setLoading] = useState(false);
+
+  // --- DRILL DOWN STATE ---
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalData, setModalData] = useState([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
 
   // --- DATE LOGIC ---
   const getDatesFromPeriod = (p: string) => {
     const now = new Date();
-    let start = now;
-    let end = now;
+    let start = now, end = now;
+    if (p === "Today") { start = now; end = now; } 
+    else if (p === "Yesterday") { start = subDays(now, 1); end = subDays(now, 1); } 
+    else if (p === "This Week") { start = startOfWeek(now, { weekStartsOn: 1 }); end = endOfWeek(now, { weekStartsOn: 1 }); } 
+    else if (p === "This Month") { start = startOfMonth(now); end = endOfMonth(now); } 
+    else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); } 
+    else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
 
-    if (p === "Today") {
-      start = now;
-      end = now;
-    } else if (p === "Yesterday") {
-      start = subDays(now, 1);
-      end = subDays(now, 1);
-    } else if (p === "This Week") {
-      start = startOfWeek(now, { weekStartsOn: 1 });
-      end = endOfWeek(now, { weekStartsOn: 1 });
-    } else if (p === "This Month") {
-      start = startOfMonth(now);
-      end = endOfMonth(now);
-    } else if (p === "Past Week") {
-      const prev = subWeeks(now, 1);
-      start = startOfWeek(prev, { weekStartsOn: 1 });
-      end = endOfWeek(prev, { weekStartsOn: 1 });
-    } else if (p === "Next Week") {
-      const next = addWeeks(now, 1);
-      start = startOfWeek(next, { weekStartsOn: 1 });
-      end = endOfWeek(next, { weekStartsOn: 1 });
+    return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
+  };
+
+  // --- DRILL DOWN HANDLER ---
+  const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
+    if (!user) return;
+    setModalOpen(true);
+    setModalLoading(true);
+    const dayLabel = dayNum ? " (Day View)" : " (Total View)";
+    setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
+
+    try {
+      let usePeriod = period; 
+      if (section === 'pipeline') usePeriod = pipelinePeriod;
+      if (section === 'volume') usePeriod = sec3Period;
+
+      const { startDate, endDate } = getDatesFromPeriod(usePeriod);
+
+      const res = await axios.get("/api/agent/customers/drill-down", {
+        params: {
+          projectId: selectedProject,
+          startDate,
+          endDate,
+          statusCode,
+          section,
+          dayNum 
+        }
+      });
+      setModalData(res.data);
+    } catch (e) {
+      console.error("Drill down error", e);
+    } finally {
+      setModalLoading(false);
     }
-
-    return {
-      startDate: format(start, "yyyy-MM-dd"),
-      endDate: format(end, "yyyy-MM-dd"),
-    };
   };
 
   const fetchProjects = async () => {
     try {
-      const res = await axios.get(
-        `/api/agent/customers/summary-dashboard?section=projects&_ts=${Date.now()}`
-      );
+      const res = await axios.get(`/api/agent/customers/summary-dashboard?section=projects&_ts=${Date.now()}`);
       setProjects(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      setProjects([]);
-    }
+    } catch { setProjects([]); }
   };
 
   const fetchData = async () => {
@@ -122,7 +129,6 @@ export default function SummaryDashboard() {
     try {
       const ts = Date.now();
       
-      // SECTION 1
       if (activeTab === 0) {
         const { startDate, endDate } = getDatesFromPeriod(period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -130,8 +136,6 @@ export default function SummaryDashboard() {
         });
         setSec1Data(res.data || {});
       }
-
-      // SECTION 2
       if (activeTab === 1) {
         const { startDate, endDate } = getDatesFromPeriod(pipelinePeriod);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -139,8 +143,6 @@ export default function SummaryDashboard() {
         });
         setSec2Data(Array.isArray(res.data) ? res.data : []);
       }
-
-      // SECTION 3
       if (activeTab === 2) {
         const { startDate, endDate } = getDatesFromPeriod(sec3Period);
         const res = await axios.get("/api/agent/customers/summary-dashboard", {
@@ -148,16 +150,11 @@ export default function SummaryDashboard() {
         });
         setSec3Data(Array.isArray(res.data) ? res.data : []);
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchProjects(); }, []);
-
-  useEffect(() => {
-    if (user) fetchData();
-  }, [activeTab, selectedProject, period, pipelinePeriod, mode, sec3Period, user]);
+  useEffect(() => { if (user) fetchData(); }, [activeTab, selectedProject, period, pipelinePeriod, mode, sec3Period, user]);
 
   const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
 
@@ -193,7 +190,7 @@ export default function SummaryDashboard() {
     </div>
   );
 
-/* ---------------- BOX STYLE MATRIX TABLE ---------------- */
+  /* ---------------- BOX STYLE MATRIX TABLE ---------------- */
   const MatrixTable = ({ 
     rows, 
     data, 
@@ -201,10 +198,9 @@ export default function SummaryDashboard() {
     isPipeline = false 
   }: any) => {
     const days = [
-      { label: "Mon", sql: 2 }, { label: "Tue", sql: 3 }, { label: "Wed", sql: 4 },
-      { label: "Thu", sql: 5 }, { label: "Fri", sql: 6 }, { label: "Sat", sql: 7 }, { label: "Sun", sql: 1 },
+      { label: "Mon", sql: 1 }, { label: "Tue", sql: 2 }, { label: "Wed", sql: 3 },
+      { label: "Thu", sql: 4 }, { label: "Fri", sql: 5 }, { label: "Sat", sql: 6 }, { label: "Sun", sql: 7 },
     ];
-
     const colTotals: Record<number, number> = {};
     days.forEach(d => { colTotals[d.sql] = 0; });
     let grandTotal = 0;
@@ -231,7 +227,6 @@ export default function SummaryDashboard() {
                     {days.map((d) => {
                       let c = 0;
                       const record = data.find((item: any) => item.status_code === row.code && item.day_num === d.sql);
-                      
                       if (isPipeline && record) {
                          const fresh = Number(record.fresh) || 0;
                          const repeated = Number(record.repeated) || 0;
@@ -239,26 +234,29 @@ export default function SummaryDashboard() {
                       } else if (record) {
                          c = Number(record.count) || 0;
                       }
-
                       rowTotal += c;
                       colTotals[d.sql] += c;
 
                       return (
                         <td 
                           key={d.label} 
-                          className={`p-2 text-center border border-slate-300 ${c > 0 ? "text-blue-600 font-bold bg-blue-50/50" : "text-slate-300"}`}
+                          onClick={() => c > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume', d.sql)}
+                          className={`p-2 text-center border border-slate-300 transition-all ${c > 0 ? "text-blue-600 font-bold bg-blue-50/50 cursor-pointer hover:bg-blue-100" : "text-slate-300"}`}
                         >
-                          {/* CHANGED: Removed ternary check. Just show 'c'. If 0, it shows 0. */}
                           {c}
                         </td>
                       );
                     })}
-                    <td className="p-2 text-center font-bold text-slate-800 bg-slate-50 border border-slate-300">{rowTotal}</td>
+                    <td 
+                        onClick={() => rowTotal > 0 && handleDrillDown(row.code, isPipeline ? 'pipeline' : 'volume')}
+                        className={`p-2 text-center font-bold text-slate-800 bg-slate-50 border border-slate-300 transition-all ${rowTotal > 0 ? "cursor-pointer hover:bg-slate-200" : ""}`}
+                    >
+                        {rowTotal}
+                    </td>
                   </tr>
                 );
               })}
               
-              {/* Grand Total Row */}
               <tr className="bg-slate-100 font-bold">
                 <td className="p-2 text-slate-800 uppercase text-xs tracking-wider border border-slate-300">{totalLabel}</td>
                 {days.map(d => {
@@ -267,13 +265,19 @@ export default function SummaryDashboard() {
                     return (
                         <td 
                           key={d.label} 
-                          className={`p-2 text-center border border-slate-300 ${val > 0 ? "text-blue-800" : "text-slate-300 font-normal"}`}
+                          onClick={() => val > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume', d.sql)}
+                          className={`p-2 text-center border border-slate-300 transition-all ${val > 0 ? "text-blue-800 cursor-pointer hover:bg-slate-200" : "text-slate-300 font-normal"}`}
                         >
                             {val}
                         </td>
                     )
                 })}
-                <td className="p-2 text-center text-lg text-blue-900 bg-blue-100 border border-slate-300">{grandTotal}</td>
+                <td 
+                    onClick={() => grandTotal > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume')}
+                    className={`p-2 text-center text-lg text-blue-900 bg-blue-100 border border-slate-300 transition-all ${grandTotal > 0 ? "cursor-pointer hover:bg-blue-200" : ""}`}
+                >
+                    {grandTotal}
+                </td>
               </tr>
             </tbody>
           </table>
@@ -285,42 +289,40 @@ export default function SummaryDashboard() {
   /* ---------------- SECTIONS ---------------- */
 
   const renderSection1 = () => (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-4 animate-in fade-in duration-500">
       <FilterBar>
-        <StyledSelect
-          icon={Briefcase}
-          value={selectedProject}
-          onChange={(e: any) => setSelectedProject(e.target.value)}
-          options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>}
-        />
-        <StyledSelect
-          icon={Calendar}
-          value={period}
-          onChange={(e: any) => setPeriod(e.target.value)}
-          options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>}
-        />
+        <StyledSelect icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)} options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} />
+        <StyledSelect icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)} options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>} />
       </FilterBar>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
+          ["Follow Up", "follow-up", "text-cyan-600", "bg-cyan-50"],
           ["Visit Proposed", "visit-proposed", "text-blue-600", "bg-blue-50"],
           ["Visit Confirmed", "visit-confirmed", "text-indigo-600", "bg-indigo-50"],
           ["Virtual Meet", "virtual-meet", "text-purple-600", "bg-purple-50"],
-          ["Virtual Meet Confirmed", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50"],
+          ["Virtual Done", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50"],
           ["Visit Done", "visit-done", "text-orange-600", "bg-orange-50"],
           ["Booking Done", "booking-done", "text-emerald-600", "bg-emerald-50"],
+          ["SDOW", "sdow", "text-amber-600", "bg-amber-50"],
+          ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50"],
+          ["Lost", "lost", "text-slate-600", "bg-slate-50"],
         ].map(([label, code, colorClass, bgClass]) => (
-          <Card key={code} className="border-none shadow-sm hover:shadow-md transition-all duration-300 group cursor-default">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-slate-500 uppercase tracking-wider">{label}</CardTitle>
+          <Card 
+            key={code} 
+            onClick={() => handleDrillDown(code as string, 'cards')}
+            className="border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group cursor-pointer"
+          >
+            <CardHeader className="p-3 pb-0">
+              <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider leading-none">{label}</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-3 pt-1">
               <div className="flex items-end justify-between">
-                <div className={`text-4xl font-bold ${colorClass} group-hover:scale-105 transition-transform origin-left`}>
+                <div className={`text-2xl font-bold ${colorClass} group-hover:scale-105 transition-transform origin-left`}>
                   {getCount(sec1Data, code as string)}
                 </div>
-                <div className={`p-2 rounded-full ${bgClass} opacity-0 group-hover:opacity-100 transition-opacity`}>
-                   <div className={`w-2 h-2 rounded-full ${colorClass.replace('text', 'bg')}`}></div>
+                <div className={`p-1.5 rounded-full ${bgClass} opacity-0 group-hover:opacity-100 transition-opacity`}>
+                   <div className={`w-1.5 h-1.5 rounded-full ${colorClass.replace('text', 'bg')}`}></div>
                 </div>
               </div>
             </CardContent>
@@ -330,64 +332,31 @@ export default function SummaryDashboard() {
     </div>
   );
 
-  const renderSection2 = () => {
-    const pipelineRows = [
-      { label: "Visit Proposed", code: "visit-proposed" },
-      { label: "Visit Confirmed", code: "visit-confirmed" },
-      { label: "Virtual Meet Confirmed", code: "virtual-meet-confirmed" },
-    ];
+  const renderSection2 = () => (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <FilterBar>
+        <StyledSelect icon={Calendar} value={pipelinePeriod} onChange={(e: any) => setPipelinePeriod(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>} />
+        <StyledSelect icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh (Same Day)</option><option value="repeated">Repeated (Pushed)</option></>} />
+      </FilterBar>
+      <MatrixTable rows={[{ label: "Visit Proposed", code: "visit-proposed" }, { label: "Visit Confirmed", code: "visit-confirmed" }, { label: "Virtual Meet Confirmed", code: "virtual-meet-confirmed" }]} data={sec2Data} totalLabel="Total Pipeline" isPipeline={true} />
+    </div>
+  );
 
-    return (
-      <div className="space-y-6 animate-in fade-in duration-500">
-        <FilterBar>
-          <StyledSelect
-            icon={Calendar}
-            value={pipelinePeriod} 
-            onChange={(e: any) => setPipelinePeriod(e.target.value)}
-            options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>}
-          />
-          <StyledSelect
-            icon={Layers}
-            value={mode}
-            onChange={(e: any) => setMode(e.target.value)}
-            options={<><option value="all">All Leads</option><option value="fresh">Fresh (Same Day)</option><option value="repeated">Repeated (Pushed)</option></>}
-          />
-        </FilterBar>
-        
-        <MatrixTable rows={pipelineRows} data={sec2Data} totalLabel="Total Pipeline" isPipeline={true} />
-      </div>
-    );
-  };
-
-  const renderSection3 = () => {
-    const allRows = ALL_STATUSES.map(s => ({ label: s.replace(/-/g, " "), code: s }));
-
-    return (
-      <div className="space-y-6 animate-in fade-in duration-500">
-        <FilterBar>
-          <StyledSelect
-            icon={Briefcase}
-            value={selectedProject}
-            onChange={(e: any) => setSelectedProject(e.target.value)}
-            options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>}
-          />
-          <StyledSelect
-            icon={Calendar}
-            value={sec3Period}
-            onChange={(e: any) => setSec3Period(e.target.value)}
-            options={<><option>Past Week</option><option>This Week</option><option>This Month</option></>}
-          />
-        </FilterBar>
-
-        <MatrixTable rows={allRows} data={sec3Data} totalLabel="Grand Total" isPipeline={false} />
-      </div>
-    );
-  };
+  const renderSection3 = () => (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <FilterBar>
+        <StyledSelect icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)} options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} />
+        <StyledSelect icon={Calendar} value={sec3Period} onChange={(e: any) => setSec3Period(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>This Month</option></>} />
+      </FilterBar>
+      <MatrixTable rows={ALL_STATUSES.map(s => ({ label: s.replace(/-/g, " "), code: s }))} data={sec3Data} totalLabel="Grand Total" isPipeline={false} />
+    </div>
+  );
 
   if (authLoading) return <div className="flex h-screen items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 text-blue-600 animate-spin" /></div>;
   if (!user) return <div className="p-8 text-center text-slate-500">Session expired. Please login.</div>;
 
   return (
+    <AppShell sidebar={null}>
     <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-7xl mx-auto font-sans">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
@@ -413,6 +382,16 @@ export default function SummaryDashboard() {
           {activeTab === 2 && renderSection3()}
         </>
       )}
+
+      {/* --- ADDED MODAL COMPONENT --- */}
+      <AgentDrillDownModal 
+        isOpen={modalOpen} 
+        onClose={setModalOpen} 
+        title={modalTitle} 
+        data={modalData} 
+        loading={modalLoading} 
+      />
     </div>
+    </AppShell>
   );
 }

@@ -6,12 +6,19 @@ import AdminDashboard from '@/features/admin/AdminDashboard';
 import AgentDashboard from '@/features/agent/AgentDashboard';
 import CustomerResolvePage from '@/features/agent/CustomerResolvePage';
 import AgentCustomersPage from '@/features/agent/AgentCustomersPage';
+import SummaryDashboard from '@/features/agent/SummaryDashboard';
+import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
+
+// Supervisor Imports
 import SupervisorDashboard from '@/features/supervisor/SupervisorDashboard';
 import SupervisorCreateUserPage from '@/features/supervisor/SupervisorCreateUserPage';
 import ProjectAllocationPage from '@/features/supervisor/ProjectAllocationPage';
-import SummaryDashboard from '@/features/agent/SummaryDashboard';
-import FollowUpDashboard from '@/features/agent/FollowUpDashboard';
 import SupervisorSummaryDashboard from '@/features/supervisor/SupervisorSummaryDashboard';
+import SupervisorFollowUpPage from '@/features/supervisor/SupervisorFollowUpPage';
+import SupervisorExportPage from '@/features/supervisor/SupervisorExportPage';
+import GlobalCustomerSearch from '@/features/supervisor/GlobalCustomerSearch';
+import WhatsAppTemplateManagement from '@/features/supervisor/WhatsAppTemplateManagement';
+import SupervisorWhatsAppAudit from '@/features/supervisor/SupervisorWhatsAppAudit';
 
 export default function AppRoutes() {
   return (
@@ -73,7 +80,6 @@ export default function AppRoutes() {
         }
       />
 
-      {/* FIXED: Moved inside RequireAuth role="AGENT" */}
       <Route 
         path="/agent/summary" 
         element={
@@ -117,6 +123,47 @@ export default function AppRoutes() {
           </RequireAuth>
         }
       />
+      <Route
+        path="/supervisor/follow-ups"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorFollowUpPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/supervisor/export-data"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorExportPage />
+          </RequireAuth>
+        }
+      />      <Route
+        path="/supervisor/whatsapp/audit"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <SupervisorWhatsAppAudit />
+          </RequireAuth>
+        }
+      />      
+      <Route
+        path="/supervisor/customer-search"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <GlobalCustomerSearch />
+          </RequireAuth>
+        }
+      />
+      
+      <Route
+        path="/supervisor/whatsapp/templates"
+        element={
+          <RequireAuth role="SUPERVISOR">
+            <WhatsAppTemplateManagement />
+          </RequireAuth>
+        }
+      />
+      
     </Routes>
   );
 }

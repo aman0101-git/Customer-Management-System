@@ -12,7 +12,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': 'http://192.168.1.14:3000',
     },
   },
 })

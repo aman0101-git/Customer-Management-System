@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/ui/app-shell";
 import CreateUserForm from "../admin/CreateUserForm";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
-import { Users, UserPlus, Search, ShieldCheck, Briefcase, MoreVertical, X, Filter, Power, FolderCog } from "lucide-react";
-import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer"; // Import the new drawer
+import { Users, UserPlus, Search, ShieldCheck, Briefcase, X, Filter } from "lucide-react";
+import AgentProjectAllocationDrawer from "./AgentProjectAllocationDrawer";
+import { useAuth } from "@/context/AuthContext";
 
 type User = {
   id: number;
@@ -11,8 +12,9 @@ type User = {
   last_name: string;
   username: string;
   role: string;
-  project_count: number; // Updated type
-  is_active: number; // Updated type (1 or 0)
+  project_count: number;
+  is_active: number;
+  supervisor_id: number;
 };
 
 // UI Helper: Avatar Generator
@@ -38,6 +40,7 @@ const RoleBadge = ({ role }: { role: string }) => {
 };
 
 export default function SupervisorCreateUserPage() {
+  const { user } = useAuth();
   const [agents, setAgents] = useState<User[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -46,28 +49,31 @@ export default function SupervisorCreateUserPage() {
   const [selectedAgent, setSelectedAgent] = useState<User | null>(null);
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false);
 
-  // State for Dropdown Menu
-  const [activeMenuId, setActiveMenuId] = useState<number | null>(null);
-
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+  const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.1.14:3000";
 
   const loadAgents = () => {
+    if (!user?.id) return;
+
     fetch(`${API_BASE}/api/users`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       })
       .then((users: User[]) => {
-        setAgents(users.filter(u => u.role?.toUpperCase() === 'AGENT'));
+        const myAgents = users.filter(u => u.role?.toUpperCase() === 'AGENT');
+        setAgents(myAgents);
       })
       .catch(err => console.error("Failed to load users:", err));
   };
-
-  useEffect(() => { loadAgents(); }, []);
+  
+  useEffect(() => { 
+    if (user?.id) {
+      loadAgents(); 
+    }
+  }, [user?.id]); 
 
   // Handle Deactivation / Activation
   const handleToggleStatus = async (agent: User) => {
-    setActiveMenuId(null); // Close menu
     const action = agent.is_active ? "Deactivate" : "Activate";
     if (!window.confirm(`Are you sure you want to ${action.toUpperCase()} ${agent.first_name}? \n\nThey will ${agent.is_active ? 'lose access' : 'regain access'} to the system.`)) {
       return;
@@ -88,24 +94,18 @@ export default function SupervisorCreateUserPage() {
 
   // Handle Opening Project Drawer
   const handleManageProjects = (agent: User) => {
-    setActiveMenuId(null);
     setSelectedAgent(agent);
     setProjectDrawerOpen(true);
   };
 
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = () => setActiveMenuId(null);
-    window.addEventListener("click", handleClickOutside);
-    return () => window.removeEventListener("click", handleClickOutside);
-  }, []);
-
-  // Filter logic
-  const filteredAgents = agents.filter(agent => 
-    agent.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter and Sort logic (Active users on top)
+  const filteredAgents = agents
+    .filter(agent => 
+      agent.first_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      agent.last_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      agent.username.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    .sort((a, b) => b.is_active - a.is_active); // Sorts 1 (Active) before 0 (Inactive)
 
   return (
     <AppShell sidebar={null}>
@@ -119,10 +119,10 @@ export default function SupervisorCreateUserPage() {
                 <div className="p-2 bg-indigo-600 rounded-lg shadow-lg shadow-indigo-200">
                   <Users className="w-6 h-6 text-white" />
                 </div>
-                Agent Management
+                My Team Management
               </h2>
               <p className="text-sm text-slate-500 font-medium mt-1 ml-1">
-                Monitor performance and manage agent access credentials.
+                Monitor performance and manage credentials for your assigned agents.
               </p>
             </div>
             <button
@@ -142,7 +142,7 @@ export default function SupervisorCreateUserPage() {
               </div>
               <input 
                 type="text" 
-                placeholder="Search by name or username..." 
+                placeholder="Search your agents by name or username..." 
                 className="w-full h-10 outline-none text-sm text-slate-700 placeholder:text-slate-400"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -155,7 +155,7 @@ export default function SupervisorCreateUserPage() {
             </div>
             
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Agents</span>
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">My Agents</span>
               <span className="text-2xl font-black text-indigo-600">{agents.length}</span>
             </div>
           </div>
@@ -222,36 +222,30 @@ export default function SupervisorCreateUserPage() {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right relative">
-                          <button 
+                        <td className="px-6 py-4 text-right whitespace-nowrap">
+                          {/* New Inline Buttons */}
+                          <button
+                            className="text-indigo-600 hover:text-indigo-800 font-bold text-xs bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors mr-2"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setActiveMenuId(activeMenuId === u.id ? null : u.id);
+                              handleManageProjects(u);
                             }}
-                            className="text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg transition-all"
                           >
-                            <MoreVertical className="w-4 h-4" />
+                            Manage Projects
                           </button>
-
-                          {/* Dropdown Menu */}
-                          {activeMenuId === u.id && (
-                            <div className="absolute right-8 top-8 w-48 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100 origin-top-right">
-                              <div className="p-1">
-                                <button
-                                  onClick={() => handleManageProjects(u)}
-                                  className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-indigo-600 rounded-lg transition-colors font-medium text-left"
-                                >
-                                  <FolderCog className="w-4 h-4" /> Manage Projects
-                                </button>
-                                <button 
-                                  onClick={() => handleToggleStatus(u)}
-                                  className={`flex items-center gap-2 w-full px-3 py-2.5 text-sm rounded-lg transition-colors font-medium text-left ${u.is_active ? 'text-rose-600 hover:bg-rose-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
-                                >
-                                  <Power className="w-4 h-4" /> {u.is_active ? "Deactivate User" : "Activate User"}
-                                </button>
-                              </div>
-                            </div>
-                          )}
+                          <button
+                            className={`font-bold text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                              u.is_active 
+                                ? "text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100" 
+                                : "text-emerald-600 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100"
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleStatus(u);
+                            }}
+                          >
+                            {u.is_active ? "Deactivate" : "Activate"}
+                          </button>
                         </td>
                       </tr>
                     ))

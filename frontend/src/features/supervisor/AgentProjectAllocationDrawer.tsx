@@ -26,7 +26,7 @@ export default function AgentProjectAllocationDrawer({
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingId, setLoadingId] = useState<number | null>(null);
 
-  const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
+  const API_BASE = import.meta.env.VITE_API_URL || "http://192.168.1.14:3000";
 
   const refreshProjects = () => {
     if (agent?.id) {

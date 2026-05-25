@@ -18,7 +18,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-const API_BASE = "http://localhost:3000";
+const API_BASE = "http://192.168.1.14:3000";
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);

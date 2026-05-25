@@ -1,7 +1,7 @@
 
 import axios from 'axios';
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'http://192.168.1.14:3000';
 
 export async function createUser(payload: {
   firstName: string;

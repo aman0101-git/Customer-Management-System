@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
+import { AppShell } from "@/components/ui/app-shell";
+import DrillDownModal from "./DrillDownModel";
 import {
   format,
   startOfWeek,
@@ -11,65 +13,45 @@ import {
   endOfMonth,
   subDays,
 } from "date-fns";
-import { Loader2, Calendar, Filter, Briefcase, Layers, Users, ChevronDown } from "lucide-react";
-import { AppShell } from "@/components/ui/app-shell";
+import { 
+  Loader2, 
+  Calendar, 
+  Briefcase, 
+  Layers, 
+  Users, 
+  Filter
+} from "lucide-react";
 
-/* ---------------- STYLISH UI HELPERS ---------------- */
+/* ---------------- COMPACT UI HELPERS ---------------- */
 
-// 1. Modern Segmented Tabs
 const Tabs = ({ active, setActive, labels }: any) => (
-  <div className="flex p-1.5 bg-slate-100/80 backdrop-blur-md rounded-2xl mb-8 w-fit border border-slate-200 shadow-sm">
+  <div className="flex p-1 bg-slate-100 rounded-lg w-fit border border-slate-200">
     {labels.map((label: string, idx: number) => (
       <button
         key={idx}
         onClick={() => setActive(idx)}
-        className={`relative px-6 py-2.5 text-sm font-semibold rounded-xl transition-all duration-300 ease-out ${
+        className={`relative px-4 py-1.5 text-sm font-semibold rounded-md transition-all duration-200 ease-out ${
           active === idx
-            ? "bg-white text-indigo-700 shadow-md ring-1 ring-black/5 translate-y-0"
+            ? "bg-white text-indigo-700 shadow-sm ring-1 ring-black/5"
             : "text-slate-500 hover:text-slate-700 hover:bg-slate-200/50"
         }`}
       >
         {label}
-        {active === idx && (
-           <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-indigo-500 rounded-full" />
-        )}
       </button>
     ))}
   </div>
 );
 
-// 2. Glassmorphic Filter Bar
-const FilterBar = ({ children }: any) => (
-  <div className="flex flex-col xl:flex-row gap-4 mb-8 bg-white/80 backdrop-blur-xl p-5 rounded-2xl shadow-sm border border-slate-200/60 items-start xl:items-center justify-between sticky top-4 z-10 transition-all">
-    <div className="flex items-center gap-3 text-slate-600">
-      <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
-        <Filter className="w-5 h-5" />
-      </div>
-      <div>
-        <span className="block text-xs font-bold uppercase tracking-wider text-slate-400">View Controls</span>
-        <span className="text-sm font-semibold">Filter Data</span>
-      </div>
-    </div>
-    <div className="flex flex-wrap gap-3 w-full xl:w-auto items-center">{children}</div>
-  </div>
-);
-
-// 3. Premium Select Input
-const StyledSelect = ({ value, onChange, options, icon: Icon }: any) => (
-  <div className="relative group min-w-[180px]">
-    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-indigo-500 transition-colors">
-      {Icon && <Icon className="w-4 h-4" />}
-    </div>
-    <select
-      className="w-full pl-10 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-700 shadow-sm transition-all cursor-pointer hover:border-indigo-300 focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 outline-none appearance-none"
+const SelectInput = ({ icon: Icon, value, onChange, options, minWidth = "min-w-[160px]" }: any) => (
+  <div className={`relative ${minWidth}`}>
+    <select 
+      className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-indigo-100 outline-none cursor-pointer text-slate-700 appearance-none"
       value={value}
       onChange={onChange}
     >
       {options}
     </select>
-    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-      <ChevronDown className="w-4 h-4" />
-    </div>
+    <Icon className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
   </div>
 );
 
@@ -77,25 +59,33 @@ const StyledSelect = ({ value, onChange, options, icon: Icon }: any) => (
 
 export default function SupervisorSummaryDashboard() {
   const { user } = useAuth();
+  
+  // View State
   const [activeTab, setActiveTab] = useState(0);
 
-  // Filters
+  // Filter State
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [selectedProject, setSelectedProject] = useState("all");
   
-  // Date Filters
+  // Date/Mode Filters
   const [period, setPeriod] = useState("This Week"); 
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week"); 
   const [sec3Period, setSec3Period] = useState("This Week"); 
   const [mode, setMode] = useState("all"); 
 
-  // Data
+  // Data State
   const [agents, setAgents] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [sec1Data, setSec1Data] = useState<Record<string, number>>({});
   const [sec2Data, setSec2Data] = useState<any[]>([]);
   const [sec3Data, setSec3Data] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // --- DRILL DOWN MODAL STATE ---
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalData, setModalData] = useState([]);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalTitle, setModalTitle] = useState("");
 
   // --- Date Calculation Helper ---
   const getDatesFromPeriod = (p: string) => {
@@ -108,10 +98,54 @@ export default function SupervisorSummaryDashboard() {
     else if (p === "Past Week") { const prev = subWeeks(now, 1); start = startOfWeek(prev, { weekStartsOn: 1 }); end = endOfWeek(prev, { weekStartsOn: 1 }); }
     else if (p === "Next Week") { const next = addWeeks(now, 1); start = startOfWeek(next, { weekStartsOn: 1 }); end = endOfWeek(next, { weekStartsOn: 1 }); }
 
-    return { startDate: format(start, "yyyy-MM-dd"), endDate: format(end, "yyyy-MM-dd") };
+    // FIX: Explicitly append time boundaries so MySQL includes the entire final day 
+    // instead of stopping at Midnight (00:00:00) of the end date.
+    return { 
+      startDate: format(start, "yyyy-MM-dd") + " 00:00:00", 
+      endDate: format(end, "yyyy-MM-dd") + " 23:59:59" 
+    };
   };
 
-  const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
+  // --- DRILL DOWN HANDLER ---
+  const handleDrillDown = async (statusCode: string, section: string, dayNum?: number) => {
+    // 1. GUARD CLAUSE: Fixes "user is possibly null" error
+    if (!user) return;
+
+    setModalOpen(true);
+    setModalLoading(true);
+    // Title logic: If dayNum is present, it's a specific day, otherwise it's the Total
+    const dayLabel = dayNum ? " (Day View)" : " (Total View)";
+    setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
+
+    try {
+      let usePeriod = period; 
+      if (section === 'pipeline') usePeriod = pipelinePeriod;
+      if (section === 'volume') usePeriod = sec3Period;
+
+      const { startDate, endDate } = getDatesFromPeriod(usePeriod);
+
+      const res = await axios.get("/api/supervisor/drill-down", {
+        params: {
+          supervisorId: user.id,
+          agentId: selectedAgent,
+          projectId: selectedProject,
+          startDate,
+          endDate,
+          statusCode,
+          section,
+          dayNum, // If undefined (Total column), backend will fetch range without day filter
+          
+          // FIX: Explicitly send the selected mode if we are clicking inside the pipeline matrix
+          mode: section === 'pipeline' ? mode : undefined 
+        }
+      });
+      setModalData(res.data);
+    } catch (e) {
+      console.error("Drill down error", e);
+    } finally {
+      setModalLoading(false);
+    }
+  };
 
   // --- API CALLS ---
   useEffect(() => {
@@ -162,120 +196,160 @@ export default function SupervisorSummaryDashboard() {
     fetchData();
   }, [user, activeTab, selectedAgent, selectedProject, period, pipelinePeriod, sec3Period, mode]);
 
+  const AgentFilter = () => (
+    <SelectInput 
+      icon={Users} value={selectedAgent} onChange={(e: any) => setSelectedAgent(e.target.value)}
+      options={<><option value="all">All Agents</option>{agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</>}
+    />
+  );
+  
+  const ProjectFilter = () => (
+    <SelectInput 
+      icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)}
+      options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>}
+    />
+  );
+
   // --- RENDER SECTIONS ---
 
-  // Reusable Selects
-  const AgentSelect = () => (
-    <StyledSelect 
-      icon={Users} value={selectedAgent} onChange={(e: any) => setSelectedAgent(e.target.value)}
-      options={<><option value="all">All Agents</option>{agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</>} 
-    />
-  );
-  const ProjectSelect = () => (
-    <StyledSelect 
-      icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)}
-      options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} 
-    />
-  );
+  // 1. Cards (Section 1)
+  const getCount = (data: Record<string, number>, code: string) => data?.[code] ?? 0;
 
-  // 4. Enhanced Cards with Stats
   const renderSection1 = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <FilterBar>
-        <div className="flex flex-wrap gap-3">
-            <AgentSelect />
-            <ProjectSelect />
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3 justify-between items-center">
+        <div className="flex items-center gap-2 text-slate-600 w-full md:w-auto">
+          <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-md"><Filter className="w-4 h-4" /></div>
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Filters</span>
         </div>
-        <StyledSelect icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)}
-          options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>} 
-        />
-      </FilterBar>
+        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+           <AgentFilter />
+           <ProjectFilter />
+           <SelectInput 
+             icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)}
+             options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>}
+           />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          ["Visit Proposed", "visit-proposed", "text-blue-600", "bg-blue-50", "border-blue-100"],
-          ["Visit Confirmed", "visit-confirmed", "text-indigo-600", "bg-indigo-50", "border-indigo-100"],
-          ["Virtual Meet", "virtual-meet", "text-purple-600", "bg-purple-50", "border-purple-100"],
-          ["Virtual Confirmed", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50", "border-fuchsia-100"],
-          ["Visit Done", "visit-done", "text-orange-600", "bg-orange-50", "border-orange-100"],
-          ["Booking Done", "booking-done", "text-emerald-600", "bg-emerald-50", "border-emerald-100"],
-        ].map(([label, code, color, bg, border]) => (
-          <div key={code} className={`group relative bg-white rounded-2xl border ${border} p-6 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 ease-out cursor-default`}>
-             <div className="flex justify-between items-start mb-4">
-                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">{label}</h3>
-                <div className={`p-2 rounded-xl ${bg} ${color}`}>
-                  <Layers className="w-5 h-5" />
-                </div>
+          ["Follow Up", "follow-up", "text-cyan-600", "bg-cyan-50", "border-cyan-200"],
+          ["Visit Proposed", "visit-proposed", "text-blue-600", "bg-blue-50", "border-blue-200"],
+          ["Visit Confirmed", "visit-confirmed", "text-indigo-600", "bg-indigo-50", "border-indigo-200"],
+          ["Virtual Meet", "virtual-meet", "text-purple-600", "bg-purple-50", "border-purple-200"],
+          ["Virtual Done", "virtual-meet-confirmed", "text-fuchsia-600", "bg-fuchsia-50", "border-fuchsia-200"],
+          ["Visit Done", "visit-done", "text-orange-600", "bg-orange-50", "border-orange-200"],
+          ["Booking", "booking-done", "text-emerald-600", "bg-emerald-50", "border-emerald-200"],
+          ["SDOW", "sdow", "text-amber-600", "bg-amber-50", "border-amber-200"],
+          ["Not Reachable", "not-reachable", "text-rose-600", "bg-rose-50", "border-rose-200"],
+          ["Lost", "lost", "text-slate-600", "bg-slate-50", "border-slate-200"],
+        ].map(([label, code, color, border]) => (
+          // --- UPDATED: WHOLE CARD IS CLICKABLE ---
+          <div 
+            key={code} 
+            onClick={() => handleDrillDown(code, 'cards')}
+            className={`bg-white rounded-xl border ${border} p-3 shadow-sm hover:shadow-md transition-all cursor-pointer group`}
+          >
+             <div className="flex justify-between items-start mb-2">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider leading-tight group-hover:text-indigo-600 transition-colors">{label}</h3>
              </div>
-             <div className="flex items-baseline gap-2">
-                <span className={`text-5xl font-bold tracking-tight ${color} drop-shadow-sm`}>
-                    {getCount(sec1Data, code)}
+             <div className="flex items-end gap-1">
+                <span className={`text-3xl font-bold tracking-tight ${color} group-hover:scale-105 transition-transform`}>
+                   {getCount(sec1Data, code)}
                 </span>
-                <span className="text-sm text-slate-400 font-medium">Leads</span>
              </div>
-             {/* Decorative Background Blob */}
-             <div className={`absolute -bottom-6 -right-6 w-24 h-24 rounded-full ${bg} opacity-50 blur-2xl group-hover:opacity-100 transition-opacity`} />
           </div>
         ))}
       </div>
     </div>
   );
 
-  // 5. Polished Data Table
+  // 2. Matrix Table Logic
   const MatrixTable = ({ rows, data, isPipeline }: any) => {
-    const days = [ {l:"Mon",n:2}, {l:"Tue",n:3}, {l:"Wed",n:4}, {l:"Thu",n:5}, {l:"Fri",n:6}, {l:"Sat",n:7}, {l:"Sun",n:1} ];
-    let grandTotal = 0; const colTotals: any = {1:0,2:0,3:0,4:0,5:0,6:0,7:0};
+    const days = [ {l:"Mon",n:1}, {l:"Tue",n:2}, {l:"Wed",n:3}, {l:"Thu",n:4}, {l:"Fri",n:5}, {l:"Sat",n:6}, {l:"Sun",n:7} ];
+    let grandTotal = 0; 
+    const colTotals: any = {1:0,2:0,3:0,4:0,5:0,6:0,7:0};
     
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden ring-1 ring-slate-100">
+      <div className="bg-white rounded-lg shadow-sm border border-slate-300 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-             <thead className="bg-slate-50/80 text-slate-600 font-semibold border-b border-slate-200">
-               <tr>
-                 <th className="p-4 text-left w-56 pl-6 uppercase text-xs tracking-wider">Status Category</th>
-                 {days.map(d=><th key={d.l} className="p-4 text-center w-24">{d.l}</th>)}
-                 <th className="p-4 text-center bg-slate-100/50 w-32 border-l border-slate-200 uppercase text-xs tracking-wider">Total</th>
+          <table className="w-full text-xs border-collapse">
+             <thead>
+               <tr className="bg-slate-100 text-slate-700">
+                 <th className="p-3 text-left w-48 border border-slate-300 font-bold uppercase tracking-wider">Status</th>
+                 {days.map(d=><th key={d.l} className="p-3 text-center w-16 border border-slate-300 font-bold">{d.l}</th>)}
+                 <th className="p-3 text-center w-20 border border-slate-300 bg-slate-200 font-bold text-slate-900">Total</th>
                </tr>
              </thead>
-             <tbody className="divide-y divide-slate-100">
-               {rows.map((r: any) => {
-                  let rTot = 0;
-                  return (
-                   <tr key={r.code} className="hover:bg-slate-50/80 transition-colors group">
-                     <td className="p-4 pl-6 font-medium text-slate-700 capitalize flex items-center gap-2">
-                        <div className="w-1.5 h-1.5 rounded-full bg-slate-300 group-hover:bg-indigo-500 transition-colors" />
+             <tbody>
+               {rows.map((r: any, idx: number) => {
+                 let rTot = 0;
+                 const rowBg = idx % 2 === 0 ? "bg-white" : "bg-slate-50/50";
+                 
+                 return (
+                   <tr key={r.code} className={`${rowBg} hover:bg-indigo-50 transition-colors`}>
+                     <td className="p-2 pl-3 font-semibold text-slate-700 capitalize border border-slate-300">
                         {r.label}
                      </td>
                      {days.map(d => {
-                        const rec = data.find((x: any) => x.status_code === r.code && x.day_num === d.n);
-                        let c = 0;
-                        if(isPipeline && rec) c = mode === "fresh" ? rec.fresh : mode === "repeated" ? rec.repeated : (Number(rec.fresh)+Number(rec.repeated));
-                        else if(rec) c = rec.count;
-                        rTot += Number(c); colTotals[d.n] += Number(c);
-                        
-                        return (
-                           <td key={d.l} className="p-4 text-center">
-                              {c > 0 ? (
-                                <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 font-bold text-sm shadow-sm ring-1 ring-indigo-100 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                                   {c}
-                                </span>
-                              ) : (
-                                <span className="text-slate-300 font-light">-</span>
-                              )}
+                       const rec = data.find((x: any) => x.status_code === r.code && x.day_num === d.n);
+                       let c = 0;
+                       if(isPipeline && rec) c = mode === "fresh" ? rec.fresh : mode === "repeated" ? rec.repeated : (Number(rec.fresh)+Number(rec.repeated));
+                       else if(rec) c = rec.count;
+                       rTot += Number(c); colTotals[d.n] += Number(c);
+                       
+                       return (
+                           <td 
+                                key={d.l} 
+                                onClick={() => c > 0 && handleDrillDown(r.code, isPipeline ? 'pipeline' : 'volume', d.n)}
+                                className={`p-2 text-center border border-slate-300 transition-all ${c > 0 ? 'cursor-pointer hover:bg-slate-100 active:bg-slate-200' : ''}`}
+                           >
+                             {c > 0 ? (
+                               <span className="font-bold text-indigo-600">{c}</span>
+                             ) : (
+                               <span className="text-slate-200 font-medium">0</span>
+                             )}
                            </td>
-                        )
+                       )
                      })}
-                     <td className="p-4 text-center font-bold text-slate-800 bg-slate-50/50 border-l border-slate-100">{rTot}</td>
+                     
+                     {/* ROW TOTAL (Right Column) */}
+                     <td 
+                        onClick={() => rTot > 0 && handleDrillDown(r.code, isPipeline ? 'pipeline' : 'volume')}
+                        className={`p-2 text-center font-bold text-slate-800 bg-slate-100 border border-slate-300 transition-all ${rTot > 0 ? 'cursor-pointer hover:bg-slate-200 active:bg-slate-300' : ''}`}
+                     >
+                        {rTot > 0 ? rTot : <span className="text-slate-300">0</span>}
+                     </td>
                    </tr>
                   )
                })}
-               <tr className="bg-indigo-50/30 border-t-2 border-slate-100">
-                 <td className="p-4 pl-6 font-bold text-slate-700 uppercase tracking-wider text-xs">Weekly Totals</td>
+               
+               {/* --- GRAND TOTAL ROW (Bottom) --- */}
+               <tr className="bg-slate-800 text-white border-t-2 border-slate-300">
+                 <td className="p-3 pl-3 font-bold uppercase tracking-wider border border-slate-600">Grand Total</td>
                  {days.map(d => { 
-                    grandTotal+=colTotals[d.n]; 
-                    return <td key={d.l} className="p-4 text-center font-semibold text-slate-600">{colTotals[d.n] || "-"}</td> 
+                   grandTotal+=colTotals[d.n]; 
+                   const c = colTotals[d.n];
+                   return (
+                       <td 
+                           key={d.l} 
+                           // Click Handler for Column Total (e.g., All Monday)
+                           onClick={() => c > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume', d.n)}
+                           className={`p-3 text-center font-bold border border-slate-600 transition-all ${c > 0 ? 'cursor-pointer hover:bg-slate-700' : ''}`}
+                       >
+                           {c > 0 ? c : <span className="text-slate-600">0</span>}
+                       </td>
+                   )
                  })}
-                 <td className="p-4 text-center text-lg font-bold text-indigo-700 bg-indigo-50/50 border-l border-indigo-100">{grandTotal}</td>
+                 
+                 {/* ABSOLUTE GRAND TOTAL (Bottom Right Corner) */}
+                 <td 
+                    onClick={() => grandTotal > 0 && handleDrillDown('all', isPipeline ? 'pipeline' : 'volume')}
+                    className={`p-3 text-center text-sm font-extrabold bg-indigo-600 border border-indigo-700 transition-all ${grandTotal > 0 ? 'cursor-pointer hover:bg-indigo-500' : ''}`}
+                 >
+                    {grandTotal}
+                 </td>
                </tr>
              </tbody>
           </table>
@@ -285,14 +359,14 @@ export default function SupervisorSummaryDashboard() {
   };
 
   const renderSection2 = () => (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <FilterBar>
-         <div className="flex flex-wrap gap-3"><AgentSelect /><ProjectSelect /></div>
-         <div className="flex flex-wrap gap-3">
-           <StyledSelect icon={Calendar} value={pipelinePeriod} onChange={(e: any) => setPipelinePeriod(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>} />
-           <StyledSelect icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh</option><option value="repeated">Repeated</option></>} />
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3 justify-between items-center">
+         <div className="flex flex-wrap gap-2 w-full md:w-auto"><AgentFilter /><ProjectFilter /></div>
+         <div className="flex flex-wrap gap-2 w-full md:w-auto">
+           <SelectInput icon={Calendar} value={pipelinePeriod} onChange={(e: any) => setPipelinePeriod(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>Next Week</option></>} />
+           <SelectInput icon={Layers} value={mode} onChange={(e: any) => setMode(e.target.value)} options={<><option value="all">All Leads</option><option value="fresh">Fresh</option><option value="repeated">Repeated</option></>} />
          </div>
-      </FilterBar>
+      </div>
       <MatrixTable isPipeline={true} data={sec2Data} rows={[{label:"Visit Proposed",code:"visit-proposed"},{label:"Visit Confirmed",code:"visit-confirmed"},{label:"Virtual Meet Confirmed",code:"virtual-meet-confirmed"}]} />
     </div>
   );
@@ -300,11 +374,13 @@ export default function SupervisorSummaryDashboard() {
   const renderSection3 = () => {
     const allRows = ["visit-proposed","visit-confirmed","virtual-meet","virtual-meet-confirmed","visit-done","booking-done","lost","follow-up","sdow","not-reachable","pending"].map(s => ({label: s.replace(/-/g, " "), code: s}));
     return (
-      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <FilterBar>
-           <div className="flex flex-wrap gap-3"><AgentSelect /><ProjectSelect /></div>
-           <StyledSelect icon={Calendar} value={sec3Period} onChange={(e: any) => setSec3Period(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>This Month</option></>} />
-        </FilterBar>
+      <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row gap-3 justify-between items-center">
+           <div className="flex flex-wrap gap-2 w-full md:w-auto"><AgentFilter /><ProjectFilter /></div>
+           <div className="flex flex-wrap gap-2 w-full md:w-auto">
+              <SelectInput icon={Calendar} value={sec3Period} onChange={(e: any) => setSec3Period(e.target.value)} options={<><option>Past Week</option><option>This Week</option><option>This Month</option></>} />
+           </div>
+        </div>
         <MatrixTable isPipeline={false} data={sec3Data} rows={allRows} />
       </div>
     );
@@ -312,18 +388,21 @@ export default function SupervisorSummaryDashboard() {
 
   return (
     <AppShell sidebar={null}>
-    <div className="min-h-screen bg-slate-50/50 p-4 md:p-10 max-w-7xl mx-auto font-sans">
-      <div className="mb-10">
-         <h1 className="text-4xl font-extrabold text-slate-800 tracking-tight mb-2">Supervisor <span className="text-indigo-600">Overview</span></h1>
-         <p className="text-slate-500 text-lg">Real-time insights into your team's performance and pipeline.</p>
+    <div className="min-h-screen bg-slate-50/50 p-4 md:p-6 max-w-7xl mx-auto font-sans">
+      
+      {/* Header */}
+      <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+         <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Supervisor <span className="text-indigo-600">Overview</span></h1>
+            <p className="text-slate-500 text-sm">Real-time team performance metrics.</p>
+         </div>
+         <Tabs active={activeTab} setActive={setActiveTab} labels={["Cards View", "Pipeline Grid", "Status Grid"]} />
       </div>
 
-      <Tabs active={activeTab} setActive={setActiveTab} labels={["Visits & Booking", "Weekly Pipeline", "Status Counts"]} />
-      
       {loading ? (
-          <div className="h-96 w-full flex flex-col items-center justify-center bg-white/50 backdrop-blur-sm rounded-3xl border border-slate-200">
-             <Loader2 className="w-12 h-12 animate-spin text-indigo-500 mb-4"/>
-             <span className="text-slate-400 font-medium animate-pulse">Synchronizing Data...</span>
+          <div className="h-64 w-full flex flex-col items-center justify-center bg-white/50 backdrop-blur-sm rounded-xl border border-slate-200">
+             <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2"/>
+             <span className="text-slate-400 text-sm font-medium animate-pulse">Loading Data...</span>
           </div>
       ) : (
         <>
@@ -332,6 +411,15 @@ export default function SupervisorSummaryDashboard() {
           {activeTab === 2 && renderSection3()}
         </>
       )}
+
+      {/* Drill Down Modal */}
+      <DrillDownModal 
+        isOpen={modalOpen} 
+        onClose={setModalOpen} 
+        title={modalTitle} 
+        data={modalData} 
+        loading={modalLoading} 
+      />
     </div>
     </AppShell>
   );
