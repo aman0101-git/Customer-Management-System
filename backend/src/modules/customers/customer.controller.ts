@@ -191,15 +191,82 @@ export async function getFollowUps(req: Request, res: Response) {
   }
 }
 
-// --- NEW HANDLER ---
+// ----------------------------------------------------------------------------
+// AGENT DASHBOARD ANALYTICS (May 2026)
+// ----------------------------------------------------------------------------
+// One consolidated GET that returns every KPI / chart / top-list the
+// AgentDashboard needs. All 6 underlying queries run in parallel via
+// Promise.all, so wall-clock latency is max(query) not sum(query).
+//
+// Query params:
+//   startDate  YYYY-MM-DD  (inclusive lower bound - required)
+//   endDate    YYYY-MM-DD  (inclusive upper bound - required)
+//
+// Date strings are validated as strict YYYY-MM-DD; we never pass arbitrary
+// input through to the SQL layer. Anything malformed -> 400.
+// ----------------------------------------------------------------------------
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export async function getAgentAnalytics(req: Request, res: Response) {
+  try {
+    const agentId = req.user?.id;
+    if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { startDate, endDate } = req.query;
+    if (
+      typeof startDate !== "string" || !ISO_DATE.test(startDate) ||
+      typeof endDate   !== "string" || !ISO_DATE.test(endDate)
+    ) {
+      return res.status(400).json({
+        message: "startDate and endDate are required (YYYY-MM-DD).",
+      });
+    }
+    if (startDate > endDate) {
+      return res.status(400).json({ message: "startDate must be <= endDate." });
+    }
+
+    const [
+      customerCounts,
+      followupTimeline,
+      followupStatusDistribution,
+      summaryStatusDistribution,
+      topCustomers,
+      topFollowups,
+    ] = await Promise.all([
+      Service.getAgentAnalyticsCustomerCounts(agentId, startDate, endDate),
+      Service.getAgentAnalyticsFollowupTimeline(agentId),
+      Service.getAgentAnalyticsFollowupStatusDistribution(agentId, startDate, endDate),
+      Service.getAgentAnalyticsSummaryDistribution(agentId, startDate, endDate),
+      Service.getAgentAnalyticsTopCustomers(agentId, startDate, endDate),
+      Service.getAgentAnalyticsTopFollowups(agentId),
+    ]);
+
+    return res.json({
+      range: { startDate, endDate },
+      customersCreated: customerCounts.customersCreated,
+      customersUpdated: customerCounts.customersUpdated,
+      followupTimeline,
+      followupStatusDistribution,
+      summaryStatusDistribution,
+      topCustomers,
+      topFollowups,
+    });
+  } catch (err) {
+    console.error("Analytics Error:", err);
+    return res.status(500).json({ message: "Failed to fetch analytics" });
+  }
+}
+
+// --- DRILL DOWN HANDLER (preserved) ---
 export async function getDrillDownData(req: Request, res: Response) {
   try {
     const agentId = req.user!.id;
     if (!agentId) return res.status(401).json({ message: "Unauthorized" });
 
-    const { 
-      projectId, startDate, endDate, 
-      statusCode, section, dayNum 
+    const {
+      projectId, startDate, endDate,
+      statusCode, section, dayNum
     } = req.query;
 
     const data = await Service.getAgentDrillDown(

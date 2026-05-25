@@ -1,10 +1,21 @@
+// ============================================================================
+// PHASE 2 + CLOSEOUT — FollowUpDashboard
+// Closeout: dates rendered via formatISTDateLong for IST stability.
+// ============================================================================
+
 import { useMemo, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, isBefore, isToday, startOfDay, differenceInCalendarDays } from "date-fns";
+import {
+  isBefore,
+  isToday,
+  startOfDay,
+  differenceInCalendarDays,
+} from "date-fns";
+import { formatISTDateLong } from "@/lib/formatIST";
 import {
   Phone,
   Calendar,
@@ -17,21 +28,20 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import AgeDistributionBar from "@/components/system/AgeDistributionBar";
-// Phase 7: shared urgency utility — consistent 4-level escalation across all follow-up views.
+import PageHeader from "@/components/system/PageHeader";
+import StatTile from "@/components/system/StatTile";
+import EmptyState from "@/components/system/EmptyState";
+import NativeSelect from "@/components/system/NativeSelect";
 import { getOverdueInfo } from "@/lib/urgency";
-
-// Phase 1 (May 2026): removed unused imports & dead WhatsApp helpers.
-// Phase 2 (May 2026): migrated /api/agent/customers/followups to useQuery.
-// Phase 6 (May 2026): added overdue-aging distribution bar.
-// Phase 7 (May 2026): urgency chips per overdue row, sort overdue-first.
 
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "virtual-meet", "pending"
+  "not-reachable", "virtual-meet", "pending",
 ];
 
-// Sort order: overdue first (oldest first), then today, then upcoming (nearest first).
 const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
 
 async function fetchFollowUps(): Promise<any[]> {
@@ -59,22 +69,17 @@ export default function FollowUpDashboard() {
 
   const todayStart = startOfDay(new Date());
 
-  const statusFilteredData = selectedStatus === "all"
-    ? data
-    : data.filter(item => item.status_code === selectedStatus);
+  const statusFilteredData =
+    selectedStatus === "all"
+      ? data
+      : data.filter((item) => item.status_code === selectedStatus);
 
   const categorized = statusFilteredData.map((item) => {
     const fDate = new Date(item.follow_up_date);
     const itemDateStart = startOfDay(fDate);
-
     let category = "future";
-
-    if (isBefore(itemDateStart, todayStart)) {
-      category = "past";
-    } else if (isToday(itemDateStart)) {
-      category = "today";
-    }
-
+    if (isBefore(itemDateStart, todayStart)) category = "past";
+    else if (isToday(itemDateStart)) category = "today";
     return { ...item, category };
   });
 
@@ -84,21 +89,21 @@ export default function FollowUpDashboard() {
     future: categorized.filter((i) => i.category === "future").length,
   };
 
-  // Phase 7: sort overdue first (oldest = most urgent first), then today, then future (nearest first).
-  // .slice() avoids mutating categorized in place.
   const displayList = (
     filter === "all" ? categorized : categorized.filter((i) => i.category === filter)
-  ).slice().sort((a, b) => {
-    const catDiff =
-      (CATEGORY_ORDER[a.category as keyof typeof CATEGORY_ORDER] ?? 2) -
-      (CATEGORY_ORDER[b.category as keyof typeof CATEGORY_ORDER] ?? 2);
-    if (catDiff !== 0) return catDiff;
-    // Within same category: ascending date → oldest overdue first, nearest future first.
-    return new Date(a.follow_up_date).getTime() - new Date(b.follow_up_date).getTime();
-  });
+  )
+    .slice()
+    .sort((a, b) => {
+      const catDiff =
+        (CATEGORY_ORDER[a.category as keyof typeof CATEGORY_ORDER] ?? 2) -
+        (CATEGORY_ORDER[b.category as keyof typeof CATEGORY_ORDER] ?? 2);
+      if (catDiff !== 0) return catDiff;
+      return (
+        new Date(a.follow_up_date).getTime() -
+        new Date(b.follow_up_date).getTime()
+      );
+    });
 
-  // Phase 6: overdue-aging buckets. Pure derivation over the same data.
-  // Buckets:  1d  |  2-3d  |  4-7d  |  8+d (stale)
   const overdueBuckets = useMemo(() => {
     const today = startOfDay(new Date());
     let b1 = 0, b23 = 0, b47 = 0, b8 = 0;
@@ -113,10 +118,10 @@ export default function FollowUpDashboard() {
       else b8++;
     }
     return [
-      { label: "1 day", count: b1, className: "bg-amber-400" },
-      { label: "2-3 days", count: b23, className: "bg-orange-500" },
-      { label: "4-7 days", count: b47, className: "bg-rose-500" },
-      { label: "8+ days (stale)", count: b8, className: "bg-red-700" },
+      { label: "1 day", count: b1, className: "bg-warning" },
+      { label: "2-3 days", count: b23, className: "bg-warning/80" },
+      { label: "4-7 days", count: b47, className: "bg-danger/80" },
+      { label: "8+ days (stale)", count: b8, className: "bg-danger" },
     ];
   }, [categorized]);
 
@@ -124,35 +129,52 @@ export default function FollowUpDashboard() {
     switch (category) {
       case "past":
         return {
-          border: "border-l-red-500",
-          badge: "bg-red-50 text-red-700 border-red-200",
-          iconBg: "bg-red-100 text-red-600",
-          dateColor: "text-red-600",
+          border: "border-l-danger",
+          badge: "bg-danger/10 text-danger border-danger/30",
+          iconBg: "bg-danger/15 text-danger",
+          dateColor: "text-danger",
           label: "Overdue",
         };
       case "today":
         return {
-          border: "border-l-orange-500",
-          badge: "bg-orange-50 text-orange-700 border-orange-200",
-          iconBg: "bg-orange-100 text-orange-600",
-          dateColor: "text-orange-600",
+          border: "border-l-warning",
+          badge: "bg-warning/10 text-warning border-warning/30",
+          iconBg: "bg-warning/15 text-warning",
+          dateColor: "text-warning",
           label: "Due Today",
         };
       default:
         return {
-          border: "border-l-yellow-400",
-          badge: "bg-yellow-50 text-yellow-700 border-yellow-200",
-          iconBg: "bg-yellow-100 text-yellow-600",
-          dateColor: "text-slate-600",
+          border: "border-l-info/70",
+          badge: "bg-info/10 text-info border-info/30",
+          iconBg: "bg-info/15 text-info",
+          dateColor: "text-foreground",
           label: "Upcoming",
         };
     }
   };
 
+  const StatusFilterSelect = (
+    <NativeSelect
+      icon={CheckCircle2}
+      value={selectedStatus}
+      onChange={(e) => setSelectedStatus(e.target.value)}
+      wrapperClassName="min-w-[180px]"
+      className="capitalize"
+    >
+      <option value="all">All Status</option>
+      {STATUS_OPTIONS.map((status) => (
+        <option key={status} value={status}>
+          {status.replace(/-/g, " ")}
+        </option>
+      ))}
+    </NativeSelect>
+  );
+
   if (authLoading || loading) {
     return (
       <AppShell sidebar={null}>
-        <div className="min-h-screen bg-slate-50/50 dark:bg-slate-950 p-6 md:p-8 max-w-6xl mx-auto font-sans">
+        <div className="max-w-6xl mx-auto">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div className="space-y-2">
               <Skeleton className="h-8 w-64" />
@@ -177,155 +199,46 @@ export default function FollowUpDashboard() {
 
   return (
     <AppShell sidebar={null}>
-      <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 max-w-6xl mx-auto font-sans">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Daily Follow-ups</h1>
-            <p className="text-slate-500 mt-1">Manage your pending calls and visits efficiently.</p>
-          </div>
-
-          <div className="relative min-w-[180px]">
-            <select
-              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 shadow-sm focus:ring-2 focus:ring-blue-100 outline-none cursor-pointer capitalize"
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-            >
-              <option value="all">All Status</option>
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {status.replace(/-/g, ' ')}
-                </option>
-              ))}
-            </select>
-            <CheckCircle2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
-          </div>
-        </div>
+      <div className="max-w-6xl mx-auto">
+        <PageHeader
+          title="Daily Follow-ups"
+          description="Manage your pending calls and visits efficiently."
+          actions={StatusFilterSelect}
+        />
 
         {errored && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 text-red-700 px-4 py-3 text-sm flex items-center justify-between">
+          <div className="mb-6 rounded-lg border border-danger/30 bg-danger/10 text-danger px-4 py-3 text-sm flex items-center justify-between">
             <span>Could not load follow-ups. Showing last known data.</span>
-            <button
-              type="button"
-              onClick={() => followupsQuery.refetch()}
-              className="text-red-700 font-semibold hover:underline"
-            >
+            <button type="button" onClick={() => followupsQuery.refetch()} className="font-semibold hover:underline">
               Retry
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-          <div
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <button
+            type="button"
             onClick={() => setFilter(filter === "past" ? "all" : "past")}
-            className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
-              filter === "past"
-                ? "bg-white border-red-200 shadow-md ring-2 ring-red-100"
-                : "bg-white border-slate-200 shadow-sm hover:border-red-200 hover:shadow-md"
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "past" ? "ring-2 ring-danger/40 shadow-elevation-2" : ""}`}
           >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-                  Overdue
-                </p>
-                <h3
-                  className={`text-4xl font-bold mt-2 ${
-                    filter === "past" ? "text-red-600" : "text-slate-800"
-                  }`}
-                >
-                  {counts.past}
-                </h3>
-              </div>
-              <div
-                className={`p-3 rounded-xl ${
-                  filter === "past"
-                    ? "bg-red-100 text-red-600"
-                    : "bg-slate-50 text-slate-400 group-hover:bg-red-50 group-hover:text-red-500"
-                }`}
-              >
-                <AlertCircle className="w-6 h-6" />
-              </div>
-            </div>
-            <div className="mt-4 text-xs font-medium text-red-500 bg-red-50 inline-block px-2 py-1 rounded">
-              Requires Immediate Action
-            </div>
-          </div>
-
-          <div
+            <StatTile label="Overdue" value={counts.past} tone="danger" icon={AlertCircle} delta={counts.past > 0 ? "Requires Immediate Action" : "All clear"} />
+          </button>
+          <button
+            type="button"
             onClick={() => setFilter(filter === "today" ? "all" : "today")}
-            className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
-              filter === "today"
-                ? "bg-white border-orange-200 shadow-md ring-2 ring-orange-100"
-                : "bg-white border-slate-200 shadow-sm hover:border-orange-200 hover:shadow-md"
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "today" ? "ring-2 ring-warning/40 shadow-elevation-2" : ""}`}
           >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-                  Due Today
-                </p>
-                <h3
-                  className={`text-4xl font-bold mt-2 ${
-                    filter === "today" ? "text-orange-600" : "text-slate-800"
-                  }`}
-                >
-                  {counts.today}
-                </h3>
-              </div>
-              <div
-                className={`p-3 rounded-xl ${
-                  filter === "today"
-                    ? "bg-orange-100 text-orange-600"
-                    : "bg-slate-50 text-slate-400 group-hover:bg-orange-50 group-hover:text-orange-500"
-                }`}
-              >
-                <Clock className="w-6 h-6" />
-              </div>
-            </div>
-            <div className="mt-4 text-xs font-medium text-orange-600 bg-orange-50 inline-block px-2 py-1 rounded">
-              Focus here first
-            </div>
-          </div>
-
-          <div
+            <StatTile label="Due Today" value={counts.today} tone="warning" icon={Clock} delta={counts.today > 0 ? "Focus here first" : "Nothing today"} />
+          </button>
+          <button
+            type="button"
             onClick={() => setFilter(filter === "future" ? "all" : "future")}
-            className={`cursor-pointer relative overflow-hidden p-6 rounded-2xl border transition-all duration-300 group ${
-              filter === "future"
-                ? "bg-white border-yellow-200 shadow-md ring-2 ring-yellow-100"
-                : "bg-white border-slate-200 shadow-sm hover:border-yellow-200 hover:shadow-md"
-            }`}
+            className={`text-left rounded-xl transition-shadow ${filter === "future" ? "ring-2 ring-info/40 shadow-elevation-2" : ""}`}
           >
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-                  Upcoming
-                </p>
-                <h3
-                  className={`text-4xl font-bold mt-2 ${
-                    filter === "future" ? "text-yellow-600" : "text-slate-800"
-                  }`}
-                >
-                  {counts.future}
-                </h3>
-              </div>
-              <div
-                className={`p-3 rounded-xl ${
-                  filter === "future"
-                    ? "bg-yellow-100 text-yellow-600"
-                    : "bg-slate-50 text-slate-400 group-hover:bg-yellow-50 group-hover:text-yellow-500"
-                }`}
-              >
-                <Calendar className="w-6 h-6" />
-              </div>
-            </div>
-            <div className="mt-4 text-xs font-medium text-yellow-700 bg-yellow-50 inline-block px-2 py-1 rounded">
-              Scheduled for later
-            </div>
-          </div>
+            <StatTile label="Upcoming" value={counts.future} tone="info" icon={Calendar} delta={counts.future > 0 ? "Scheduled for later" : "Nothing scheduled"} />
+          </button>
         </div>
 
-        {/* Phase 6: overdue-aging distribution. Only renders when there
-            actually are overdue items. */}
         {counts.past > 0 && (
           <div className="mb-8">
             <AgeDistributionBar buckets={overdueBuckets} totalLabel="Overdue" />
@@ -334,78 +247,56 @@ export default function FollowUpDashboard() {
 
         <div className="space-y-4">
           {displayList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
-              <div className="p-4 bg-slate-50 rounded-full mb-4">
-                <Calendar className="w-8 h-8 text-slate-400" />
-              </div>
-              <h3 className="text-lg font-semibold text-slate-700">
-                {filter === "all" ? "No Pending Follow-ups" : `No ${filter === "past" ? "Overdue" : filter === "today" ? "Due Today" : "Upcoming"} Follow-ups`}
-              </h3>
-              <p className="text-slate-500 text-sm mt-1">
-                {filter === "all"
-                  ? "Great job! You have cleared your entire list."
-                  : "Nothing in this category right now."}
-              </p>
-              {/* Phase 10: escape hatch when a filter produces empty results */}
-              {filter !== "all" && (
-                <button
-                  onClick={() => setFilter("all")}
-                  className="mt-4 text-sm font-semibold text-indigo-600 hover:underline"
-                >
-                  Show all follow-ups
-                </button>
-              )}
+            <div className="rounded-2xl border border-dashed border-border bg-card">
+              <EmptyState
+                icon={Calendar}
+                title={filter === "all" ? "No Pending Follow-ups" : `No ${filter === "past" ? "Overdue" : filter === "today" ? "Due Today" : "Upcoming"} Follow-ups`}
+                description={filter === "all" ? "Great job — you've cleared your entire list." : "Nothing in this category right now."}
+                action={filter !== "all" ? (
+                  <Button variant="link" onClick={() => setFilter("all")} className="text-brand">
+                    Show all follow-ups
+                  </Button>
+                ) : null}
+              />
             </div>
           ) : (
             displayList.map((customer) => {
               const style = getStyles(customer.category);
-              const formattedDate = format(new Date(customer.follow_up_date), "dd MMM yyyy");
+              // Closeout: IST formatter — locale-independent display.
+              const formattedDate = formatISTDateLong(customer.follow_up_date);
               const formattedTime = customer.follow_up_time?.slice(0, 5) || "--:--";
               const rowId: number = customer.agent_customer_id ?? customer.customer_id ?? customer.id;
-              // Phase 7: urgency chip — only derived for overdue items to avoid wasted computation.
-              const overdueInfo = customer.category === "past"
-                ? getOverdueInfo(customer.follow_up_date)
-                : null;
+              const overdueInfo = customer.category === "past" ? getOverdueInfo(customer.follow_up_date) : null;
 
               return (
-                <div
-                  key={rowId}
-                  className={`group relative bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border-l-[6px] ${style.border}`}
-                >
+                <div key={rowId} className={`group relative bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 hover:shadow-elevation-2 transition-shadow overflow-hidden border-l-[6px] ${style.border}`}>
                   <div className="flex flex-col md:flex-row md:items-center p-5 gap-5">
-                    <div className="flex md:flex-col items-center md:items-start justify-between md:justify-center md:w-32 md:border-r md:border-slate-100 md:pr-4">
+                    <div className="flex md:flex-col items-center md:items-start justify-between md:justify-center md:w-32 md:border-r md:border-border md:pr-4">
                       <div className="flex items-center gap-2 mb-0 md:mb-2">
                         <div className={`p-2 rounded-lg ${style.iconBg}`}>
                           <Calendar className="w-4 h-4" />
                         </div>
-                        <span
-                          className={`text-xs font-bold uppercase tracking-wide md:hidden ${style.dateColor}`}
-                        >
+                        <span className={`text-xs font-bold uppercase tracking-wide md:hidden ${style.dateColor}`}>
                           {style.label}
                         </span>
                       </div>
                       <div className="text-right md:text-left">
                         <p className={`text-sm font-bold ${style.dateColor}`}>{formattedDate}</p>
-                        <p className="text-xs text-slate-400 flex items-center justify-end md:justify-start gap-1">
+                        <p className="text-xs text-muted-foreground flex items-center justify-end md:justify-start gap-1">
                           <Clock className="w-3 h-3" /> {formattedTime}
                         </p>
                       </div>
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2 flex-wrap">
-                        <h3 className="text-lg font-bold text-slate-900 truncate">
-                          {customer.name}
-                        </h3>
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded-md border uppercase font-bold tracking-wider ${style.badge}`}
-                        >
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <h3 className="text-lg font-bold text-foreground truncate">{customer.name}</h3>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md border uppercase font-bold tracking-wider ${style.badge}`}>
                           {style.label}
                         </span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 border border-slate-200 uppercase font-semibold">
+                        <Badge variant="outline" className="uppercase tracking-wide">
                           {customer.status_code?.replace(/-/g, " ")}
-                        </span>
-                        {/* Phase 7: escalation chip — shows how far overdue this item is. */}
+                        </Badge>
                         {overdueInfo && overdueInfo.level > 0 && (
                           <span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${overdueInfo.badgeClass}`}>
                             {overdueInfo.label}
@@ -413,48 +304,38 @@ export default function FollowUpDashboard() {
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-slate-600">
-                        <a
-                          href={`tel:${customer.contact}`}
-                          className="flex items-center gap-2 hover:text-blue-600 transition-colors group/link"
-                        >
-                          <Phone className="w-4 h-4 text-slate-400 group-hover/link:text-blue-500" />
-                          <span className="font-medium font-mono">{customer.contact}</span>
+                      <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted-foreground">
+                        <a href={`tel:${customer.contact}`} className="flex items-center gap-2 hover:text-brand transition-colors group/link">
+                          <Phone className="w-4 h-4 text-muted-foreground group-hover/link:text-brand" />
+                          <span className="font-medium font-mono text-foreground">{customer.contact}</span>
                         </a>
-
                         {customer.project_name && (
                           <div className="flex items-center gap-2">
-                            <Briefcase className="w-4 h-4 text-slate-400" />
-                            <span>{customer.project_name}</span>
+                            <Briefcase className="w-4 h-4 text-muted-foreground" />
+                            <span className="text-foreground">{customer.project_name}</span>
                           </div>
                         )}
-
                         {customer.location && (
                           <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-slate-400" />
-                            <span className="truncate max-w-[150px]">{customer.location}</span>
+                            <MapPin className="w-4 h-4 text-muted-foreground" />
+                            <span className="truncate max-w-[150px] text-foreground">{customer.location}</span>
                           </div>
                         )}
                       </div>
 
                       {customer.remark && (
-                        <div className="mt-3 text-xs text-slate-500 bg-slate-50 p-2 rounded-md border border-slate-100 line-clamp-1">
-                          <span className="font-semibold text-slate-600">Last Remark:</span>{" "}
-                          {customer.remark}
+                        <div className="mt-3 text-xs text-muted-foreground bg-muted/50 p-2 rounded-md border border-border line-clamp-1">
+                          <span className="font-semibold text-foreground">Last Remark:</span> {customer.remark}
                         </div>
                       )}
                     </div>
 
                     <div className="flex gap-2 items-center flex-wrap md:flex-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/agent/customers/resolve?edit=${rowId}`)}
-                        className="w-full md:w-auto flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm active:scale-95"
-                      >
+                      <Button onClick={() => navigate(`/agent/customers/resolve?edit=${rowId}`)} className="w-full md:w-auto gap-2 bg-success text-success-foreground hover:bg-success/90">
                         <MessageCircle className="w-4 h-4" />
                         <span>Resolve</span>
                         <ChevronRight className="w-4 h-4" />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>

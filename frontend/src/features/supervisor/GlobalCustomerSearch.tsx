@@ -1,29 +1,62 @@
+// ============================================================================
+// PHASE 3 + 4 + 6 — GlobalCustomerSearch
+// ----------------------------------------------------------------------------
+// Phase 3: PageHeader, tokenized table, EmptyState, Dialog primitive,
+//          NativeSelect inside reassign modal.
+// Phase 4: Skeleton block during search.
+// Phase 6:
+//   - View Journey row action that expands a read-only customer timeline
+//     using the shared CustomerTimeline component. Calls the new
+//     GET /api/supervisor/customers/:id/journey endpoint (returns the same
+//     shape the agent edit view uses).
+//   - Transfer auto-selection: openEditModal pre-fills the customer's
+//     CURRENT agent + project. Supervisor can still override; dropdowns
+//     are never locked.
+//   - Reassign dialog shows "current → target" so the supervisor always
+//     understands what is about to change.
+// ============================================================================
+
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
-import { format, parseISO } from "date-fns";
 import { getOverdueInfo } from "@/lib/urgency";
+import { formatISTDateLong } from "@/lib/formatIST";
 import {
   Loader2,
   Search,
-  ArrowLeft,
-  User,
+  User as UserIcon,
   Briefcase,
   Edit2,
-  X,
   Phone,
   Copy,
   Check,
+  X,
+  History,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import PageHeader from "@/components/system/PageHeader";
+import EmptyState from "@/components/system/EmptyState";
+import NativeSelect from "@/components/system/NativeSelect";
+import CustomerTimeline from "@/components/system/CustomerTimeline";
 
-// Phase 10: Contact cell with tel: link + copy-to-clipboard.
 function ContactCell({ contact }: { contact: string | null | undefined }) {
   const [copied, setCopied] = useState(false);
   const val = contact ?? "";
-  if (!val) return <span className="text-slate-400 font-mono">—</span>;
+  if (!val) return <span className="text-muted-foreground font-mono">—</span>;
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigator.clipboard.writeText(val).then(() => {
@@ -35,34 +68,27 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
   return (
     <div className="flex items-center gap-1.5 group/c">
       <a href={`tel:${val}`} onClick={(e) => e.stopPropagation()}
-        className="font-mono text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1 text-sm">
+        className="font-mono text-foreground hover:text-brand transition-colors flex items-center gap-1 text-sm">
         <Phone className="w-3 h-3 opacity-0 group-hover/c:opacity-60 shrink-0 transition-opacity" />
         {val}
       </a>
       <button onClick={handleCopy} type="button"
-        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-slate-100" title="Copy">
-        {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-slate-400" />}
+        className="opacity-0 group-hover/c:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent" title="Copy">
+        {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3 text-muted-foreground" />}
       </button>
     </div>
   );
 }
 
-// Phase 8 (May 2026):
-//   - Derive overdue urgency from existing follow_up_date field via getOverdueInfo.
-//   - Rows with overdue leads get a left-border tint (amber->red escalation).
-//   - Urgency chip rendered below the date in the Follow-up column.
-//   - No new API calls required — all signals derived from existing search response.
-//
-//   INACTIVE_STATUSES mirrors urgency.ts — no urgency shown for closed leads.
 const CLOSED_STATUSES = new Set(["visit-done", "booking-done", "lost", "completed"]);
 
-// Phase 5 (May 2026):
-//   - alert()/alert() replaced with sonner toasts for consistency with the
-//     rest of the AMS post-Phase-3.
-//   - Sticky table header so column labels stay visible while scrolling
-//     longer result lists (rare in practice — phone search returns 1-10 rows
-//     — but free and matches the pattern from the other tables).
-//   - 400ms debounce + reassign workflow + modal logic are preserved exactly.
+// Phase 6: compose full agent name when available; falls back to first-only.
+function composeAgentName(item: any): string {
+  if (item?.agent_first_name && item?.agent_last_name) {
+    return `${item.agent_first_name} ${item.agent_last_name}`;
+  }
+  return item?.agent_first_name || item?.agent_name || "—";
+}
 
 export default function GlobalCustomerSearch() {
   const { user } = useAuth();
@@ -73,33 +99,39 @@ export default function GlobalCustomerSearch() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
-  // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<any>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
 
-  // Form States
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
 
-  // Debounced Search Logic (unchanged: exact 10-digit phone)
+  // Phase 6: journey expansion state. `expandedRowId` is the customer_id
+  // currently expanded (null = collapsed). `journeyCache` memoizes already-
+  // fetched journeys so reopening doesn't refetch.
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+  const [journeyCache, setJourneyCache] = useState<Record<number, any[]>>({});
+  const [journeyLoadingId, setJourneyLoadingId] = useState<number | null>(null);
+  const [journeyErrorId, setJourneyErrorId] = useState<number | null>(null);
+
   useEffect(() => {
     const cleanSearchTerm = searchTerm.trim();
-    // Only trigger if it is exactly 10 digits
     const isTenDigits = /^\d{10}$/.test(cleanSearchTerm);
 
     const delayDebounceFn = setTimeout(async () => {
       if (isTenDigits && user) {
         setLoading(true);
         setHasSearched(true);
+        // Clear any expanded row + journey state on a new search.
+        setExpandedRowId(null);
         try {
           const res = await axios.get(`/api/supervisor/customers/search?q=${cleanSearchTerm}`);
           setResults(res.data || []);
         } catch (error) {
           console.error("Search failed", error);
-          setResults([]); // Clear on error
+          setResults([]);
           toast.error("Search failed. Please try again.");
         } finally {
           setLoading(false);
@@ -107,34 +139,65 @@ export default function GlobalCustomerSearch() {
       } else if (cleanSearchTerm.length !== 10) {
         setResults([]);
         setHasSearched(false);
+        setExpandedRowId(null);
       }
-    }, 400); // Slightly faster debounce since they are typing a specific number
+    }, 400);
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm, user]);
 
-  // Match the status badge styling from your FollowUpPage
   const getStatusBadge = (status: string | null) => {
-    if (!status) return "bg-slate-100 text-slate-400 border-slate-200";
-    if (status.includes('confirmed')) return "bg-green-100 text-green-700 border-green-200";
-    if (status.includes('proposed') || status.includes('fresh')) return "bg-blue-100 text-blue-700 border-blue-200";
-    if (status.includes('lost')) return "bg-red-100 text-red-700 border-red-200";
-    return "bg-slate-100 text-slate-600 border-slate-200";
+    if (!status) return "bg-muted text-muted-foreground border-border";
+    if (status.includes("confirmed")) return "bg-success/15 text-success border-success/30";
+    if (status.includes("proposed") || status.includes("fresh")) return "bg-info/15 text-info border-info/30";
+    if (status.includes("lost")) return "bg-danger/15 text-danger border-danger/30";
+    return "bg-muted text-muted-foreground border-border";
+  };
+
+  // Phase 6: expand/collapse + lazy-fetch the journey for a given row.
+  const handleToggleJourney = async (item: any) => {
+    const rowKey: number = item.customer_id;
+    if (expandedRowId === rowKey) {
+      setExpandedRowId(null);
+      return;
+    }
+    setExpandedRowId(rowKey);
+    setJourneyErrorId(null);
+
+    // Skip if no agent_customer_id (lead never assigned) or already cached.
+    const acId: number | undefined = item.agent_customer_id;
+    if (!acId) return;
+    if (journeyCache[acId]) return;
+
+    setJourneyLoadingId(acId);
+    try {
+      const res = await axios.get(`/api/supervisor/customers/${acId}/journey`);
+      setJourneyCache((prev) => ({ ...prev, [acId]: res.data?.history ?? [] }));
+    } catch (err) {
+      console.error("Journey fetch failed", err);
+      setJourneyErrorId(acId);
+      toast.error("Could not load journey. Try again.");
+    } finally {
+      setJourneyLoadingId(null);
+    }
   };
 
   const openEditModal = async (customer: any) => {
     setEditingCustomer(customer);
-    setSelectedAgentId(""); // <-- Reset dropdown
-    setSelectedProjectId(""); // <-- Reset dropdown
+    // Phase 6: pre-fill current assignment so the supervisor confirms or
+    // overrides — never starts from a blank picker. Empty strings keep the
+    // "-- Select --" placeholders when the lead has no assignment yet.
+    setSelectedAgentId(customer.agent_id != null ? String(customer.agent_id) : "");
+    setSelectedProjectId(customer.project_id != null ? String(customer.project_id) : "");
     setIsEditModalOpen(true);
 
     if (agents.length === 0) {
       try {
         const [agentsRes, projectsRes] = await Promise.all([
           axios.get("/api/users"),
-          axios.get("/api/supervisor/summary-dashboard?section=projects")
+          axios.get("/api/supervisor/summary-dashboard?section=projects"),
         ]);
-        setAgents(agentsRes.data.filter((u: any) => u.role === 'AGENT' && u.is_active === 1));
+        setAgents(agentsRes.data.filter((u: any) => u.role === "AGENT" && u.is_active === 1));
         setProjects(projectsRes.data);
       } catch (err) {
         console.error("Failed to load options");
@@ -153,14 +216,12 @@ export default function GlobalCustomerSearch() {
     try {
       await axios.put(`/api/supervisor/customers/${editingCustomer.customer_id}/reassign`, {
         new_agent_id: selectedAgentId,
-        new_project_id: selectedProjectId
+        new_project_id: selectedProjectId,
       });
-
       setIsEditModalOpen(false);
       toast.success("Customer successfully transferred.");
-
-      // Re-trigger the search to refresh the row
-      setSearchTerm(searchTerm + " "); // Preserved hack to re-trigger useEffect debounce
+      // Re-trigger debounce by toggling whitespace (preserved Phase 0 hack).
+      setSearchTerm(searchTerm + " ");
     } catch (error) {
       toast.error("Failed to reassign customer.");
     } finally {
@@ -168,167 +229,237 @@ export default function GlobalCustomerSearch() {
     }
   };
 
+  // Phase 6: helpers for the "current → target" hint inside the reassign dialog.
+  const currentAgentName = composeAgentName(editingCustomer);
+  const currentProjectName = editingCustomer?.project_name || "Unassigned";
+  const targetAgent = agents.find((a) => String(a.id) === selectedAgentId);
+  const targetProject = projects.find((p) => String(p.id) === selectedProjectId);
+  const targetAgentName = targetAgent
+    ? `${targetAgent.first_name} ${targetAgent.last_name}`
+    : "—";
+  const targetProjectName = targetProject ? targetProject.name : "—";
+  const isSameAssignment =
+    editingCustomer &&
+    String(editingCustomer.agent_id ?? "") === selectedAgentId &&
+    String(editingCustomer.project_id ?? "") === selectedProjectId;
+
   return (
     <AppShell sidebar={null}>
-      <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6 font-sans">
+      <div className="max-w-7xl mx-auto space-y-6">
+        <PageHeader
+          title="Global Customer Search"
+          description="Find any lead across the entire database."
+          actions={
+            <Button variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1.5">
+              <X className="w-4 h-4" />
+              Back
+            </Button>
+          }
+        />
 
-        {/* HEADER */}
-        <div className="flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-          <div className="flex items-center gap-4">
-             <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                <ArrowLeft className="w-5 h-5 text-slate-600"/>
-             </button>
-             <div>
-                <h1 className="text-xl font-bold text-slate-900">Global Customer Search</h1>
-                <p className="text-sm text-slate-500">Find any lead across the entire database</p>
-             </div>
-          </div>
-        </div>
-
-        {/* SEARCH BAR */}
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+        <div className="bg-card text-card-foreground p-5 rounded-xl border border-border shadow-elevation-1">
           <div className="relative max-w-2xl">
-            <Search className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <input
               type="text"
               maxLength={10}
               placeholder="Enter exact 10-digit contact number..."
-              className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-full pl-10 pr-10 py-2.5 bg-background border border-input rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40 transition-[border-color,box-shadow]"
               value={searchTerm}
               onChange={(e) => {
-                // Only allow numeric input
                 const value = e.target.value.replace(/\D/g, "");
                 setSearchTerm(value);
               }}
             />
             {loading && (
-              <div className="absolute right-3 top-2.5">
-                <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <Loader2 className="h-5 w-5 animate-spin text-brand" />
               </div>
             )}
           </div>
         </div>
 
-        {/* DATA TABLE */}
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm min-h-[400px]">
+        <div className="bg-card text-card-foreground border border-border rounded-xl overflow-hidden shadow-elevation-1 min-h-[400px]">
           {loading ? (
-             <div className="flex flex-col items-center justify-center p-20 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-600"/>
-                <span className="text-slate-400 text-sm">Searching database...</span>
-             </div>
+            <div className="p-4 space-y-3">
+              <Skeleton className="h-10 rounded-lg" />
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-14 rounded-lg" />
+              ))}
+            </div>
           ) : results.length === 0 ? (
-             <div className="flex flex-col items-center justify-center p-20 text-slate-500">
-               <Search className="w-10 h-10 mb-3 text-slate-300" />
-               <p>{hasSearched && searchTerm.length > 2 ? `No customers found for "${searchTerm}"` : "Enter a name or contact number to begin searching."}</p>
-             </div>
+            <EmptyState
+              icon={Search}
+              title={
+                hasSearched && searchTerm.length > 2
+                  ? `No customers found for "${searchTerm}"`
+                  : "Enter a contact number to begin searching"
+              }
+              description={hasSearched ? "Try a different 10-digit number." : "Search is debounced and triggers when you type exactly 10 digits."}
+            />
           ) : (
             <div className="overflow-auto" style={{ maxHeight: "calc(100vh - 320px)" }}>
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500 font-semibold">
+              <table className="w-full text-left text-sm tabular-nums-tracking">
+                <thead className="sticky top-0 z-10 bg-muted/70 backdrop-blur-sm border-b border-border text-xs uppercase text-muted-foreground font-semibold">
                   <tr>
-                    <th className="px-6 py-3 bg-slate-50">Customer Details</th>
-                    <th className="px-6 py-3 bg-slate-50">Contact</th>
-                    <th className="px-6 py-3 bg-slate-50">Assignment & Project</th>
-                    <th className="px-6 py-3 bg-slate-50">Current Status</th>
-                    <th className="px-6 py-3 bg-slate-50">Next Follow-up</th>
-                    <th className="px-6 py-3 bg-slate-50 text-right">Actions</th>
+                    <th className="px-6 py-3 w-10" aria-label="Toggle journey" />
+                    <th className="px-6 py-3">Customer Details</th>
+                    <th className="px-6 py-3">Contact</th>
+                    <th className="px-6 py-3">Assignment & Project</th>
+                    <th className="px-6 py-3">Current Status</th>
+                    <th className="px-6 py-3">Next Follow-up</th>
+                    <th className="px-6 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-border">
                   {results.map((item) => {
-                    // Phase 8: derive urgency from existing follow_up_date.
-                    // Skip closed/inactive statuses — no urgency for finished leads.
                     const isClosed = CLOSED_STATUSES.has(item.status_code ?? "");
                     const overdueInfo = (!isClosed && item.follow_up_date)
                       ? getOverdueInfo(item.follow_up_date)
                       : null;
                     const isOverdue = overdueInfo && overdueInfo.level > 0;
-
-                    // Border-tint class escalates with urgency level
                     const rowBorderClass = isOverdue
                       ? overdueInfo!.level >= 3
-                        ? "border-l-4 border-l-red-500"
+                        ? "border-l-4 border-l-danger"
                         : overdueInfo!.level >= 2
-                        ? "border-l-4 border-l-rose-400"
-                        : "border-l-4 border-l-amber-400"
+                        ? "border-l-4 border-l-danger/70"
+                        : "border-l-4 border-l-warning"
                       : "border-l-4 border-l-transparent";
 
+                    const isExpanded = expandedRowId === item.customer_id;
+                    const acId: number | undefined = item.agent_customer_id;
+                    const journey = acId ? journeyCache[acId] : undefined;
+                    const isJourneyLoading = journeyLoadingId === acId;
+                    const isJourneyError = journeyErrorId === acId;
+
                     return (
-                      <tr
-                        key={item.customer_id}
-                        className={`transition-colors hover:bg-slate-50 ${rowBorderClass}`}
-                      >
-
-                        {/* Customer Details */}
-                        <td className="px-6 py-3">
-                          <div className="font-semibold text-slate-900">{item.customer_name}</div>
-                        </td>
-
-                        {/* Contact */}
-                        <td className="px-6 py-3">
-                          <ContactCell contact={item.contact} />
-                        </td>
-
-                        {/* Assignment & Project */}
-                        <td className="px-6 py-3">
-                          {item.agent_name ? (
-                            <>
-                              <div className="flex items-center gap-1 text-sm font-medium text-indigo-700">
-                                <User className="w-3.5 h-3.5" /> {item.agent_name}
-                              </div>
-                              <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
-                              </div>
-                            </>
-                          ) : (
-                            <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                              Unassigned
+                      <>
+                        <tr
+                          key={item.customer_id}
+                          className={`transition-colors hover:bg-accent/40 ${rowBorderClass}`}
+                        >
+                          <td className="px-6 py-3 w-10">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleJourney(item)}
+                              aria-label={isExpanded ? "Hide journey" : "View journey"}
+                              aria-expanded={isExpanded}
+                              className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                              disabled={!acId}
+                              title={acId ? "View journey" : "No journey — lead not yet assigned"}
+                            >
+                              {isExpanded ? (
+                                <ChevronDown className="w-4 h-4" />
+                              ) : (
+                                <ChevronRight className="w-4 h-4" />
+                              )}
+                            </button>
+                          </td>
+                          <td className="px-6 py-3">
+                            <div className="font-semibold text-foreground">{item.customer_name}</div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <ContactCell contact={item.contact} />
+                          </td>
+                          <td className="px-6 py-3">
+                            {item.agent_name ? (
+                              <>
+                                <div className="flex items-center gap-1 text-sm font-medium text-brand">
+                                  <UserIcon className="w-3.5 h-3.5" /> {composeAgentName(item)}
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                  <Briefcase className="w-3 h-3" /> {item.project_name || "No Project"}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded">
+                                Unassigned
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-3">
+                            <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
+                              {item.status_code ? item.status_code.replace(/-/g, " ") : "N/A"}
                             </span>
-                          )}
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-6 py-3">
-                          <span className={`px-2.5 py-1 rounded text-[11px] font-bold uppercase tracking-wide border ${getStatusBadge(item.status_code)}`}>
-                            {item.status_code ? item.status_code.replace(/-/g, ' ') : 'N/A'}
-                          </span>
-                        </td>
-
-                        {/* Follow Up — Phase 8: urgency chip when overdue */}
-                        <td className="px-6 py-3">
-                          {item.follow_up_date ? (
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-slate-700">
-                                  {format(parseISO(item.follow_up_date), "dd MMM yyyy")}
-                                </span>
-                                {item.follow_up_time && (
-                                  <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                    {item.follow_up_time}
+                          </td>
+                          <td className="px-6 py-3">
+                            {item.follow_up_date ? (
+                              <div className="flex flex-col gap-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium text-foreground">
+                                    {/* Closeout: IST formatter. follow_up_time
+                                        is wall-clock IST already; trim seconds. */}
+                                    {formatISTDateLong(item.follow_up_date)}
+                                  </span>
+                                  {item.follow_up_time && (
+                                    <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded whitespace-nowrap">
+                                      {String(item.follow_up_time).slice(0, 5)}
+                                    </span>
+                                  )}
+                                </div>
+                                {isOverdue && (
+                                  <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold w-fit ${overdueInfo!.badgeClass}`}>
+                                    {overdueInfo!.label}
                                   </span>
                                 )}
                               </div>
-                              {isOverdue && (
-                                <span className={`inline-block text-[10px] px-2 py-0.5 rounded-md border font-bold w-fit ${overdueInfo!.badgeClass}`}>
-                                  {overdueInfo!.label}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openEditModal(item)}
+                              className="gap-1.5 text-brand border-brand/30 hover:bg-brand/10"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" /> Edit
+                            </Button>
+                          </td>
+                        </tr>
 
-                        {/* Actions */}
-                        <td className="px-6 py-3 text-right">
-                          <button
-                            onClick={() => openEditModal(item)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" /> Edit
-                          </button>
-                        </td>
-                      </tr>
+                        {/* Phase 6: expanded journey row — full timeline */}
+                        {isExpanded && (
+                          <tr key={`${item.customer_id}-journey`} className="bg-muted/20">
+                            <td className="px-6 py-4" />
+                            <td colSpan={6} className="px-6 py-4">
+                              <div className="flex items-center gap-2 mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                                <History className="w-4 h-4" />
+                                Customer Journey
+                              </div>
+                              {!acId ? (
+                                <p className="text-sm text-muted-foreground italic">
+                                  This lead has no agent assignment yet — no journey history exists.
+                                </p>
+                              ) : isJourneyLoading ? (
+                                <div className="space-y-2">
+                                  {[0, 1, 2].map((i) => (
+                                    <Skeleton key={i} className="h-16 rounded-lg" />
+                                  ))}
+                                </div>
+                              ) : isJourneyError ? (
+                                <div className="rounded-lg border border-danger/30 bg-danger/10 text-danger text-sm px-3 py-2 flex items-center justify-between">
+                                  <span>Failed to load journey.</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleJourney(item)}
+                                    className="font-semibold hover:underline"
+                                  >
+                                    Retry
+                                  </button>
+                                </div>
+                              ) : (
+                                <CustomerTimeline
+                                  history={journey ?? []}
+                                  scroll
+                                  maxHeight="22rem"
+                                />
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     );
                   })}
                 </tbody>
@@ -336,94 +467,109 @@ export default function GlobalCustomerSearch() {
             </div>
           )}
         </div>
-        {/* === EDIT CUSTOMER MODAL === */}
-        {isEditModalOpen && editingCustomer && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
 
-              {/* Modal Header */}
-              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="text-lg font-bold text-slate-900">Reassign Lead</h3>
-                <button
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-200 p-1 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+        {/* Reassign Dialog — Phase 6 auto-select + "current → target" hint */}
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reassign Lead</DialogTitle>
+              <DialogDescription>
+                Confirm or change the agent and project. The current assignment
+                is pre-selected.
+              </DialogDescription>
+            </DialogHeader>
 
-              {/* Modal Body */}
-              <div className="p-6 space-y-5">
-                {/* Customer Info Read-Only */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Customer
-                  </label>
-                  <div className="text-slate-900 bg-slate-50 px-3 py-2.5 rounded-lg border border-slate-200 font-medium">
-                    {editingCustomer.customer_name} <span className="text-slate-500 font-normal">({editingCustomer.contact})</span>
-                  </div>
-                </div>
-
-                {/* Project Dropdown */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Assign Project
-                  </label>
-                  <select
-                    className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    value={selectedProjectId}
-                    onChange={(e) => setSelectedProjectId(e.target.value)}
-                  >
-                    <option value="" disabled>-- Select Project --</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Agent Dropdown */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Assign Agent
-                  </label>
-                  <select
-                    className="w-full px-3 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                    value={selectedAgentId}
-                    onChange={(e) => setSelectedAgentId(e.target.value)}
-                  >
-                    <option value="" disabled>-- Select Agent --</option>
-                    {agents.map(a => (
-                      <option key={a.id} value={a.id}>{a.first_name} {a.last_name} (@{a.username})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="text-xs text-amber-600 bg-amber-50 p-3 rounded-lg border border-amber-200">
-                  <strong>Note:</strong> Reassigning will close the current pipeline and reset the follow-up schedule so the new agent gets a clean slate.
+            <div className="space-y-5">
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  Customer
+                </label>
+                <div className="text-foreground bg-muted px-3 py-2.5 rounded-lg border border-border font-medium">
+                  {editingCustomer?.customer_name}{" "}
+                  <span className="text-muted-foreground font-normal">({editingCustomer?.contact})</span>
                 </div>
               </div>
 
-              {/* Modal Footer */}
-              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-                <button
-                  onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors"
-                  disabled={isSaving}
+              {/* Phase 6: current → target summary */}
+              <div className="rounded-lg border border-border bg-card px-3 py-2.5 space-y-1.5">
+                <div className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Assignment change
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Agent:</span>
+                  <span className="font-medium text-foreground">{currentAgentName}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className={`font-medium ${
+                    selectedAgentId && targetAgentName !== currentAgentName ? "text-brand" : "text-foreground"
+                  }`}>{targetAgentName}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-muted-foreground">Project:</span>
+                  <span className="font-medium text-foreground">{currentProjectName}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className={`font-medium ${
+                    selectedProjectId && targetProjectName !== currentProjectName ? "text-brand" : "text-foreground"
+                  }`}>{targetProjectName}</span>
+                </div>
+                {isSameAssignment && (
+                  <p className="text-[11px] text-warning mt-1">
+                    No change selected. Pick a different agent or project to transfer.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  Assign Project
+                </label>
+                <NativeSelect
+                  value={selectedProjectId}
+                  onChange={(e) => setSelectedProjectId(e.target.value)}
+                  wrapperClassName="w-full"
                 >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveReassignment}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-                  disabled={isSaving || !selectedAgentId || !selectedProjectId}
+                  <option value="" disabled>-- Select Project --</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1.5">
+                  Assign Agent
+                </label>
+                <NativeSelect
+                  value={selectedAgentId}
+                  onChange={(e) => setSelectedAgentId(e.target.value)}
+                  wrapperClassName="w-full"
                 >
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isSaving ? "Transferring..." : "Confirm Transfer"}
-                </button>
+                  <option value="" disabled>-- Select Agent --</option>
+                  {agents.map(a => (
+                    <option key={a.id} value={a.id}>{a.first_name} {a.last_name} (@{a.username})</option>
+                  ))}
+                </NativeSelect>
+              </div>
+
+              <div className="text-xs text-warning bg-warning/10 p-3 rounded-lg border border-warning/30">
+                <strong>Note:</strong> Reassigning will close the current pipeline and reset the follow-up schedule so the new agent gets a clean slate.
               </div>
             </div>
-          </div>
-        )}
+
+            <DialogFooter>
+              <Button variant="secondary" onClick={() => setIsEditModalOpen(false)} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveReassignment}
+                disabled={isSaving || !selectedAgentId || !selectedProjectId || isSameAssignment}
+                className="gap-2"
+              >
+                {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isSaving ? "Transferring..." : "Confirm Transfer"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppShell>
   );

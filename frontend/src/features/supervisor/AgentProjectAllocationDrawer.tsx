@@ -1,11 +1,20 @@
+// ============================================================================
+// PHASE 3 — AgentProjectAllocationDrawer
+// ----------------------------------------------------------------------------
+// Backend contract (POST /api/users/:id/projects assign/unassign) preserved.
+// Visual layer fully tokenized.
+// ============================================================================
+
 import { useEffect, useState } from "react";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose } from "@/components/ui/drawer";
 import { Briefcase, Plus, Minus, FolderOpen, X, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import EmptyState from "@/components/system/EmptyState";
 
 interface Project {
   id: number;
   name: string;
-  is_assigned: boolean; // 1 or 0 from backend
+  is_assigned: boolean;
 }
 
 interface User {
@@ -30,9 +39,7 @@ export default function AgentProjectAllocationDrawer({
 
   const refreshProjects = () => {
     if (agent?.id) {
-      fetch(`${API_BASE}/api/users/${agent.id}/projects`, {
-        credentials: "include",
-      })
+      fetch(`${API_BASE}/api/users/${agent.id}/projects`, { credentials: "include" })
         .then(res => {
           if (!res.ok) throw new Error("Failed");
           return res.json();
@@ -46,7 +53,7 @@ export default function AgentProjectAllocationDrawer({
     if (open) refreshProjects();
   }, [open, agent?.id]);
 
-  const handleAssignment = async (projectId: number, action: 'assign' | 'unassign') => {
+  const handleAssignment = async (projectId: number, action: "assign" | "unassign") => {
     setLoadingId(projectId);
     try {
       await fetch(`${API_BASE}/api/users/${agent?.id}/projects`, {
@@ -70,62 +77,66 @@ export default function AgentProjectAllocationDrawer({
 
   return (
     <Drawer open={open} onOpenChange={(val) => { if (!val) onClose(); }}>
-      <DrawerContent className="max-w-2xl ml-auto h-full rounded-l-2xl border-l border-slate-200 shadow-2xl bg-slate-50 flex flex-col focus:outline-none">
-        
-        {/* Header */}
-        <DrawerHeader className="flex items-center justify-between border-b border-slate-200 px-8 py-6 bg-white sticky top-0 z-10">
+      <DrawerContent className="max-w-2xl ml-auto h-full rounded-l-2xl border-l border-border shadow-elevation-4 bg-popover text-popover-foreground flex flex-col focus:outline-none">
+
+        <DrawerHeader className="flex items-center justify-between border-b border-border px-8 py-6 bg-muted/30 sticky top-0 z-10">
           <div className="flex items-center gap-4">
-            <div className="p-3 bg-violet-100 text-violet-600 rounded-xl shadow-sm">
+            <div className="p-3 bg-chart-4/15 text-chart-4 rounded-xl shadow-elevation-1">
               <Briefcase className="w-6 h-6" />
             </div>
             <div>
-              <DrawerTitle className="text-xl font-bold text-slate-900">
+              <DrawerTitle className="text-xl font-bold text-foreground">
                 Project Access
               </DrawerTitle>
-              <p className="text-sm text-slate-500 font-medium flex items-center gap-2 mt-0.5">
-                Assigning projects to: <span className="text-violet-700 font-bold bg-violet-50 px-2 py-0.5 rounded border border-violet-100">{agent.first_name} {agent.last_name}</span>
+              <p className="text-sm text-muted-foreground font-medium flex items-center gap-2 mt-0.5">
+                Assigning projects to:{" "}
+                <span className="text-chart-4 font-bold bg-chart-4/10 px-2 py-0.5 rounded border border-chart-4/30">
+                  {agent.first_name} {agent.last_name}
+                </span>
               </p>
             </div>
           </div>
           <DrawerClose asChild>
-            <button className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-all">
+            <button className="p-2 text-muted-foreground hover:text-danger hover:bg-danger/10 rounded-full transition-colors">
               <X className="w-6 h-6" />
             </button>
           </DrawerClose>
         </DrawerHeader>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto p-8 space-y-8">
-          
-          {/* Assigned Section */}
+
           <section>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-success" />
               Active Assignments ({assignedProjects.length})
             </h3>
-            
+
             <div className="grid grid-cols-1 gap-3">
               {assignedProjects.length === 0 ? (
-                <div className="p-6 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center text-slate-400 bg-white/50">
-                  <span className="text-sm font-medium">No projects assigned yet.</span>
+                <div className="rounded-xl border-2 border-dashed border-border bg-card">
+                  <EmptyState
+                    icon={FolderOpen}
+                    title="No projects assigned yet"
+                    description="Pick from the available pool below to assign their first project."
+                  />
                 </div>
               ) : (
                 assignedProjects.map(project => (
-                  <div key={project.id} className="group flex items-center justify-between p-4 bg-white border border-emerald-100 shadow-sm rounded-xl hover:shadow-md transition-all">
+                  <div key={project.id} className="group flex items-center justify-between p-4 bg-card text-card-foreground border border-success/30 shadow-elevation-1 rounded-xl hover:shadow-elevation-2 transition-shadow">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+                      <div className="w-10 h-10 rounded-lg bg-success/15 text-success flex items-center justify-center border border-success/30">
                         <FolderOpen className="w-5 h-5" />
                       </div>
-                      <span className="font-bold text-slate-700">{project.name}</span>
+                      <span className="font-bold text-foreground">{project.name}</span>
                     </div>
                     <button
-                      onClick={() => handleAssignment(project.id, 'unassign')}
+                      onClick={() => handleAssignment(project.id, "unassign")}
                       disabled={loadingId === project.id}
-                      className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                      className="p-2 text-danger hover:bg-danger/10 rounded-lg transition-colors disabled:opacity-50"
                       title="Revoke Access"
                     >
                       {loadingId === project.id ? (
-                        <div className="w-5 h-5 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-5 h-5 border-2 border-danger border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <Minus className="w-5 h-5" />
                       )}
@@ -136,33 +147,33 @@ export default function AgentProjectAllocationDrawer({
             </div>
           </section>
 
-          <div className="h-px bg-slate-200 w-full" />
+          <div className="hairline" />
 
-          {/* Available Section */}
           <section>
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-4 flex items-center gap-2">
               <FolderOpen className="w-4 h-4" />
               Available Projects ({availableProjects.length})
             </h3>
 
             <div className="grid grid-cols-1 gap-3">
               {availableProjects.length === 0 ? (
-                <div className="p-6 text-center text-slate-400 text-sm italic">
+                <div className="p-6 text-center text-muted-foreground text-sm italic">
                   All your projects are already assigned to this agent.
                 </div>
               ) : (
                 availableProjects.map(project => (
-                  <div key={project.id} className="group flex items-center justify-between p-4 bg-white border border-slate-200 shadow-sm rounded-xl hover:border-violet-200 hover:shadow-md transition-all">
+                  <div key={project.id} className="group flex items-center justify-between p-4 bg-card text-card-foreground border border-border shadow-elevation-1 rounded-xl hover:border-chart-4/30 hover:shadow-elevation-2 transition-all">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center group-hover:bg-violet-50 group-hover:text-violet-600 transition-colors">
+                      <div className="w-10 h-10 rounded-lg bg-muted text-muted-foreground flex items-center justify-center group-hover:bg-chart-4/15 group-hover:text-chart-4 transition-colors">
                         <Briefcase className="w-5 h-5" />
                       </div>
-                      <span className="font-bold text-slate-600 group-hover:text-slate-900 transition-colors">{project.name}</span>
+                      <span className="font-bold text-foreground transition-colors">{project.name}</span>
                     </div>
-                    <button
-                      onClick={() => handleAssignment(project.id, 'assign')}
+                    <Button
+                      size="sm"
+                      onClick={() => handleAssignment(project.id, "assign")}
                       disabled={loadingId === project.id}
-                      className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white text-xs font-bold rounded-lg hover:bg-violet-600 transition-all active:scale-95 disabled:opacity-50"
+                      className="gap-1.5"
                     >
                       {loadingId === project.id ? (
                         <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -170,7 +181,7 @@ export default function AgentProjectAllocationDrawer({
                         <Plus className="w-3.5 h-3.5" />
                       )}
                       Assign
-                    </button>
+                    </Button>
                   </div>
                 ))
               )}

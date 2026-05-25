@@ -5,21 +5,22 @@
 //   Replaces the bare "<div>Loading...</div>" flash in RequireAuth while the
 //   auth bootstrap (/auth/me) is in flight.
 //
-//   Purely visual. No data fetching, no auth coupling. Safe to reuse anywhere
-//   we need a non-jarring fallback that matches the existing slate-100 shell.
+// Phase 1 (May 2026):
+//   Tokenized so it matches dark and light mode automatically. Spinner head
+//   uses the brand token for design-system consistency.
 // ============================================================================
 
 export default function RouteFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <div
         role="status"
         aria-live="polite"
-        className="flex items-center gap-3 text-slate-500"
+        className="flex items-center gap-3 text-muted-foreground"
       >
         <span
           aria-hidden="true"
-          className="h-5 w-5 rounded-full border-2 border-slate-300 border-t-blue-600 animate-spin"
+          className="h-5 w-5 rounded-full border-2 border-border border-t-brand animate-spin"
         />
         <span className="text-sm font-medium">Loading…</span>
       </div>

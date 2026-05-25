@@ -33,16 +33,16 @@ export default function AgeDistributionBar({
   if (total === 0) return null;
 
   return (
-    <div className={`rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 ${className}`}>
+    <div className={`rounded-xl border border-border bg-card text-card-foreground p-4 ${className}`}>
       <div className="flex items-baseline justify-between mb-2">
-        <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
           {totalLabel} aging
         </div>
-        <div className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+        <div className="text-xs font-semibold text-foreground">
           {total} total
         </div>
       </div>
-      <div className="flex h-3 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+      <div className="flex h-3 w-full rounded-full overflow-hidden bg-muted">
         {buckets.map((b) => {
           if (b.count === 0) return null;
           const pct = (b.count / total) * 100;
@@ -61,8 +61,8 @@ export default function AgeDistributionBar({
         {buckets.map((b) => (
           <div key={b.label} className="flex items-center gap-1.5 text-[11px]">
             <span className={`inline-block w-2 h-2 rounded-full ${b.className}`} />
-            <span className="font-medium text-slate-600 dark:text-slate-300">{b.label}</span>
-            <span className="text-slate-400 dark:text-slate-500">{b.count}</span>
+            <span className="font-medium text-foreground">{b.label}</span>
+            <span className="text-muted-foreground">{b.count}</span>
           </div>
         ))}
       </div>

@@ -136,7 +136,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
                 {...register('firstName')}
               />
               {errors.firstName && (
-                <p id="firstName-error" className="mt-1 text-xs text-red-600">
+                <p id="firstName-error" className="mt-1 text-xs text-danger">
                   {errors.firstName.message}
                 </p>
               )}
@@ -152,7 +152,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
                 {...register('lastName')}
               />
               {errors.lastName && (
-                <p id="lastName-error" className="mt-1 text-xs text-red-600">
+                <p id="lastName-error" className="mt-1 text-xs text-danger">
                   {errors.lastName.message}
                 </p>
               )}
@@ -171,7 +171,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
               {...register('username')}
             />
             {errors.username && (
-              <p id="username-error" className="mt-1 text-xs text-red-600">
+              <p id="username-error" className="mt-1 text-xs text-danger">
                 {errors.username.message}
               </p>
             )}
@@ -193,7 +193,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
               />
               <button
                 type="button"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:opacity-50"
                 onClick={() => setShowPassword(v => !v)}
                 tabIndex={-1}
                 disabled={loading}
@@ -203,7 +203,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
               </button>
             </div>
             {errors.password && (
-              <p id="password-error" className="mt-1 text-xs text-red-600">
+              <p id="password-error" className="mt-1 text-xs text-danger">
                 {errors.password.message}
               </p>
             )}
@@ -238,7 +238,7 @@ export default function CreateUserForm({ onSuccess, allowedRoles = ALL_ROLES }: 
               )}
             />
             {errors.role && (
-              <p id="role-error" className="mt-1 text-xs text-red-600">
+              <p id="role-error" className="mt-1 text-xs text-danger">
                 {errors.role.message}
               </p>
             )}

@@ -1,3 +1,11 @@
+// ============================================================================
+// PHASE 2-5 — CustomerResolvePage
+// ----------------------------------------------------------------------------
+// Phase 2-4: design system migration, NativeSelect adoption, button hierarchy.
+// Phase 5: standardized success/error flash via sonner — replaces window.alert.
+// Form logic, search/edit handlers, WhatsApp send pipeline preserved verbatim.
+// ============================================================================
+
 import React, { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { AppShell } from "@/components/ui/app-shell";
@@ -5,12 +13,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/AuthContext";
-import { MessageCircle } from "lucide-react";
+import { toast } from "sonner";
+import SectionCard from "@/components/system/SectionCard";
+import NativeSelect from "@/components/system/NativeSelect";
+import CustomerTimeline from "@/components/system/CustomerTimeline";
+import { formatISTDate } from "@/lib/formatIST";
+import { celebrateVisitDone } from "@/components/system/VisitDoneCelebration";
+import { MessageCircle, ArrowLeft, Search as SearchIcon, FilePlus2 } from "lucide-react";
 
-// Types for state
 export type PageState = "SEARCH" | "FOUND" | "NOT_FOUND" | "CREATE" | "EDIT";
 
-// Dropdown options
 const SOURCE_OPTIONS = ["cold-calling", "sms", "whatsapp", "website", "referral", "walk-in"];
 const LEAD_RATING_OPTIONS = ["Bulls_eye", "Hot", "Warm", "Cold"];
 const BUDGET_OPTIONS = ["0-50 Lakhs", "50-100 Lakhs", "1-2 Crore", "2+ Crore"];
@@ -21,7 +33,7 @@ const DESIGNATION_OPTIONS = ["CXO", "Vice President", "Director", "Manager", "Te
 
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "lost", "visit-done", "virtual-meet", "booking-done", "pending"
+  "not-reachable", "lost", "visit-done", "virtual-meet", "booking-done", "pending",
 ];
 
 type CustomerForm = {
@@ -45,62 +57,51 @@ type CustomerForm = {
   [key: string]: string;
 };
 
-// Helper to safe-format YYYY-MM-DD in LOCAL time (prevents IST timezone shift)
 const formatDateForInput = (dateStr: string | null | undefined) => {
   if (!dateStr) return "";
   try {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return "";
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
-
     return `${year}-${month}-${day}`;
   } catch {
     return "";
   }
 };
 
-// Helper to format Date as DD/MM/YYYY for display
+// Closeout: render in IST via the shared formatter so this read-only display
+// matches everywhere else in the customer flows.
 const formatDateDisplay = (dateStr: string | null | undefined) => {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return "-";
-
-    const day = String(d.getDate()).padStart(2, "0");
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const year = d.getFullYear();
-
-    return `${day}/${month}/${year}`;
-  } catch {
-    return "-";
-  }
+  const out = formatISTDate(dateStr);
+  return out === "—" ? "-" : out;
 };
 
-// Helper to calculate Final Status based on Status Code
 const getFinalStatus = (statusCode: string) => {
-  if (statusCode === "visit-done" || statusCode === "booking-done") {
-    return "COMPLETED";
-  }
+  if (statusCode === "visit-done" || statusCode === "booking-done") return "COMPLETED";
   return "PENDING";
 };
 
-// --- NEW TAB MANAGEMENT LOGIC ---
 let waWindowRef: Window | null = null;
-
 const openInSingleWhatsAppTab = (url: string) => {
   let directUrl = url;
   if (directUrl.includes("api.whatsapp.com")) {
     directUrl = directUrl.replace("api.whatsapp.com/send", "web.whatsapp.com/send");
   }
-
   waWindowRef = window.open(directUrl, "AMS_WHATSAPP_TAB");
-  if (waWindowRef) {
-    waWindowRef.focus();
-  }
+  if (waWindowRef) waWindowRef.focus();
 };
+
+const SectionNumber = ({ n, tone = "muted" }: { n: string; tone?: "muted" | "brand" }) => (
+  <span
+    className={`px-2.5 py-0.5 rounded text-xs font-bold uppercase tracking-wider tabular-nums ${
+      tone === "brand" ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground"
+    }`}
+  >
+    {n}
+  </span>
+);
 
 export default function CustomerResolvePage() {
   const { user, loading } = useAuth();
@@ -111,12 +112,8 @@ export default function CustomerResolvePage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // History State
   const [history, setHistory] = useState<any[]>([]);
-
-  // Track which button was clicked
   const [submitAction, setSubmitAction] = useState<"SAVE" | "SEND">("SAVE");
-  
   const [whatsappSending, setWhatsappSending] = useState(false);
   const [whatsappStatus, setWhatsappStatus] = useState<{
     type: "idle" | "loading" | "success" | "error";
@@ -124,40 +121,20 @@ export default function CustomerResolvePage() {
   }>({ type: "idle" });
 
   const [projects, setProjects] = useState<any[]>([]);
-
   const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
-  // 1. Load assigned projects
   useEffect(() => {
-    fetch(`${API_BASE}/api/projects`, {
-      credentials: "include",
-    })
+    fetch(`${API_BASE}/api/projects`, { credentials: "include" })
       .then(res => res.json())
-      .then(data => {
-        setProjects(data);
-      })
+      .then(data => setProjects(data))
       .catch(err => console.error("Failed to load projects", err));
   }, []);
 
-  // Form state
   const [form, setForm] = useState<CustomerForm>({
-    name: "",
-    project: "",
-    location: "",
-    pincode: "",
-    source: "",
-    leadRating: "",
-    budget: "",
-    config: "",
-    profession: "",
-    designation: "",
-    purpose: "",
-    status: "",
-    finalStatus: "PENDING",
-    followUpDate: "",
-    followUpTime: "",
-    doneDate: "",
-    remark: "",
+    name: "", project: "", location: "", pincode: "", source: "", leadRating: "",
+    budget: "", config: "", profession: "", designation: "", purpose: "",
+    status: "", finalStatus: "PENDING", followUpDate: "", followUpTime: "",
+    doneDate: "", remark: "",
   });
 
   useEffect(() => {
@@ -169,23 +146,19 @@ export default function CustomerResolvePage() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length !== 10) return;
-
     try {
       setSearching(true);
       setCustomer(null);
-
       const res = await fetch(`${API_BASE}/api/agent/customers/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ phone }),
       });
-
       if (!res.ok) {
         setPageState("SEARCH");
         throw new Error("Search failed");
       }
-
       const data = await res.json();
       if (data.status === "FOUND") {
         setCustomer(data.data);
@@ -211,7 +184,6 @@ export default function CustomerResolvePage() {
             setCustomer(found);
             setPageState("EDIT");
             setHistory(found.history || []);
-
             const status = found.status_code || "";
             setForm({
               name: found.name || "",
@@ -238,39 +210,30 @@ export default function CustomerResolvePage() {
     }
   }, [searchParams]);
 
-  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleFormChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target;
-
     if (name === "status") {
-      setForm(f => ({
-        ...f,
-        [name]: value,
-        finalStatus: getFinalStatus(value),
-      }));
+      setForm(f => ({ ...f, [name]: value, finalStatus: getFinalStatus(value) }));
     } else {
       setForm(f => ({ ...f, [name]: value }));
     }
   };
 
   const handleCancel = () => {
-    if (isEdit) {
-      navigate("/agent/customers");
-    } else {
-      setPageState("SEARCH");
-    }
+    if (isEdit) navigate("/agent/customers");
+    else setPageState("SEARCH");
   };
 
   const handleCreateOrEdit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setWhatsappStatus({ type: "idle" });
 
-    // Append WhatsApp tracking to remark
     let finalRemark = form.remark || "";
     if (submitAction === "SEND") {
       const statusText = form.status ? form.status.toUpperCase() : "UPDATE";
-      finalRemark = finalRemark 
-        ? `${finalRemark} | [WhatsApp Sent: ${statusText}]`
-        : `[WhatsApp Sent: ${statusText}]`;
+      finalRemark = finalRemark ? `${finalRemark} | [WhatsApp Sent: ${statusText}]` : `[WhatsApp Sent: ${statusText}]`;
     }
 
     const payload = {
@@ -286,9 +249,6 @@ export default function CustomerResolvePage() {
 
     try {
       let customerIdToUse = isEdit ? customer?.customer_id : customer?.id;
-      // NEW: track the agent_customer_id separately and unambiguously.
-      // In EDIT mode it's customer.id (the merged endpoint exposes ac.id as `id`).
-      // In CREATE mode it's populated after the POST response below.
       let agentCustomerIdToUse: number | undefined = isEdit ? customer?.id : undefined;
 
       if (isCreate) {
@@ -298,63 +258,45 @@ export default function CustomerResolvePage() {
           credentials: "include",
           body: JSON.stringify(payload),
         });
-
         const createData = await createRes.json();
-
-        if (!createRes.ok) {
-          throw new Error(createData?.message || "Failed to create customer");
-        }
-
+        if (!createRes.ok) throw new Error(createData?.message || "Failed to create customer");
         customerIdToUse = createData?.data?.customer_id ?? createData?.data?.id;
         agentCustomerIdToUse = createData?.data?.agent_customer_id;
-
-        if (!customerIdToUse) {
-          throw new Error("Invalid response: missing customer_id");
-        }
+        if (!customerIdToUse) throw new Error("Invalid response: missing customer_id");
       } else if (isEdit && agentCustomerIdToUse) {
-        // BUGFIX (May 2026): PUT route is /:agentCustomerId — it expects the
-        // agent_customers.id, NOT the customers.id. Previously this used
-        // customerIdToUse (= customer.customer_id = c.id), which caused 403
-        // Forbidden in production whenever c.id and ac.id values diverged.
+        // BUGFIX (May 2026): PUT route is /:agentCustomerId — expects ac.id, not c.id.
         const updateRes = await fetch(`${API_BASE}/api/agent/customers/${agentCustomerIdToUse}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify(payload),
         });
-
         if (!updateRes.ok) {
           const errData = await updateRes.json().catch(() => null);
           throw new Error(errData?.message || `Failed to update customer (HTTP ${updateRes.status})`);
         }
       }
 
-      // Handle sending WhatsApp Message
       if (submitAction === "SEND" && (agentCustomerIdToUse || customerIdToUse)) {
         setWhatsappSending(true);
         setWhatsappStatus({ type: "loading", message: "Preparing WhatsApp message..." });
 
         try {
-          // Determine template code based strictly on status
-          let templateCode = isCreate ? "INITIAL" : "FU"; // Default
-          
+          let templateCode = isCreate ? "INITIAL" : "FU";
           if (!isCreate && form.status) {
-             const s = form.status.toUpperCase();
-             if (s === "NOT-REACHABLE") templateCode = "NR";
-             else if (s === "VISIT-DONE") templateCode = "VD";
-             else if (s === "LOST") templateCode = "LOST";
-             else if (s === "VIRTUAL-MEET") templateCode = "VM";
-             else if (s === "BOOKING-DONE") templateCode = "BD";
-             else if (s === "SDOW") templateCode = "SDOW";
-             else if (s === "VISIT-CONFIRMED") templateCode = "VC";
-             else if (s === "VISIT-PROPOSED") templateCode = "VP";
-             else if (s === "VIRTUAL-MEET-CONFIRMED") templateCode = "VMC";
-             else if (s === "FOLLOW-UP") templateCode = "FU";
+            const s = form.status.toUpperCase();
+            if (s === "NOT-REACHABLE") templateCode = "NR";
+            else if (s === "VISIT-DONE") templateCode = "VD";
+            else if (s === "LOST") templateCode = "LOST";
+            else if (s === "VIRTUAL-MEET") templateCode = "VM";
+            else if (s === "BOOKING-DONE") templateCode = "BD";
+            else if (s === "SDOW") templateCode = "SDOW";
+            else if (s === "VISIT-CONFIRMED") templateCode = "VC";
+            else if (s === "VISIT-PROPOSED") templateCode = "VP";
+            else if (s === "VIRTUAL-MEET-CONFIRMED") templateCode = "VMC";
+            else if (s === "FOLLOW-UP") templateCode = "FU";
           }
 
-          // BUGFIX (May 2026): pass agentCustomerId (preferred) so the backend
-          // does a strict ac.id lookup. customerId is included as a defensive
-          // fallback only — backend prefers agentCustomerId when both are sent.
           const waRes = await fetch(`${API_BASE}/api/agent/whatsapp/send-manual`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -367,11 +309,8 @@ export default function CustomerResolvePage() {
           });
 
           const waData = await waRes.json().catch(() => null);
-
           if (waRes.ok) {
-            if (waData?.data?.whatsappUrl) {
-              openInSingleWhatsAppTab(waData.data.whatsappUrl);
-            }
+            if (waData?.data?.whatsappUrl) openInSingleWhatsAppTab(waData.data.whatsappUrl);
             setWhatsappStatus({ type: "success", message: "WhatsApp message prepared." });
           } else {
             setWhatsappStatus({
@@ -388,21 +327,27 @@ export default function CustomerResolvePage() {
         }
       }
 
+      // Phase 5: success flash so the agent gets explicit confirmation before
+      // the 500ms redirect kicks them back to the dashboard.
+      toast.success(isCreate ? "Customer created" : "Customer updated");
+      // Closeout: lightweight Visit Done / Booking Done celebration on top of
+      // the regular success flash. No-op for other statuses.
+      celebrateVisitDone(form.status, form.name);
       setTimeout(() => navigate("/agent/dashboard"), 500);
     } catch (err: any) {
       console.error("Error:", err);
-      alert(`Error: ${err.message || "An error occurred"}`);
+      // Phase 5: standardized error flash via sonner (was a window.alert).
+      toast.error(err.message || "An error occurred while saving");
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (!user) return <div>Session expired</div>;
+  if (loading) return <div className="p-6 text-muted-foreground">Loading...</div>;
+  if (!user) return <div className="p-6 text-muted-foreground">Session expired</div>;
 
   const isCreate = pageState === "CREATE";
   const isEdit = pageState === "EDIT";
   const ownerName = user.first_name ? `${user.first_name} ${user.last_name}` : user.username;
 
-  // --- LOGIC HELPERS ---
   const isDoneStatus = form.status === "visit-done" || form.status === "booking-done";
   const isLostStatus = form.status === "lost";
   const showFollowUp = !isDoneStatus && !isLostStatus;
@@ -415,159 +360,156 @@ export default function CustomerResolvePage() {
   };
 
   return (
-    <AppShell>
-      <div className="max-w-6xl mx-auto py-8">
+    <AppShell sidebar={null}>
+      <div className="max-w-6xl mx-auto">
         {pageState === "SEARCH" && (
-          <form onSubmit={handleSearch} className="max-w-md mb-8 animate-in fade-in slide-in-from-top-2 duration-300">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="phone" className="text-slate-700 font-semibold flex items-center gap-2">
-                <span>Phone Number</span>
-                <span className="text-xs font-normal text-slate-400">(10 digits required)</span>
-              </Label>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                    <span className="text-slate-400 text-sm">🇮🇳 +91</span>
+          <SectionCard
+            title="Customer Lookup"
+            description="Search by phone number to find an existing customer or create a new lead."
+            className="max-w-2xl mx-auto"
+          >
+            <form onSubmit={handleSearch} className="space-y-4 animate-fade-in">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="phone" className="text-foreground font-semibold flex items-center gap-2">
+                  <span>Phone Number</span>
+                  <span className="text-xs font-normal text-muted-foreground">(10 digits required)</span>
+                </Label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                      <span className="text-muted-foreground text-sm">🇮🇳 +91</span>
+                    </div>
+                    <Input
+                      id="phone"
+                      className="pl-14 h-11 text-lg tracking-widest"
+                      placeholder="0000000000"
+                      value={phone}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (/^\d{0,10}$/.test(val)) setPhone(val);
+                      }}
+                      required
+                      minLength={10}
+                      maxLength={10}
+                      inputMode="numeric"
+                      autoComplete="off"
+                    />
                   </div>
-                  <Input
-                    id="phone"
-                    className="pl-14 h-11 border-slate-200 focus:ring-2 focus:ring-indigo-500 transition-all text-lg tracking-widest"
-                    placeholder="0000000000"
-                    value={phone}
-                    onChange={e => {
-                      const val = e.target.value;
-                      if (/^\d{0,10}$/.test(val)) setPhone(val);
-                    }}
-                    required
-                    minLength={10}
-                    maxLength={10}
-                    inputMode="numeric"
-                    autoComplete="off"
-                  />
+                  <Button
+                    type="submit"
+                    disabled={phone.length !== 10 || searching}
+                    size="lg"
+                    className="px-6"
+                  >
+                    {searching ? (
+                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <SearchIcon className="w-4 h-4" />
+                        <span>Search</span>
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <Button
-                  type="submit"
-                  disabled={phone.length !== 10 || searching}
-                  className="h-11 px-6 bg-indigo-600 hover:bg-indigo-700 shadow-sm transition-all flex items-center gap-2"
-                >
-                  {searching ? (
-                    <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    "Search"
-                  )}
-                </Button>
               </div>
-            </div>
-          </form>
+            </form>
+          </SectionCard>
         )}
 
         {pageState === "FOUND" && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-6 animate-in zoom-in-95 duration-200">
-            <div className="bg-slate-50 border-b px-6 py-4 flex justify-between items-center">
-              <h3 className="font-bold text-slate-800 tracking-tight">Customer Profile</h3>
-              <span className="flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase tracking-wider">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <SectionCard
+            title="Customer Profile"
+            actions={
+              <span className="flex items-center gap-1.5 py-1 px-2.5 rounded-full bg-success/15 text-success text-xs font-bold uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
                 Record Found
               </span>
-            </div>
+            }
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6 mb-6">
+              {[
+                ["Owner", ownerName],
+                ["Project", getProjectName()],
+                ["Customer Name", customer?.name || "-"],
+                ["Contact Number", customer?.contact || "-"],
+                ["Location", customer?.location || "-"],
+                ["Created At", formatDateDisplay(customer?.created_at) || "-"],
+              ].map(([k, v]) => (
+                <div key={k as string}>
+                  <Label className="text-muted-foreground text-xs uppercase font-semibold tracking-wider">{k}</Label>
+                  <p className="text-sm font-semibold text-foreground mt-1">{v}</p>
+                </div>
+              ))}
 
-            <div className="p-6">
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mb-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-6">
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Owner</Label>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{ownerName}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Project</Label>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{getProjectName()}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Customer Name</Label>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{customer?.name || "-"}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Contact Number</Label>
-                    <p className="text-sm font-mono font-bold text-slate-800 mt-1">{customer?.contact || "-"}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Location</Label>
-                    <p className="text-sm font-medium text-slate-700 mt-1">{customer?.location || "-"}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Created At</Label>
-                    <p className="text-sm font-medium text-slate-700 mt-1">{formatDateDisplay(customer?.created_at) || "-"}</p>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Current Status</Label>
-                    <div className="mt-1">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-bold uppercase border border-slate-200 inline-block">
-                        {customer?.status_code || "-"}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Final Status</Label>
-                    <div className="mt-1">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border inline-block ${
-                          customer?.final_status === "COMPLETED"
-                            ? "bg-green-100 text-green-700 border-green-200"
-                            : "bg-slate-100 text-slate-700 border-slate-200"
-                        }`}
-                      >
-                        {customer?.final_status || "PENDING"}
-                      </span>
-                    </div>
-                  </div>
-                  {customer?.done_date && (
-                    <div>
-                      <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Done Date</Label>
-                      <p className="text-sm font-semibold text-emerald-700 mt-1">{formatDateDisplay(customer.done_date)}</p>
-                    </div>
-                  )}
-                  {!customer?.done_date && (
-                    <div>
-                      <Label className="text-slate-500 text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
-                      <p className="text-sm font-semibold text-slate-700 mt-1">
-                        {formatDateDisplay(customer?.follow_up_date) || "Not Set"}
-                        <span className="text-xs text-slate-400 font-normal ml-2">{customer?.follow_up_time}</span>
-                      </p>
-                    </div>
-                  )}
+              <div>
+                <Label className="text-muted-foreground text-xs uppercase font-semibold tracking-wider">Current Status</Label>
+                <div className="mt-1">
+                  <span className="px-2 py-0.5 bg-muted text-foreground rounded text-[11px] font-bold uppercase border border-border inline-block">
+                    {customer?.status_code || "-"}
+                  </span>
                 </div>
               </div>
-
-              <div className="flex gap-3 pt-4 border-t border-slate-100">
-                <Button onClick={() => navigate(`/agent/customers/resolve?edit=${customer.id}`)} variant="outline">
-                  Edit Details
-                </Button>
-                <Button onClick={() => navigate("/agent/dashboard")} className="bg-indigo-600 hover:bg-indigo-700 shadow-md">
-                  Go Back
-                </Button>
+              <div>
+                <Label className="text-muted-foreground text-xs uppercase font-semibold tracking-wider">Final Status</Label>
+                <div className="mt-1">
+                  <span className={`px-2 py-0.5 rounded text-[11px] font-bold uppercase border inline-block ${
+                    customer?.final_status === "COMPLETED"
+                      ? "bg-success/15 text-success border-success/30"
+                      : "bg-muted text-muted-foreground border-border"
+                  }`}>
+                    {customer?.final_status || "PENDING"}
+                  </span>
+                </div>
               </div>
+              {customer?.done_date && (
+                <div>
+                  <Label className="text-muted-foreground text-xs uppercase font-semibold tracking-wider">Done Date</Label>
+                  <p className="text-sm font-semibold text-success mt-1">{formatDateDisplay(customer.done_date)}</p>
+                </div>
+              )}
+              {!customer?.done_date && (
+                <div>
+                  <Label className="text-muted-foreground text-xs uppercase font-semibold tracking-wider">Next Follow-Up</Label>
+                  <p className="text-sm font-semibold text-foreground mt-1">
+                    {formatDateDisplay(customer?.follow_up_date) || "Not Set"}
+                    <span className="text-xs text-muted-foreground font-normal ml-2">{customer?.follow_up_time}</span>
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
+
+            <div className="flex gap-3 pt-4 border-t border-border">
+              <Button variant="outline" onClick={() => navigate(`/agent/customers/resolve?edit=${customer.id}`)}>
+                Edit Details
+              </Button>
+              <Button onClick={() => navigate("/agent/dashboard")}>
+                <ArrowLeft className="w-4 h-4" />
+                Go Back
+              </Button>
+            </div>
+          </SectionCard>
         )}
 
         {pageState === "NOT_FOUND" && (
-          <div className="bg-white/80 backdrop-blur-sm border border-slate-200 rounded-xl p-6 mb-6 shadow-sm flex flex-col items-center text-center transition-all hover:shadow-md">
-            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mb-4">
-              <span className="text-xl text-slate-400">🔍</span>
+          <SectionCard className="max-w-2xl mx-auto">
+            <div className="flex flex-col items-center text-center py-6">
+              <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mb-4 text-muted-foreground">
+                <FilePlus2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-foreground">No customer found</h3>
+              <p className="text-muted-foreground mt-1 mb-6 text-sm">We couldn't find any records associated with this phone number.</p>
+              <Button onClick={() => setPageState("CREATE")} size="lg">
+                Create New Profile
+              </Button>
             </div>
-            <h3 className="text-lg font-semibold text-slate-800">No customer found</h3>
-            <p className="text-slate-500 mt-1 mb-6 text-sm">We couldn't find any records associated with this phone number.</p>
-            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-2 rounded-lg" onClick={() => setPageState("CREATE")}>
-              Create New Profile
-            </Button>
-          </div>
+          </SectionCard>
         )}
 
         {(isCreate || isEdit) && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-xl mb-6 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="bg-slate-900 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-white font-bold text-lg flex items-center gap-2">
-                <div className={`w-2 h-6 rounded-full ${isCreate ? "bg-blue-500" : "bg-amber-500"}`} />
+          <div className="rounded-xl border border-border bg-card text-card-foreground shadow-elevation-2 mb-6 overflow-hidden animate-rise-in">
+            <div className="bg-foreground text-background px-6 py-4 flex items-center justify-between">
+              <h2 className="font-bold text-lg flex items-center gap-2">
+                <div className={`w-2 h-6 rounded-full ${isCreate ? "bg-info" : "bg-warning"}`} />
                 {isCreate ? "Create New Customer" : "Update Customer Details"}
               </h2>
             </div>
@@ -575,89 +517,70 @@ export default function CustomerResolvePage() {
             <form className="p-8 space-y-10" onSubmit={handleCreateOrEdit}>
               <section className="space-y-6">
                 <div className="flex items-center gap-4">
-                  <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">01</span>
-                  <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Lead Information</h3>
-                  <div className="h-px bg-slate-100 flex-1" />
+                  <SectionNumber n="01" />
+                  <h3 className="font-semibold text-foreground uppercase text-xs tracking-widest">Lead Information</h3>
+                  <div className="hairline flex-1" />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <div className="space-y-1.5 opacity-80">
-                    <Label className="text-slate-600 font-medium ml-1">
-                      Owner <span className="text-rose-500">*</span>
+                    <Label className="text-muted-foreground font-medium ml-1">
+                      Owner <span className="text-danger">*</span>
                     </Label>
-                    <Input value={ownerName} disabled className="h-11 bg-slate-50 border-slate-200 cursor-not-allowed" />
+                    <Input value={ownerName} disabled className="h-11 bg-muted cursor-not-allowed" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-project" className="text-slate-600 font-medium ml-1">
-                      Project <span className="text-rose-500">*</span>
+                    <Label htmlFor="form-project" className="text-muted-foreground font-medium ml-1">
+                      Project <span className="text-danger">*</span>
                     </Label>
-                    <select
+                    <NativeSelect
                       id="form-project"
                       name="project"
                       value={form.project}
                       onChange={handleFormChange}
                       required
-                      className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm"
+                      wrapperClassName="w-full"
+                      className="h-11 shadow-elevation-1"
                     >
                       <option value="" disabled>Select project</option>
                       {projects.map((p) => (
                         <option key={p.id} value={String(p.id)}>{p.name}</option>
                       ))}
-                    </select>
+                    </NativeSelect>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-name" className="text-slate-600 font-medium ml-1">
-                      Customer Name <span className="text-rose-500">*</span>
+                    <Label htmlFor="form-name" className="text-muted-foreground font-medium ml-1">
+                      Customer Name <span className="text-danger">*</span>
                     </Label>
-                    <Input
-                      id="form-name"
-                      name="name"
-                      value={form.name}
-                      onChange={handleFormChange}
-                      required
-                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
-                    />
+                    <Input id="form-name" name="name" value={form.name} onChange={handleFormChange} required className="h-11" />
                   </div>
 
                   <div className="space-y-1.5 opacity-80">
-                    <Label className="text-slate-500 font-medium ml-1">Contact Number</Label>
-                    <Input value={phone} disabled className="h-11 bg-slate-50 border-slate-200 font-mono tracking-wider cursor-not-allowed" />
+                    <Label className="text-muted-foreground font-medium ml-1">Contact Number</Label>
+                    <Input value={phone} disabled className="h-11 bg-muted font-mono tracking-wider cursor-not-allowed" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-location" className="text-slate-600 font-medium ml-1">
-                      Location <span className="text-rose-500">*</span>
+                    <Label htmlFor="form-location" className="text-muted-foreground font-medium ml-1">
+                      Location <span className="text-danger">*</span>
                     </Label>
-                    <Input
-                      id="form-location"
-                      name="location"
-                      value={form.location}
-                      onChange={handleFormChange}
-                      required
-                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
-                    />
+                    <Input id="form-location" name="location" value={form.location} onChange={handleFormChange} required className="h-11" />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-pincode" className="text-slate-600 font-medium ml-1">Pincode</Label>
-                    <Input
-                      id="form-pincode"
-                      name="pincode"
-                      value={form.pincode}
-                      onChange={handleFormChange}
-                      className="h-11 border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-50/50 shadow-sm"
-                    />
+                    <Label htmlFor="form-pincode" className="text-muted-foreground font-medium ml-1">Pincode</Label>
+                    <Input id="form-pincode" name="pincode" value={form.pincode} onChange={handleFormChange} className="h-11" />
                   </div>
                 </div>
               </section>
 
               <section className="space-y-6">
                 <div className="flex items-center gap-4">
-                  <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">02</span>
-                  <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Preferences & Profile</h3>
-                  <div className="h-px bg-slate-100 flex-1" />
+                  <SectionNumber n="02" />
+                  <h3 className="font-semibold text-foreground uppercase text-xs tracking-widest">Preferences & Profile</h3>
+                  <div className="hairline flex-1" />
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {[
@@ -669,140 +592,115 @@ export default function CustomerResolvePage() {
                     { id: "form-purpose", label: "Purpose", name: "purpose", options: PURPOSE_OPTIONS, req: true },
                   ].map((field) => (
                     <div key={field.id} className="space-y-1.5">
-                      <Label htmlFor={field.id} className="text-slate-600 font-medium ml-1">
-                        {field.label} {field.req && <span className="text-rose-500">*</span>}
+                      <Label htmlFor={field.id} className="text-muted-foreground font-medium ml-1">
+                        {field.label} {field.req && <span className="text-danger">*</span>}
                       </Label>
-                      <select
+                      <NativeSelect
                         id={field.id}
                         name={field.name}
                         value={form[field.name]}
                         onChange={handleFormChange}
                         required={field.req}
-                        className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all bg-white shadow-sm"
+                        wrapperClassName="w-full"
+                        className="h-11 shadow-elevation-1"
                       >
                         <option value="">Select {field.label.toLowerCase()}</option>
-                        {field.options.map(opt => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
+                        {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                      </NativeSelect>
                     </div>
                   ))}
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-designation" className="text-slate-600 font-medium ml-1">Designation</Label>
-                    <select
+                    <Label htmlFor="form-designation" className="text-muted-foreground font-medium ml-1">Designation</Label>
+                    <NativeSelect
                       id="form-designation"
                       name="designation"
                       value={form.designation}
                       onChange={handleFormChange}
-                      className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 transition-all bg-white shadow-sm"
+                      wrapperClassName="w-full"
+                      className="h-11 shadow-elevation-1"
                     >
                       <option value="">Select designation</option>
-                      {DESIGNATION_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
+                      {DESIGNATION_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </NativeSelect>
                   </div>
                 </div>
               </section>
 
-              <section className="bg-slate-50 p-6 rounded-xl border border-slate-100 space-y-6">
+              <section className="bg-muted/30 p-6 rounded-xl border border-border space-y-6">
                 <div className="flex items-center gap-4">
-                  <span className="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">03</span>
-                  <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Next Action</h3>
+                  <SectionNumber n="03" tone="brand" />
+                  <h3 className="font-semibold text-foreground uppercase text-xs tracking-widest">Next Action</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="space-y-1.5">
-                    <Label htmlFor="form-status" className="text-slate-600 font-medium ml-1">
-                      Status <span className="text-rose-500">*</span>
+                    <Label htmlFor="form-status" className="text-muted-foreground font-medium ml-1">
+                      Status <span className="text-danger">*</span>
                     </Label>
-                    <select
+                    <NativeSelect
                       id="form-status"
                       name="status"
                       value={form.status}
                       onChange={handleFormChange}
                       required
-                      className="block w-full h-11 border border-slate-200 rounded-md px-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white"
+                      wrapperClassName="w-full"
+                      className="h-11"
                     >
                       <option value="">Select status</option>
-                      {STATUS_OPTIONS.map(opt => (
-                        <option key={opt} value={opt}>{opt}</option>
-                      ))}
-                    </select>
+                      {STATUS_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                    </NativeSelect>
                   </div>
 
                   <div className="space-y-1.5 opacity-90">
-                    <Label htmlFor="form-finalStatus" className="text-slate-600 font-medium ml-1">Final Status</Label>
+                    <Label htmlFor="form-finalStatus" className="text-muted-foreground font-medium ml-1">Final Status</Label>
                     <Input
                       id="form-finalStatus"
                       value={form.finalStatus}
                       disabled
-                      className={`h-11 border-slate-200 font-bold tracking-wide ${
-                        form.finalStatus === "COMPLETED" ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-500"
+                      className={`h-11 font-bold tracking-wide ${
+                        form.finalStatus === "COMPLETED"
+                          ? "bg-success/15 text-success"
+                          : "bg-muted text-muted-foreground"
                       }`}
                     />
                   </div>
 
                   {showFollowUp && (
                     <>
-                      <div className="space-y-1.5 animate-in fade-in duration-300">
-                        <Label htmlFor="form-followUpDate" className="text-slate-600 font-medium ml-1">
-                          Follow-up Date <span className="text-rose-500">*</span>
+                      <div className="space-y-1.5 animate-fade-in">
+                        <Label htmlFor="form-followUpDate" className="text-muted-foreground font-medium ml-1">
+                          Follow-up Date <span className="text-danger">*</span>
                         </Label>
-                        <Input
-                          id="form-followUpDate"
-                          name="followUpDate"
-                          type="date"
-                          value={form.followUpDate}
-                          onChange={handleFormChange}
-                          required
-                          className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm"
-                        />
+                        <Input id="form-followUpDate" name="followUpDate" type="date" value={form.followUpDate} onChange={handleFormChange} required className="h-11" />
                       </div>
-                      <div className="space-y-1.5 animate-in fade-in duration-300">
-                        <Label htmlFor="form-followUpTime" className="text-slate-600 font-medium ml-1">
-                          Follow-up Time <span className="text-rose-500">*</span>
+                      <div className="space-y-1.5 animate-fade-in">
+                        <Label htmlFor="form-followUpTime" className="text-muted-foreground font-medium ml-1">
+                          Follow-up Time <span className="text-danger">*</span>
                         </Label>
-                        <Input
-                          id="form-followUpTime"
-                          name="followUpTime"
-                          type="time"
-                          value={form.followUpTime}
-                          onChange={handleFormChange}
-                          required
-                          className="h-11 border-slate-200 focus:ring-4 focus:ring-blue-50 bg-white shadow-sm"
-                        />
+                        <Input id="form-followUpTime" name="followUpTime" type="time" value={form.followUpTime} onChange={handleFormChange} required className="h-11" />
                       </div>
                     </>
                   )}
 
                   {showDoneDate && (
-                    <div className="space-y-1.5 animate-in fade-in duration-300">
-                      <Label htmlFor="form-doneDate" className="text-emerald-700 font-medium ml-1">
-                        Done Date <span className="text-rose-500">*</span>
+                    <div className="space-y-1.5 animate-fade-in">
+                      <Label htmlFor="form-doneDate" className="text-success font-medium ml-1">
+                        Done Date <span className="text-danger">*</span>
                       </Label>
-                      <Input
-                        id="form-doneDate"
-                        name="doneDate"
-                        type="date"
-                        value={form.doneDate}
-                        onChange={handleFormChange}
-                        required
-                        className="h-11 border-emerald-200 focus:ring-4 focus:ring-emerald-50 bg-emerald-50/50 shadow-sm"
-                      />
+                      <Input id="form-doneDate" name="doneDate" type="date" value={form.doneDate} onChange={handleFormChange} required className="h-11 border-success/40 bg-success/5" />
                     </div>
                   )}
                 </div>
               </section>
 
-              <section className="bg-slate-50 p-6 rounded-xl border border-slate-100 space-y-6">
+              <section className="bg-muted/30 p-6 rounded-xl border border-border space-y-6">
                 <div className="flex items-center gap-4">
-                  <span className="bg-slate-400 text-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wider">04</span>
-                  <h3 className="font-semibold text-slate-800 uppercase text-xs tracking-widest">Remarks & History</h3>
+                  <SectionNumber n="04" />
+                  <h3 className="font-semibold text-foreground uppercase text-xs tracking-widest">Remarks & History</h3>
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="form-remark" className="text-slate-600 font-medium ml-1">
+                    <Label htmlFor="form-remark" className="text-muted-foreground font-medium ml-1">
                       {isEdit ? "Add New Remark Update" : "Special Remarks"}
                     </Label>
                     <textarea
@@ -812,113 +710,65 @@ export default function CustomerResolvePage() {
                       onChange={handleFormChange}
                       rows={3}
                       placeholder="Enter details..."
-                      className="block w-full border border-slate-200 rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-50 focus:border-blue-500 bg-white shadow-sm transition-all"
+                      className="block w-full border border-input rounded-md px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring bg-background text-foreground shadow-elevation-1 transition-[border-color,box-shadow]"
                     />
                   </div>
 
                   {isEdit && history.length > 0 && (
-                    <div className="mt-8 pt-6 border-t border-slate-200">
-                      <Label className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-5 block">
-                        📋 Activity History
+                    <div className="mt-8 pt-6 border-t border-border">
+                      <Label className="text-muted-foreground text-[10px] uppercase font-bold tracking-widest mb-5 block">
+                        Activity History
                       </Label>
-                      <div className="border border-slate-200 rounded-xl bg-slate-50 overflow-hidden shadow-inner">
-                        <div className="max-h-72 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-slate-300">
-                          <div className="relative border-l-2 border-indigo-200 ml-3 space-y-6">
-                            {history.map((item, idx) => (
-                              <div key={idx} className="relative pl-6">
-                                <div className={`absolute -left-[9px] top-1 w-4 h-4 rounded-full border-2 border-white flex items-center justify-center shadow-sm ${
-                                  item.action_type === 'CREATE' ? 'bg-blue-500' :
-                                  item.action_type === 'STATUS_CHANGE' ? 'bg-indigo-500' : 'bg-slate-400'
-                                }`}></div>
-                                
-                                <div className="bg-white p-3.5 rounded-lg border border-slate-100 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
-                                  <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {item.action_type === 'CREATE' && (
-                                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase border border-blue-100">Lead Created</span>
-                                      )}
-                                      {item.action_type === 'STATUS_CHANGE' && (
-                                        <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded uppercase border border-indigo-100">Status Changed</span>
-                                      )}
-                                      {item.action_type === 'EDIT' && (
-                                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase border border-slate-200">Remark Added</span>
-                                      )}
-                                      <span className="text-[10px] font-semibold text-slate-400">
-                                        {new Date(item.date).toLocaleDateString("en-GB")} @ {new Date(item.date).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                      </span>
-                                    </div>
-                                  </div>
-
-                                  {item.action_type === 'STATUS_CHANGE' && item.old_status && item.new_status && (
-                                    <div className="flex items-center gap-2 mt-2 mb-2 text-xs font-bold">
-                                      <span className="text-slate-400 line-through capitalize px-2 py-0.5 bg-slate-50 rounded border border-slate-100">{item.old_status.replace(/-/g, ' ')}</span>
-                                      <span className="text-slate-300">→</span>
-                                      <span className="text-emerald-700 capitalize px-2 py-0.5 bg-emerald-50 rounded border border-emerald-200">{item.new_status.replace(/-/g, ' ')}</span>
-                                    </div>
-                                  )}
-
-                                  {item.action_type === 'CREATE' && item.new_status && (
-                                    <div className="mt-1.5 mb-2 text-xs font-bold text-blue-700 capitalize flex items-center gap-1.5">
-                                      Initial Status: <span className="bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">{item.new_status.replace(/-/g, ' ')}</span>
-                                    </div>
-                                  )}
-
-                                  {item.remark && (
-                                    <div className="text-sm text-slate-700 leading-relaxed font-medium italic bg-slate-50/70 p-2.5 rounded-md border border-slate-100 mt-2">
-                                      "{item.remark}"
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
+                      {/* Phase 6: shared timeline component — same DOM the
+                          supervisor sees in GlobalCustomerSearch journey panel. */}
+                      <CustomerTimeline history={history} scroll maxHeight="18rem" />
                     </div>
                   )}
                 </div>
               </section>
 
-              <div className="flex items-center justify-end gap-3 pt-8 border-t border-slate-100 mt-8">
+              <div className="flex items-center justify-end gap-3 pt-8 border-t border-border mt-8 flex-wrap">
                 {whatsappStatus.type !== "idle" && (
                   <div className={`mr-auto text-sm font-medium ${
-                    whatsappStatus.type === "error" ? "text-rose-600" : "text-slate-600"
+                    whatsappStatus.type === "error" ? "text-danger" : "text-muted-foreground"
                   }`}>
                     {whatsappStatus.message}
                   </div>
                 )}
-                
+
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={handleCancel}
                   disabled={whatsappSending}
-                  className="px-6 h-11 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all font-semibold"
+                  className="px-6 h-11"
                 >
                   Cancel
                 </Button>
-                
+
                 <Button
                   type="submit"
                   onClick={() => setSubmitAction("SAVE")}
                   disabled={whatsappSending}
-                  className="px-6 h-11 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
+                  className="px-6 h-11"
                 >
                   {isCreate ? "Create & Save" : "Save Update"}
                 </Button>
-                
+
                 <Button
                   type="submit"
                   onClick={() => setSubmitAction("SEND")}
                   disabled={whatsappSending}
-                  className="px-6 h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition-all flex items-center gap-2"
+                  className="px-6 h-11 bg-success text-success-foreground hover:bg-success/90"
                 >
                   {whatsappSending ? (
                     <div className="animate-spin"><MessageCircle className="w-4 h-4" /></div>
                   ) : (
-                    <MessageCircle className="w-4 h-4" />
+                    <>
+                      <MessageCircle className="w-4 h-4" />
+                      <span>Send WhatsApp</span>
+                    </>
                   )}
-                  {isCreate ? "Create & Send WA" : "Save & Send WA"}
                 </Button>
               </div>
             </form>

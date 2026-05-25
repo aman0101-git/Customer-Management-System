@@ -2,7 +2,7 @@
 // frontend/src/lib/http.ts
 // ----------------------------------------------------------------------------
 // Phase 0 (May 2026):
-//   Single shared axios instance for the AMS frontend.
+//   Single shared axios instance for the CMS frontend.
 //
 //   - baseURL comes from the existing apiBase.ts (env-driven, no hardcoded URLs)
 //   - withCredentials: true so the httpOnly JWT cookie is sent on every call

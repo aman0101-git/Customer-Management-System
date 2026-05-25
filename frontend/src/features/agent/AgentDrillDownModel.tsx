@@ -1,5 +1,15 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { format } from "date-fns";
+// PHASE 2 — AgentDrillDownModal
+// Tokenized surfaces and text colors. Modal contract (props, render shape)
+// unchanged. Empty-state row now uses the EmptyState design helper feel
+// (kept inline as a single <tr> so we don't break colspan layout).
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { formatISTDate } from "@/lib/formatIST";
 import { Loader2 } from "lucide-react";
 
 interface DrillDownModalProps {
@@ -10,50 +20,79 @@ interface DrillDownModalProps {
   loading: boolean;
 }
 
-export default function AgentDrillDownModal({ isOpen, onClose, title, data, loading }: DrillDownModalProps) {
+export default function AgentDrillDownModal({
+  isOpen,
+  onClose,
+  title,
+  data,
+  loading,
+}: DrillDownModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="capitalize text-slate-800 border-b pb-2">
+          <DialogTitle className="capitalize text-foreground border-b border-border pb-2">
             {title} Details
           </DialogTitle>
         </DialogHeader>
-        
+
         {loading ? (
           <div className="flex justify-center p-10">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            <Loader2 className="w-8 h-8 animate-spin text-brand" />
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden border-slate-200">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 text-slate-700 font-bold uppercase text-xs">
+          <div className="border border-border rounded-lg overflow-hidden">
+            <table className="w-full text-sm text-left tabular-nums-tracking">
+              <thead className="bg-muted/50 text-muted-foreground font-semibold uppercase text-xs tracking-wider">
                 <tr>
-                  <th className="p-3">Customer</th>
-                  <th className="p-3">Contact</th>
-                  <th className="p-3">Project</th>
-                  <th className="p-3">Date</th>
+                  <th className="px-3 py-2.5">Customer</th>
+                  <th className="px-3 py-2.5">Contact</th>
+                  <th className="px-3 py-2.5">Project</th>
+                  <th className="px-3 py-2.5">Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {data.length === 0 ? (
-                  <tr><td colSpan={4} className="p-6 text-center text-slate-500 italic">No records found.</td></tr>
+                  <tr>
+                    <td
+                      colSpan={4}
+                      className="px-3 py-6 text-center text-muted-foreground italic"
+                    >
+                      No records found.
+                    </td>
+                  </tr>
                 ) : (
                   data.map((row: any, i: number) => (
-                    <tr key={i} className="hover:bg-indigo-50/50 transition-colors">
-                      <td className="p-3 font-medium text-slate-800">{row.customer_name}</td>
-                      <td className="p-3 text-slate-500 font-mono text-xs">{row.contact}</td>
-                      <td className="p-3">
-                        <span className="text-[10px] uppercase bg-slate-100 text-slate-600 rounded px-2 py-1 font-bold">
+                    <tr
+                      key={i}
+                      className="hover:bg-accent/40 transition-colors"
+                    >
+                      <td className="px-3 py-2.5 font-medium text-foreground">
+                        {row.customer_name}
+                      </td>
+                      <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs">
+                        {row.contact}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-[10px] uppercase bg-muted text-muted-foreground rounded px-2 py-1 font-bold">
                           {row.project_name}
                         </span>
                       </td>
-                      <td className="p-3 text-slate-600 text-xs">
-                        {row.done_date 
-                          ? <span className="text-emerald-600 font-semibold">{format(new Date(row.done_date), "dd/MM/yyyy")} (Done)</span>
-                          : row.follow_up_date 
-                            ? <span>{format(new Date(row.follow_up_date), "dd/MM/yyyy")} <span className="text-slate-400">@ {row.follow_up_time}</span></span>
-                            : "-"}
+                      <td className="px-3 py-2.5 text-foreground text-xs">
+                        {row.done_date ? (
+                          <span className="text-success font-semibold">
+                            {formatISTDate(row.done_date)} (Done)
+                          </span>
+                        ) : row.follow_up_date ? (
+                          <span>
+                            {formatISTDate(row.follow_up_date)}{" "}
+                            <span className="text-muted-foreground">
+                              @ {row.follow_up_time}
+                            </span>
+                          </span>
+                        ) : (
+                          "-"
+                        )}
                       </td>
                     </tr>
                   ))

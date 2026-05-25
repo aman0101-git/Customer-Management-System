@@ -1,64 +1,29 @@
+/* ============================================================================
+   App.css — minimal, intentional global resets.
+   ----------------------------------------------------------------------------
+   PHASE 1 cleanup:
+     - Removed Vite-template legacy: .logo, .read-the-docs, logo-spin, .card,
+       and the body { display: flex; place-items: ... } hack that was
+       overriding the layout. These were never used by the CMS UI.
+     - Kept:
+         (a) #root reset so the app fills the viewport.
+         (b) GPU promotion on .fixed/.absolute — previously added to stop
+             text from rendering blurry inside transformed Drawer surfaces.
+   Global typography, font-smoothing, and color-scheme now live in index.css.
+   ============================================================================ */
+
 #root {
   width: 100%;
-  margin: 0 auto;
+  margin: 0;
   padding: 0;
+  min-height: 100vh;
   text-align: left;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
-
-/* Add this to your App.css */
-body {
-  margin: 0;
-  display: flex;
-  place-items: flex-start; /* Ensure items align to top-left */
-  min-width: 320px;
-  min-height: 100vh;
-  width: 100%;
-}
-
-/* Fix for blurry text inside transformed elements like Drawers */
-.fixed, .absolute {
+/* Drawer / popover anti-blur fix. vaul + radix transforms can sub-pixel
+   blur text in some browsers; promoting these layers stabilizes them. */
+.fixed,
+.absolute {
   transform: translateZ(0);
   backface-visibility: hidden;
-}
-
-html {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
 }

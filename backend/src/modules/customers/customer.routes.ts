@@ -11,6 +11,9 @@ const router = Router();
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/followups", authenticate, Controller.getFollowUps);
 router.get("/drill-down", authenticate, Controller.getDrillDownData);
+// AgentDashboard analytics - consolidated single-trip endpoint.
+// MUST be declared before "/:id" so Express doesn't shadow it.
+router.get("/analytics", authenticate, Controller.getAgentAnalytics);
 
 router.get("/", authenticate, Controller.getAgentCustomers);
 router.post("/search", authenticate, Controller.searchCustomer);
@@ -21,4 +24,3 @@ router.patch("/:id/complete", authenticate, Controller.completeAgentCustomer);
 router.put("/:agentCustomerId", authenticate, Controller.updateAgentCustomer);
 
 export default router;
-

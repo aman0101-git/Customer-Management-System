@@ -26,8 +26,9 @@ const DrawerOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Overlay
     ref={ref}
+    // PHASE 1: lighter, design-system overlay (was a hard bg-black/60).
     className={cn(
-      "fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-opacity duration-300",
+      "fixed inset-0 z-50 bg-foreground/30 backdrop-blur-sm transition-opacity duration-300",
       className
     )}
     {...props}
@@ -43,16 +44,17 @@ const DrawerContent = React.forwardRef<
     <DrawerOverlay />
     <DrawerPrimitive.Content
       ref={ref}
+      // PHASE 1: bg-white / border-slate-200 / bg-slate-300 grab-handle replaced
+      // with tokens. 80% width contract preserved.
       className={cn(
-        // 80% width for all drawers, responsive
-        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-auto w-[80vw] max-w-[80vw] flex-col rounded-t-[20px] border border-slate-200 bg-white shadow-2xl outline-none antialiased",
-        "after:hidden", // Removes the default vaul handle if you want a custom one
+        "fixed inset-x-0 bottom-0 z-50 mx-auto flex h-auto w-[80vw] max-w-[80vw] flex-col rounded-t-[20px] border border-border bg-popover text-popover-foreground shadow-elevation-4 outline-none antialiased",
+        "after:hidden",
         className
       )}
       {...props}
     >
       {/* Sleeker Grab Handle */}
-      <div className="mx-auto mt-4 h-1 w-12 shrink-0 rounded-full bg-slate-300" />
+      <div className="mx-auto mt-4 h-1 w-12 shrink-0 rounded-full bg-border" />
       {children}
     </DrawerPrimitive.Content>
   </DrawerPortal>
@@ -88,7 +90,8 @@ const DrawerTitle = React.forwardRef<
   <DrawerPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-tight tracking-tight text-slate-900",
+      // PHASE 1: tokenized text colors (was text-slate-900 / text-slate-500).
+      "text-lg font-semibold leading-tight tracking-tight text-foreground",
       className
     )}
     {...props}
@@ -102,7 +105,7 @@ const DrawerDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DrawerPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-slate-500", className)}
+    className={cn("text-sm text-muted-foreground", className)}
     {...props}
   />
 ))

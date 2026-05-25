@@ -69,12 +69,16 @@ export async function exportSupervisorData(req: Request, res: Response) {
     const supervisorId = req.user!.id;
     const { format, agentId, projectId, status, startDate, endDate } = req.query;
 
-    // 1. Fetch Data
+    // 1. Fetch Data.
+    // Phase 6: agentId/projectId/status may now be a CSV string (multi-select)
+    // or an array (repeated query params). Service.parseMultiFilter accepts
+    // either and falls back to "all" when empty — single-value callers stay
+    // backward-compatible.
     let rows: any = await Service.getExportData(
       supervisorId,
-      (agentId as string) || 'all',
-      (projectId as string) || 'all',
-      (status as string) || 'all',
+      (agentId as string | string[]) ?? 'all',
+      (projectId as string | string[]) ?? 'all',
+      (status as string | string[]) ?? 'all',
       (startDate as string),
       (endDate as string)
     );
@@ -207,6 +211,29 @@ export async function searchCustomers(req: Request, res: Response) {
     
   } catch (error) {
     console.error("Global Customer Search Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+// --- Phase 6: CUSTOMER JOURNEY (supervisor read-only audit) ---
+export async function getCustomerJourney(req: Request, res: Response) {
+  try {
+    const supervisorId = req.user?.id;
+    const agentCustomerId = Number(req.params.id);
+
+    if (!supervisorId) return res.status(401).json({ message: "Unauthorized" });
+    if (!agentCustomerId) return res.status(400).json({ message: "Missing id" });
+
+    const journey = await Service.getSupervisorCustomerJourney(agentCustomerId, supervisorId);
+
+    if (journey === null) {
+      // 404 instead of 403 so we don't leak existence of out-of-scope leads.
+      return res.status(404).json({ message: "Not found" });
+    }
+
+    return res.json({ history: journey });
+  } catch (error) {
+    console.error("Customer Journey Error:", error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }

@@ -1,3 +1,10 @@
+// ============================================================================
+// PHASE 5 — LoginPage
+// ----------------------------------------------------------------------------
+// Branding refresh: text + icon CMS mark on the left, ThemeToggle on the right.
+// Form behaviour and error-handling preserved byte-equivalent from Phase 2.
+// ============================================================================
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { login } from "./auth.api";
@@ -26,18 +33,10 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-
-      // 1️⃣ Login → sets cookie
       await login({ username, password });
-
-      // 2️⃣ Fetch identity ONCE
       const loggedInUser = await refreshUser();
+      if (!loggedInUser) throw new Error("Auth failed");
 
-      if (!loggedInUser) {
-        throw new Error("Auth failed");
-      }
-
-      // 3️⃣ Redirect by role
       switch (loggedInUser.role) {
         case "ADMIN":
           navigate("/admin/dashboard", { replace: true });
@@ -57,46 +56,53 @@ export default function LoginPage() {
       setLoading(false);
     }
   }
-  
+
   return (
     <>
-      <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 mb-2">
-        AMS <span className="text-blue-600">Login</span>
-      </h1>
+      <div className="space-y-2 mb-6 text-center">
+        <h1 className="text-4xl font-extrabold tracking-tight">
+          <span className="bg-gradient-to-r from-brand via-brand to-chart-4 dark:from-brand dark:via-brand/80 dark:to-chart-4/80 bg-clip-text text-transparent">
+            CMS LOGIN
+          </span>
+        </h1>
+      </div>
+      <p className="text-base text-muted-foreground mb-8 leading-relaxed text-center">
+        Access your dashboard securely.
+      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <Label htmlFor="username">Username</Label>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-2.5">
+          <Label htmlFor="username" className="text-sm font-medium">Username</Label>
           <Input
             id="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             placeholder="e.g., FCS0001"
+            autoComplete="username"
+            className="h-10"
           />
         </div>
 
-        <div>
-          <Label htmlFor="password">Password</Label>
+        <div className="space-y-2.5">
+          <Label htmlFor="password" className="text-sm font-medium">Password</Label>
           <Input
             id="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="e.g., 1234"
+            autoComplete="current-password"
+            className="h-10"
           />
         </div>
 
         {error && (
-          <div className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">
+          <div className="rounded-md border border-danger/30 bg-danger/10 px-3 py-2.5 text-sm text-danger mt-2">
             {error}
           </div>
         )}
 
-        <Button
-          type="submit"
-          className="w-full bg-purple-600 hover:bg-purple-700 text-white"
-          disabled={loading}
-        >
+        <Button type="submit" className="w-full mt-6" size="lg" disabled={loading}>
           {loading ? "Logging in…" : "Login"}
         </Button>
       </form>

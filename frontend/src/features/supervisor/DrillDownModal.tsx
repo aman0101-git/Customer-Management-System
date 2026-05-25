@@ -1,6 +1,19 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { format } from "date-fns";
+// ============================================================================
+// PHASE 3 — DrillDownModal (supervisor)
+// ----------------------------------------------------------------------------
+// CSV export with BOM preserved verbatim. Visual layer fully tokenized.
+// Lead Type badge keeps semantic Fresh / Repeated styling but via tokens.
+// ============================================================================
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { formatISTDate } from "@/lib/formatIST";
 import { Loader2, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface DrillDownModalProps {
   isOpen: boolean;
@@ -12,22 +25,11 @@ interface DrillDownModalProps {
 
 export default function DrillDownModal({ isOpen, onClose, title, data, loading }: DrillDownModalProps) {
 
-  // ---------------- CSV EXPORT FUNCTION ----------------
   const handleExportCSV = () => {
     if (!data || data.length === 0) return;
 
-    // NEW: Added "Lead Type" to headers
-    const headers = [
-      "Customer",
-      "Contact",
-      "Agent",
-      "Project",
-      "Status",
-      "Lead Type", 
-      "Date"
-    ];
+    const headers = ["Customer", "Contact", "Agent", "Project", "Status", "Lead Type", "Date"];
 
-    // Escape function for commas/quotes (VERY IMPORTANT for Excel)
     const escapeCSV = (value: any) => {
       if (value === null || value === undefined) return "";
       const stringValue = String(value).replace(/"/g, '""');
@@ -36,47 +38,35 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
 
     const rows = data.map((row) => {
       let dateText = "-";
-
       if (row.done_date) {
-        dateText = `${format(new Date(row.done_date), "dd/MM/yyyy")} (Done)`;
+        dateText = `${formatISTDate(row.done_date)} (Done)`;
       } else if (row.follow_up_date) {
-        dateText = `${format(new Date(row.follow_up_date), "dd/MM/yyyy")} ${row.follow_up_time}`;
+        dateText = `${formatISTDate(row.follow_up_date)} ${String(row.follow_up_time ?? "").slice(0,5)}`;
       }
 
       return [
         escapeCSV(row.customer_name || "-"),
         escapeCSV(row.contact || "-"),
-        escapeCSV(row.agent_first_name && row.agent_last_name 
-          ? `${row.agent_first_name} ${row.agent_last_name}` 
+        escapeCSV(row.agent_first_name && row.agent_last_name
+          ? `${row.agent_first_name} ${row.agent_last_name}`
           : row.agent_first_name || row.agent_name || "-"),
         escapeCSV(row.project_name || "-"),
         escapeCSV(row.status_code ? row.status_code.replace(/-/g, " ").toUpperCase() : "-"),
-        
-        // NEW: Added Lead Type to the export row
-        escapeCSV(row.pipeline_lead_type && row.pipeline_lead_type !== 'N/A' ? row.pipeline_lead_type : "-"),
-        
-        escapeCSV(dateText)
+        escapeCSV(row.pipeline_lead_type && row.pipeline_lead_type !== "N/A" ? row.pipeline_lead_type : "-"),
+        escapeCSV(dateText),
       ].join(",");
     });
 
     const csvContent = [headers.join(","), ...rows].join("\n");
-
-    // BOM fixes Excel UTF-8 issue (names/₹/special characters)
-    const BOM = "\uFEFF";
-
-    const blob = new Blob([BOM + csvContent], {
-      type: "text/csv;charset=utf-8;"
-    });
+    const BOM = "﻿";
+    const blob = new Blob([BOM + csvContent], { type: "text/csv;charset=utf-8;" });
 
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
-
     link.href = url;
     link.download = `${title.replace(/\s+/g, "_")}_Report.csv`;
-
     document.body.appendChild(link);
     link.click();
-
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
@@ -84,106 +74,96 @@ export default function DrillDownModal({ isOpen, onClose, title, data, loading }
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl max-h-[85vh] overflow-y-auto">
-        <DialogHeader className="flex flex-row items-center justify-between border-b pb-2">
-          <DialogTitle className="capitalize text-slate-800">
+        <DialogHeader className="flex flex-row items-center justify-between border-b border-border pb-2 pr-10">
+          <DialogTitle className="capitalize text-foreground">
             {title} Details
           </DialogTitle>
 
-          {/* EXPORT CSV BUTTON */}
           {!loading && data.length > 0 && (
-            <button
+            <Button
+              size="sm"
               onClick={handleExportCSV}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors mr-8 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="gap-1.5"
               title="Export to Excel (CSV)"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export CSV</span>
-            </button>
+            </Button>
           )}
         </DialogHeader>
 
         {loading ? (
           <div className="flex justify-center p-10">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+            <Loader2 className="w-8 h-8 animate-spin text-brand" />
           </div>
         ) : (
-          <div className="border rounded-lg overflow-hidden border-slate-200 mt-2">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-xs">
+          <div className="border border-border rounded-lg overflow-hidden mt-2">
+            <table className="w-full text-sm text-left tabular-nums-tracking">
+              <thead className="bg-muted/60 text-muted-foreground font-bold uppercase text-xs tracking-wider">
                 <tr>
-                  <th className="p-3 whitespace-nowrap">Customer</th>
-                  <th className="p-3 whitespace-nowrap">Contact</th>
-                  <th className="p-3 whitespace-nowrap">Agent</th>
-                  <th className="p-3 whitespace-nowrap">Project</th>
-                  <th className="p-3 whitespace-nowrap">Status</th>
-                  
-                  {/* NEW: Table Header */}
-                  <th className="p-3 whitespace-nowrap text-center">Lead Type</th>
-                  
-                  <th className="p-3 whitespace-nowrap">Date</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Customer</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Contact</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Agent</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Project</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Status</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap text-center">Lead Type</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Date</th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {data.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-500 italic">
+                    <td colSpan={7} className="px-3 py-6 text-center text-muted-foreground italic">
                       No records found.
                     </td>
                   </tr>
                 ) : (
                   data.map((row: any, i: number) => (
-                    <tr key={i} className="hover:bg-indigo-50/50 transition-colors">
-                      <td className="p-3 font-medium text-slate-800 whitespace-nowrap">
+                    <tr key={i} className="hover:bg-accent/40 transition-colors">
+                      <td className="px-3 py-2.5 font-medium text-foreground whitespace-nowrap">
                         {row.customer_name}
                       </td>
-
-                      <td className="p-3 text-slate-500 font-mono text-xs whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-muted-foreground font-mono text-xs whitespace-nowrap">
                         {row.contact}
                       </td>
-
-                      <td className="p-3 text-slate-700 whitespace-nowrap">
-                        {row.agent_first_name && row.agent_last_name 
-                          ? `${row.agent_first_name} ${row.agent_last_name}` 
+                      <td className="px-3 py-2.5 text-foreground whitespace-nowrap">
+                        {row.agent_first_name && row.agent_last_name
+                          ? `${row.agent_first_name} ${row.agent_last_name}`
                           : row.agent_first_name || row.agent_name || "-"}
                       </td>
-
-                      <td className="p-3 whitespace-nowrap">
-                        <span className="text-[10px] uppercase bg-slate-100 text-slate-600 rounded px-2 py-1 font-bold">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-[10px] uppercase bg-muted text-muted-foreground rounded px-2 py-1 font-bold">
                           {row.project_name}
                         </span>
                       </td>
-
-                      <td className="p-3 whitespace-nowrap">
-                        <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <span className="text-[10px] uppercase font-bold text-muted-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
                           {row.status_code?.replace(/-/g, " ")}
                         </span>
                       </td>
-
-                      {/* NEW: Lead Type Table Cell */}
-                      <td className="p-3 whitespace-nowrap text-center">
-                        {row.pipeline_lead_type && row.pipeline_lead_type !== 'N/A' ? (
+                      <td className="px-3 py-2.5 whitespace-nowrap text-center">
+                        {row.pipeline_lead_type && row.pipeline_lead_type !== "N/A" ? (
                           <span className={`inline-block text-[10px] uppercase font-bold px-2 py-0.5 rounded-full border ${
-                            row.pipeline_lead_type === 'Fresh'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                            row.pipeline_lead_type === "Fresh"
+                              ? "bg-success/15 text-success border-success/30"
+                              : "bg-warning/15 text-warning border-warning/30"
                           }`}>
                             {row.pipeline_lead_type}
                           </span>
                         ) : (
-                          <span className="text-slate-300 font-medium">-</span>
+                          <span className="text-muted-foreground/40 font-medium">-</span>
                         )}
                       </td>
-
-                      <td className="p-3 text-slate-600 text-xs whitespace-nowrap">
+                      <td className="px-3 py-2.5 text-foreground text-xs whitespace-nowrap">
                         {row.done_date ? (
-                          <span className="text-emerald-600 font-semibold">
-                            {format(new Date(row.done_date), "dd/MM/yyyy")} (Done)
+                          <span className="text-success font-semibold">
+                            {formatISTDate(row.done_date)} (Done)
                           </span>
                         ) : row.follow_up_date ? (
                           <span>
-                            {format(new Date(row.follow_up_date), "dd/MM/yyyy")}{" "}
-                            <span className="text-slate-400">@ {row.follow_up_time}</span>
+                            {formatISTDate(row.follow_up_date)}{" "}
+                            <span className="text-muted-foreground">@ {row.follow_up_time}</span>
                           </span>
                         ) : (
                           "-"
