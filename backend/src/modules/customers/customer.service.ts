@@ -521,6 +521,210 @@ export async function getAgentFollowUps(agentId: number) {
 // DRILL-DOWN — sargable filters, no JSON scan (reads distinct_followup_dates)
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+// AGENT DASHBOARD ANALYTICS (May 2026)
+// ----------------------------------------------------------------------------
+// One consolidated, single-round-trip endpoint feeds the AgentDashboard cards.
+//
+// All queries:
+//   - filter by agent_id first (leftmost index column on every relevant index)
+//   - use sargable date predicates via dateRange() so MySQL hits the indexes
+//   - never JSON-scan, never DATE() the indexed column
+//   - return small, shaped payloads (no SELECT *, no full table dumps)
+//
+// Performance shape:
+//   - 6 small aggregate queries + 2 LIMIT 5 list queries
+//   - All run concurrently from the controller via Promise.all
+//   - Backend latency = max(query) not sum(query)
+//
+// Status-code dictionary used here is the SAME canonical set already used by
+// AgentCustomersPage, FollowUpDashboard, SummaryDashboard and the existing
+// dashboard service helpers. No new statuses are introduced.
+// ----------------------------------------------------------------------------
+
+export async function getAgentAnalyticsCustomerCounts(
+  agentId: number,
+  startDate: string,
+  endDate: string
+) {
+  // Two single-row aggregates. Both columns are agent-scoped and indexable.
+  const [createdRows]: any = await db.query(
+    `SELECT COUNT(*) AS count
+       FROM agent_customers
+      WHERE agent_id = ?
+        AND ${dateRange("assigned_at")}`,
+    [agentId, startDate, endDate]
+  );
+  const [updatedRows]: any = await db.query(
+    `SELECT COUNT(*) AS count
+       FROM agent_customers
+      WHERE agent_id = ?
+        AND ${dateRange("updated_at")}`,
+    [agentId, startDate, endDate]
+  );
+  return {
+    customersCreated: Number(createdRows[0]?.count ?? 0),
+    customersUpdated: Number(updatedRows[0]?.count ?? 0),
+  };
+}
+
+/**
+ * Overdue / Due Today / Upcoming workload counts.
+ *
+ * Intentionally TODAY-relative — not filtered by startDate/endDate. "Overdue"
+ * is by definition a current-date concept; matches FollowUpDashboard.tsx
+ * semantics where past/today/future are computed against startOfDay(now).
+ */
+export async function getAgentAnalyticsFollowupTimeline(agentId: number) {
+  const [rows]: any = await db.query(
+    `SELECT
+        SUM(CASE WHEN ac.follow_up_date <  CURDATE() THEN 1 ELSE 0 END) AS overdue,
+        SUM(CASE WHEN ac.follow_up_date =  CURDATE() THEN 1 ELSE 0 END) AS due_today,
+        SUM(CASE WHEN ac.follow_up_date >  CURDATE() THEN 1 ELSE 0 END) AS upcoming
+       FROM agent_customers ac
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND ac.follow_up_date IS NOT NULL
+        AND ac.status_code <> 'lost'
+        AND (ac.final_status <> 'COMPLETED' OR ac.final_status IS NULL)`,
+    [agentId]
+  );
+  const r = rows[0] ?? {};
+  return {
+    overdue: Number(r.overdue ?? 0),
+    dueToday: Number(r.due_today ?? 0),
+    upcoming: Number(r.upcoming ?? 0),
+  };
+}
+
+/**
+ * Follow-up status distribution - for rows whose follow_up_date falls inside
+ * the selected window. Excludes lost / completed (matches Follow-Up page).
+ */
+export async function getAgentAnalyticsFollowupStatusDistribution(
+  agentId: number,
+  startDate: string,
+  endDate: string
+) {
+  const [rows]: any = await db.query(
+    `SELECT ac.status_code, COUNT(*) AS count
+       FROM agent_customers ac
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND ac.follow_up_date IS NOT NULL
+        AND ${dateRange("ac.follow_up_date")}
+        AND ac.status_code <> 'lost'
+        AND (ac.final_status <> 'COMPLETED' OR ac.final_status IS NULL)
+      GROUP BY ac.status_code`,
+    [agentId, startDate, endDate]
+  );
+  return rows.map((r: any) => ({
+    status_code: r.status_code as string,
+    count: Number(r.count),
+  }));
+}
+
+/**
+ * Summary status distribution - MUST stay byte-for-byte aligned with
+ * SummaryDashboard section 3 (`getDashboardStatusCounts`) for the same window.
+ *
+ * Same predicate logic as getDashboardStatusCounts, aggregated to a single
+ * row per status (no day_num split). No project filter (per design - the new
+ * analytics page is single-dimensional; SummaryDashboard remains the place
+ * for project-scoped views).
+ */
+export async function getAgentAnalyticsSummaryDistribution(
+  agentId: number,
+  startDate: string,
+  endDate: string
+) {
+  const [rows]: any = await db.query(
+    `SELECT ac.status_code, COUNT(*) AS count
+       FROM agent_customers ac
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND (
+          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          OR
+          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+        )
+      GROUP BY ac.status_code`,
+    [agentId, startDate, endDate, startDate, endDate]
+  );
+  return rows.map((r: any) => ({
+    status_code: r.status_code as string,
+    count: Number(r.count),
+  }));
+}
+
+/**
+ * Top 5 customers the agent updated inside the selected window.
+ * Filter-scoped: lets the agent see "what did I touch this period".
+ */
+export async function getAgentAnalyticsTopCustomers(
+  agentId: number,
+  startDate: string,
+  endDate: string
+) {
+  const [rows]: any = await db.query(
+    `SELECT ac.id              AS agent_customer_id,
+            ac.status_code,
+            ac.updated_at,
+            ac.follow_up_date,
+            c.id               AS customer_id,
+            c.name,
+            c.contact,
+            c.location,
+            p.name             AS project_name
+       FROM agent_customers ac
+       JOIN customers c ON c.id = ac.customer_id
+       LEFT JOIN projects p ON p.id = c.project_id
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND ${dateRange("ac.updated_at")}
+      ORDER BY ac.updated_at DESC
+      LIMIT 5`,
+    [agentId, startDate, endDate]
+  );
+  return rows;
+}
+
+/**
+ * Top 5 upcoming follow-ups (today or later). Intentionally NOT filter-scoped:
+ * "upcoming" is forward-looking and must always show the soonest pending work,
+ * regardless of which window the agent is inspecting above.
+ */
+export async function getAgentAnalyticsTopFollowups(agentId: number) {
+  const [rows]: any = await db.query(
+    `SELECT ac.id              AS agent_customer_id,
+            ac.status_code,
+            ac.follow_up_date,
+            ac.follow_up_time,
+            c.id               AS customer_id,
+            c.name,
+            c.contact,
+            c.location,
+            p.name             AS project_name
+       FROM agent_customers ac
+       JOIN customers c ON c.id = ac.customer_id
+       LEFT JOIN projects p ON p.id = c.project_id
+      WHERE ac.agent_id = ?
+        AND ac.is_active = 1
+        AND ac.follow_up_date IS NOT NULL
+        AND ac.follow_up_date >= CURDATE()
+        AND ac.status_code <> 'lost'
+        AND (ac.final_status <> 'COMPLETED' OR ac.final_status IS NULL)
+      ORDER BY ac.follow_up_date ASC, ac.follow_up_time ASC
+      LIMIT 5`,
+    [agentId]
+  );
+  return rows;
+}
+
+// ----------------------------------------------------------------------------
+// DRILL-DOWN - sargable filters, no JSON scan (reads distinct_followup_dates)
+// ----------------------------------------------------------------------------
+
 export async function getAgentDrillDown(
   agentId: number,
   projectId: string,
