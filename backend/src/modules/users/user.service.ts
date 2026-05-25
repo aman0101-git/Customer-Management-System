@@ -1,21 +1,39 @@
 import { db } from "../../config/db.js";
 
-// 1. Get All Users with Project Count & Active Status
-export async function getAllUsersWithProjectsService() {
-  const [rows] = await db.query(`
+// 1. Get All Users with Project Count & Active Status (Bulletproof Security)
+export async function getAllUsersWithProjectsService(requestingUser: any) {
+  // FAIL-SAFE: If no user is passed, or role is missing, return nothing instantly.
+  if (!requestingUser || !requestingUser.role) {
+    return [];
+  }
+
+  let query = `
     SELECT 
-      u.id, 
-      u.first_name, 
-      u.last_name, 
-      u.username, 
-      u.role, 
-      u.is_active, -- Added active status
-      COUNT(p.id) as project_count -- Changed to Count
+      u.id, u.first_name, u.last_name, u.username, u.role, u.is_active, u.supervisor_id,
+      COUNT(p.id) as project_count 
     FROM users u
     LEFT JOIN user_projects up ON u.id = up.user_id AND up.is_active = 1
     LEFT JOIN projects p ON up.project_id = p.id AND p.is_active = 1
-    GROUP BY u.id
-  `);
+    WHERE 1=1 
+  `;
+  
+  const params: any[] = [];
+  const userRole = requestingUser.role.toUpperCase();
+
+  if (userRole === 'SUPERVISOR') {
+    // Supervisors only see their mapped agents
+    query += ` AND u.supervisor_id = ? AND u.role = 'AGENT' `;
+    params.push(requestingUser.id);
+  } else if (userRole === 'ADMIN') {
+    // Admins see everyone (No extra WHERE clause needed)
+  } else {
+    // If an Agent somehow hits this route, return nothing
+    return [];
+  }
+
+  query += ` GROUP BY u.id ORDER BY u.created_at DESC`;
+
+  const [rows] = await db.query(query, params);
   return rows;
 }
 

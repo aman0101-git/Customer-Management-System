@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 import * as Controller from "./customer.controller.js";
+import * as WhatsAppController from "../whatsapp/whatsapp.controller.js";
 
 const router = Router();
 
@@ -9,6 +10,7 @@ const router = Router();
 
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
 router.get("/followups", authenticate, Controller.getFollowUps);
+router.get("/drill-down", authenticate, Controller.getDrillDownData);
 
 router.get("/", authenticate, Controller.getAgentCustomers);
 router.post("/search", authenticate, Controller.searchCustomer);

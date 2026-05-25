@@ -86,19 +86,20 @@ export async function createCustomer(req: Request, res: Response) {
   const agentId = req.user?.id;
 
   if (!agentId) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({ success: false, message: "Unauthorized" });
   }
 
   const payload = req.body;
 
   try {
-    const record = await Service.createAgentCustomer(agentId, payload);
-    return res.status(201).json(record);
+    const result = await Service.createAgentCustomer(agentId, payload);
+    return res.status(201).json(result);
   } catch (err: any) {
+    console.error("Error creating customer:", err);
     if (err.code === "DUPLICATE_ASSIGNMENT") {
-      return res.status(409).json({ message: "Customer already assigned" });
+      return res.status(409).json({ success: false, message: "Customer already assigned" });
     }
-    throw err;
+    return res.status(500).json({ success: false, message: "Failed to create customer" });
   }
 }
 
@@ -177,5 +178,33 @@ export async function getFollowUps(req: Request, res: Response) {
   } catch (error) {
     console.error("Follow-up fetch error:", error);
     res.status(500).json({ message: "Failed to fetch follow-ups" });
+  }
+}
+
+// --- NEW HANDLER ---
+export async function getDrillDownData(req: Request, res: Response) {
+  try {
+    const agentId = (req as any).user.id;
+    if (!agentId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { 
+      projectId, startDate, endDate, 
+      statusCode, section, dayNum 
+    } = req.query;
+
+    const data = await Service.getAgentDrillDown(
+      agentId,
+      (projectId as string) || "all",
+      startDate as string,
+      endDate as string,
+      statusCode as string,
+      section as string,
+      dayNum ? Number(dayNum) : undefined
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Drill Down Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 }

@@ -10,6 +10,10 @@ router.get("/", authenticate, Controller.getAllProjectsWithAgents);
 router.post("/", authenticate, Controller.createProject);
 // Edit a project
 router.put("/:id", authenticate, Controller.updateProject);
+
+// NEW: Deactivate a project (Soft Delete)
+router.delete("/:id", authenticate, Controller.deactivateProject);
+
 // Assign agents to a project
 // (Removed bulk assignment route)
 

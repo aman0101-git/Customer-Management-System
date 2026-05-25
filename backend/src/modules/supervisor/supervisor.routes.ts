@@ -6,5 +6,13 @@ const router = Router();
 
 // Route: /api/supervisor/summary-dashboard
 router.get("/summary-dashboard", authenticate, Controller.getSummaryDashboard);
+router.get("/follow-ups", authenticate, Controller.getFollowUps);
+router.get("/export", authenticate, Controller.exportSupervisorData);
+router.get("/drill-down", authenticate, Controller.getDrillDownData);
+router.get("/customers/search", authenticate, Controller.searchCustomers);
+router.put("/customers/:id/reassign", authenticate, Controller.reassignCustomer);
+
+// WhatsApp Audit Log (Profile-Centric Workflow)
+router.get("/whatsapp/audit", authenticate, Controller.getWhatsAppAuditLog);
 
 export default router;
