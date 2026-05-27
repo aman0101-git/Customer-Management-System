@@ -55,8 +55,8 @@ export async function createTemplate(data: CreateTemplateInput): Promise<number>
     throw new Error("Missing required fields: project_id, trigger_event, template_body, template_name");
   }
 
-  // Validate trigger_event (Updated to our 10 new Status codes)
-  const validEvents = ["INITIAL", "VC", "VP", "VMC", "VM", "SDOW", "NR", "VD", "BD", "LOST", "FU"];
+  // Validate trigger_event (Updated to reflect status migration: VM→VMD, added RNG)
+  const validEvents = ["INITIAL", "VC", "VP", "VMC", "VMD", "SDOW", "NR", "VD", "BD", "RNG", "LOST", "FU"];
   if (!validEvents.includes(data.trigger_event)) {
     throw new Error(`Invalid template code. Must be one of: ${validEvents.join(", ")}`);
   }

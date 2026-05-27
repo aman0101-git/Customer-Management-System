@@ -7,6 +7,7 @@ import { differenceInCalendarDays, startOfDay } from "date-fns";
 const INACTIVE_STATUSES = new Set([
   "visit-done",
   "booking-done",
+  "virtual-meet-done",
   "lost",
   "completed",
 ]);

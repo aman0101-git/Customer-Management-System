@@ -56,8 +56,8 @@ const Tabs = ({ active, setActive, labels }: any) => (
 );
 
 const ALL_STATUSES = [
-  "visit-proposed", "visit-confirmed", "virtual-meet", "virtual-meet-confirmed",
-  "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending",
+  "visit-proposed", "visit-confirmed", "virtual-meet-done", "virtual-meet-confirmed",
+  "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "ringing",
 ];
 
 // Phase 2: single source of truth for the 10 status cards. tone maps onto our
@@ -339,13 +339,13 @@ export default function SummaryDashboard() {
     ["Follow Up", "follow-up", "info"],
     ["Visit Proposed", "visit-proposed", "brand"],
     ["Visit Confirmed", "visit-confirmed", "brand"],
-    ["Virtual Meet", "virtual-meet", "violet"],
-    ["Virtual Done", "virtual-meet-confirmed", "violet"],
+    ["Virtual Meet Done", "virtual-meet-done", "violet"],
+    ["Virtual Meet Confirmed", "virtual-meet-confirmed", "violet"],
     ["Visit Done", "visit-done", "warning"],
     ["Booking Done", "booking-done", "success"],
     ["SDOW", "sdow", "warning"],
     ["Not Reachable", "not-reachable", "rose"],
-    ["Lost", "lost", "muted"],
+    ["Ringing", "ringing", "danger"],
   ];
 
   const renderSection1 = () => (

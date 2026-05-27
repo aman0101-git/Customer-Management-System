@@ -65,11 +65,11 @@ type Tone = "success" | "warning" | "danger" | "muted";
 const STATUS_TONE: Record<string, Tone> = {
   "booking-done": "success",
   "visit-done": "success",
+  "virtual-meet-done": "success",
   "visit-proposed": "warning",
   "visit-confirmed": "warning",
   "virtual-meet-confirmed": "warning",
-  "virtual-meet": "warning",
-  pending: "danger",
+  ringing: "danger",
   sdow: "danger",
   "follow-up": "danger",
 };
@@ -132,11 +132,11 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
 const STATUS_FILTERS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed",
   "visit-proposed", "not-reachable", "lost", "visit-done",
-  "virtual-meet", "booking-done", "pending",
+  "virtual-meet-done", "booking-done", "ringing",
 ];
 
-const NON_EDITABLE_STATUSES = ["visit-done", "booking-done", "lost"];
-const COMPLETABLE_STATUSES = ["visit-done", "booking-done", "lost"];
+const NON_EDITABLE_STATUSES = ["visit-done", "booking-done", "virtual-meet-done", "lost"];
+const COMPLETABLE_STATUSES = ["visit-done", "booking-done", "virtual-meet-done", "lost"];
 const TABLE_VIRTUAL_ROW_ESTIMATE = 76;
 
 export default function AgentCustomersPage() {
@@ -525,7 +525,7 @@ export default function AgentCustomersPage() {
                           const canComplete = COMPLETABLE_STATUSES.includes(c.status_code) && !isCompleted;
                           const assigned = formatDateTime(c.assigned_at);
                           const updated = formatDateTime(c.updated_at);
-                          const isDoneStatus = c.status_code === "visit-done" || c.status_code === "booking-done";
+                          const isDoneStatus = c.status_code === "visit-done" || c.status_code === "booking-done" || c.status_code === "virtual-meet-done";
                           const followUpDateDisplay = isDoneStatus ? formatDateTime(c.done_date).d : formatDateTime(c.follow_up_date).d;
                           const followUpTimeDisplay = isDoneStatus ? "Done Date" : safe(c.follow_up_time);
 

@@ -33,7 +33,7 @@ interface Project { id: number; name: string }
 
 const STATUS_OPTIONS: MultiSelectOption[] = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "virtual-meet", "pending", "completed", "lost", "visit-done", "booking-done",
+  "not-reachable", "virtual-meet-done", "ringing", "completed", "lost", "visit-done", "booking-done",
 ].map(s => ({ value: s, label: s.replace(/-/g, " ") }));
 
 export default function SupervisorExportPage() {

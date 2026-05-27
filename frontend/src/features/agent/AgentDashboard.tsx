@@ -81,42 +81,42 @@ const STATUS_LABEL: Record<string, string> = {
   "visit-proposed":         "Visit Proposed",
   "visit-confirmed":        "Visit Confirmed",
   "visit-done":             "Visit Done",
-  "virtual-meet":           "Virtual Meet",
+  "virtual-meet-done":      "Virtual Meet Done",
   "virtual-meet-confirmed": "Virtual Meet Confirmed",
   "booking-done":           "Booking Done",
   "follow-up":              "Follow-up",
   "not-reachable":          "Not Reachable",
   "sdow":                   "SDOW",
   "lost":                   "Lost",
-  "pending":                "Pending",
+  "ringing":                "Ringing",
 };
 
 const STATUS_SHORT: Record<string, string> = {
   "visit-proposed":         "VP",
   "visit-confirmed":        "VC",
   "visit-done":             "VD",
-  "virtual-meet":           "VM",
+  "virtual-meet-done":      "VMD",
   "virtual-meet-confirmed": "VMC",
   "booking-done":           "BD",
   "follow-up":              "FU",
   "not-reachable":          "NR",
   "sdow":                   "SDOW",
   "lost":                   "LOST",
-  "pending":                "PEND",
+  "ringing":                "RNG",
 };
 
 const STATUS_COLOR: Record<string, string> = {
   "visit-proposed":         "#f59e0b", // amber
   "visit-confirmed":        "#3b82f6", // blue
   "visit-done":             "#10b981", // emerald
-  "virtual-meet":           "#06b6d4", // cyan
+  "virtual-meet-done":      "#06b6d4", // cyan
   "virtual-meet-confirmed": "#0ea5e9", // sky
   "booking-done":           "#22c55e", // green
   "follow-up":              "#8b5cf6", // violet
   "not-reachable":          "#ef4444", // red
   "sdow":                   "#f97316", // orange
   "lost":                   "#64748b", // slate
-  "pending":                "#a3a3a3", // neutral
+  "ringing":                "#ef4444", // red — active/urgent
 };
 
 const FALLBACK_COLOR = "#94a3b8";

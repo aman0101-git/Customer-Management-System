@@ -33,7 +33,7 @@ const DESIGNATION_OPTIONS = ["CXO", "Vice President", "Director", "Manager", "Te
 
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "lost", "visit-done", "virtual-meet", "booking-done", "pending",
+  "not-reachable", "lost", "visit-done", "virtual-meet-done", "booking-done", "ringing",
 ];
 
 type CustomerForm = {
@@ -79,7 +79,11 @@ const formatDateDisplay = (dateStr: string | null | undefined) => {
 };
 
 const getFinalStatus = (statusCode: string) => {
-  if (statusCode === "visit-done" || statusCode === "booking-done") return "COMPLETED";
+  if (
+    statusCode === "visit-done" ||
+    statusCode === "booking-done" ||
+    statusCode === "virtual-meet-done"
+  ) return "COMPLETED";
   return "PENDING";
 };
 
@@ -288,12 +292,13 @@ export default function CustomerResolvePage() {
             if (s === "NOT-REACHABLE") templateCode = "NR";
             else if (s === "VISIT-DONE") templateCode = "VD";
             else if (s === "LOST") templateCode = "LOST";
-            else if (s === "VIRTUAL-MEET") templateCode = "VM";
+            else if (s === "VIRTUAL-MEET-DONE") templateCode = "VMD";
             else if (s === "BOOKING-DONE") templateCode = "BD";
             else if (s === "SDOW") templateCode = "SDOW";
             else if (s === "VISIT-CONFIRMED") templateCode = "VC";
             else if (s === "VISIT-PROPOSED") templateCode = "VP";
             else if (s === "VIRTUAL-MEET-CONFIRMED") templateCode = "VMC";
+            else if (s === "RINGING") templateCode = "RNG";
             else if (s === "FOLLOW-UP") templateCode = "FU";
           }
 
@@ -348,7 +353,10 @@ export default function CustomerResolvePage() {
   const isEdit = pageState === "EDIT";
   const ownerName = user.first_name ? `${user.first_name} ${user.last_name}` : user.username;
 
-  const isDoneStatus = form.status === "visit-done" || form.status === "booking-done";
+  const isDoneStatus =
+    form.status === "visit-done" ||
+    form.status === "booking-done" ||
+    form.status === "virtual-meet-done";
   const isLostStatus = form.status === "lost";
   const showFollowUp = !isDoneStatus && !isLostStatus;
   const showDoneDate = isDoneStatus;
