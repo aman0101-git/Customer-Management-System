@@ -19,7 +19,11 @@ import { db } from "../../config/db.js";
 
 // Helper: Final Status from Status Code
 const calculateFinalStatus = (statusCode: string) =>
-  (statusCode === "visit-done" || statusCode === "booking-done") ? "COMPLETED" : "PENDING";
+  (
+    statusCode === "visit-done" ||
+    statusCode === "booking-done" ||
+    statusCode === "virtual-meet-done"
+  ) ? "COMPLETED" : "PENDING";
 
 // ----------------------------------------------------------------------------
 // READS
@@ -49,7 +53,12 @@ export async function completeAgentCustomer(agentCustomerId: number, agentId: nu
   );
   if (!rows.length) return "FORBIDDEN";
   const status = rows[0].status_code;
-  if (status !== "visit-done" && status !== "booking-done" && status !== "lost") return "FORBIDDEN";
+  if (
+    status !== "visit-done" &&
+    status !== "booking-done" &&
+    status !== "virtual-meet-done" &&
+    status !== "lost"
+  ) return "FORBIDDEN";
   await db.query(
     `UPDATE agent_customers SET final_status = 'COMPLETED', is_active = 0 WHERE id = ?`,
     [agentCustomerId]
@@ -112,7 +121,10 @@ export async function searchCustomerForAgent(phone: string, agentId: number) {
 // DATE HELPERS
 // ----------------------------------------------------------------------------
 const parseDatesBasedOnStatus = (data: any) => {
-  const isDone = data.status_code === "visit-done" || data.status_code === "booking-done";
+  const isDone =
+    data.status_code === "visit-done" ||
+    data.status_code === "booking-done" ||
+    data.status_code === "virtual-meet-done";
   const isLost = data.status_code === "lost";
 
   if (isLost) return { followUpDate: null, followUpTime: null, doneDate: null };
@@ -402,11 +414,11 @@ export async function getDashboardVisitsBooking(
           WHERE ac.agent_id = ?
             ${projectFilter}
             AND (
-              ( ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet','virtual-meet-confirmed','follow-up','sdow','not-reachable')
+              ( ac.status_code IN ('visit-proposed','visit-confirmed','ringing','virtual-meet-confirmed','follow-up','sdow','not-reachable')
                 AND ac.follow_up_date IS NOT NULL
                 AND ${dateRange("ac.follow_up_date")} )
               OR
-              ( ac.status_code IN ('visit-done','booking-done')
+              ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done')
                 AND ac.done_date IS NOT NULL
                 AND ${dateRange("ac.done_date")} )
               OR
@@ -462,7 +474,7 @@ export async function getDashboardStatusCounts(
   const [rows]: any = await db.query(
     `SELECT ac.status_code,
             CASE
-              WHEN ac.status_code IN ('visit-done','booking-done') AND ac.done_date IS NOT NULL
+              WHEN ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ac.done_date IS NOT NULL
                 THEN (WEEKDAY(ac.done_date) + 1)
               ELSE (WEEKDAY(ac.assigned_at) + 1)
             END AS day_num,
@@ -473,9 +485,9 @@ export async function getDashboardStatusCounts(
         AND ac.is_active = 1
         ${projectFilter}
         AND (
-          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
           OR
-          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+          ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.assigned_at")} )
         )
       GROUP BY ac.status_code, day_num`,
     params
@@ -644,9 +656,9 @@ export async function getAgentAnalyticsSummaryDistribution(
       WHERE ac.agent_id = ?
         AND ac.is_active = 1
         AND (
-          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
           OR
-          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+          ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.assigned_at")} )
         )
       GROUP BY ac.status_code`,
     [agentId, startDate, endDate, startDate, endDate]
@@ -748,13 +760,13 @@ export async function getAgentDrillDown(
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
     if (section === 'cards') {
-      if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+      if (['visit-done', 'booking-done', 'virtual-meet-done'].includes(statusCode)) dateCol = "ac.done_date";
       else if (statusCode === 'lost') dateCol = "ac.updated_at";
       else dateCol = "ac.follow_up_date";
     } else if (section === 'pipeline') {
       dateCol = "ac.follow_up_date";
     } else if (section === 'volume') {
-      if (['visit-done', 'booking-done'].includes(statusCode)) dateCol = "ac.done_date";
+      if (['visit-done', 'booking-done', 'virtual-meet-done'].includes(statusCode)) dateCol = "ac.done_date";
       else dateCol = "ac.assigned_at";
     }
 
@@ -781,16 +793,16 @@ export async function getAgentDrillDown(
     } else if (section === 'volume') {
       whereClause = `
         AND (
-          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
           OR
-          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+          ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.assigned_at")} )
         )
       `;
       params.push(startDate, endDate, startDate, endDate);
       if (dayNum) {
         whereClause += `
           AND (
-            CASE WHEN ac.status_code IN ('visit-done','booking-done')
+            CASE WHEN ac.status_code IN ('visit-done','booking-done','virtual-meet-done')
                  THEN (WEEKDAY(ac.done_date) + 1)
                  ELSE (WEEKDAY(ac.assigned_at) + 1)
             END

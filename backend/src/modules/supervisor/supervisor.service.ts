@@ -79,10 +79,10 @@ export async function getSupervisorVisitsBooking(
             ${agentFilter}
             ${projectFilter}
             AND (
-              ( ac.status_code IN ('visit-proposed','visit-confirmed','virtual-meet','virtual-meet-confirmed','follow-up','sdow','not-reachable','lost')
+              ( ac.status_code IN ('visit-proposed','visit-confirmed','ringing','virtual-meet-confirmed','follow-up','sdow','not-reachable','lost')
                 AND ac.updated_at IS NOT NULL AND ${dateRange("ac.updated_at")} )
               OR
-              ( ac.status_code IN ('visit-done','booking-done')
+              ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done')
                 AND ac.done_date IS NOT NULL AND ${dateRange("ac.done_date")} )
             )
        ) t
@@ -163,7 +163,7 @@ export async function getSupervisorStatusCounts(
   const [rows]: any = await db.query(
     `SELECT ac.status_code,
             CASE
-              WHEN ac.status_code IN ('visit-done','booking-done') AND ac.done_date IS NOT NULL
+              WHEN ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ac.done_date IS NOT NULL
                 THEN (WEEKDAY(ac.done_date) + 1)
               ELSE (WEEKDAY(ac.assigned_at) + 1)
             END AS day_num,
@@ -175,9 +175,9 @@ export async function getSupervisorStatusCounts(
         ${agentFilter}
         ${projectFilter}
         AND (
-          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
           OR
-          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+          ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.assigned_at")} )
         )
       GROUP BY ac.status_code, day_num`,
     params
@@ -318,12 +318,13 @@ export async function getExportData(
   if (startDate && endDate) {
     // Phase 6: when ANY non-"done" / "booking-done" code is included in the
     // status filter list, we still need the OR branch for the closed-codes.
+    const DONE_STATUSES = ["visit-done", "booking-done", "virtual-meet-done"];
     const statusIsClosedOnly =
       statusFilter !== "all" &&
-      statusFilter.every(s => s === "visit-done" || s === "booking-done");
+      statusFilter.every(s => DONE_STATUSES.includes(s));
     const statusIsActiveOnly =
       statusFilter !== "all" &&
-      !statusFilter.some(s => s === "visit-done" || s === "booking-done");
+      !statusFilter.some(s => DONE_STATUSES.includes(s));
 
     if (statusIsClosedOnly) {
       sql += ` AND ${dateRange("ac.done_date")}`;
@@ -333,9 +334,9 @@ export async function getExportData(
       params.push(startDate, endDate);
     } else {
       sql += ` AND (
-        ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+        ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
         OR
-        ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.updated_at")} )
+        ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.updated_at")} )
       )`;
       params.push(startDate, endDate, startDate, endDate);
     }
@@ -431,11 +432,11 @@ export async function getSupervisorDrillDown(
   if (statusCode !== 'all') {
     let dateCol = "ac.updated_at";
     if (section === 'cards') {
-      dateCol = ['visit-done','booking-done'].includes(statusCode) ? "ac.done_date" : "ac.updated_at";
+      dateCol = ['visit-done','booking-done','virtual-meet-done'].includes(statusCode) ? "ac.done_date" : "ac.updated_at";
     } else if (section === 'pipeline') {
       dateCol = "ac.follow_up_date";
     } else if (section === 'volume') {
-      dateCol = ['visit-done','booking-done'].includes(statusCode) ? "ac.done_date" : "ac.assigned_at";
+      dateCol = ['visit-done','booking-done','virtual-meet-done'].includes(statusCode) ? "ac.done_date" : "ac.assigned_at";
     }
     params.push(startDate, endDate);
     whereClause = ` AND ${dateRange(dateCol)} AND ac.status_code = ? `;
@@ -460,16 +461,16 @@ export async function getSupervisorDrillDown(
     } else if (section === 'volume') {
       whereClause = `
         AND (
-          ( ac.status_code IN ('visit-done','booking-done') AND ${dateRange("ac.done_date")} )
+          ( ac.status_code IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.done_date")} )
           OR
-          ( ac.status_code NOT IN ('visit-done','booking-done') AND ${dateRange("ac.assigned_at")} )
+          ( ac.status_code NOT IN ('visit-done','booking-done','virtual-meet-done') AND ${dateRange("ac.assigned_at")} )
         )
       `;
       params.push(startDate, endDate, startDate, endDate);
       if (dayNum) {
         whereClause += `
           AND (
-            CASE WHEN ac.status_code IN ('visit-done','booking-done')
+            CASE WHEN ac.status_code IN ('visit-done','booking-done','virtual-meet-done')
                  THEN (WEEKDAY(ac.done_date) + 1)
                  ELSE (WEEKDAY(ac.assigned_at) + 1)
             END
@@ -629,10 +630,10 @@ export async function reassignCustomerTransaction(
       `INSERT INTO agent_customers
         (agent_id, customer_id, source, rating, budget, configuration, purpose,
          status_code, remark, is_active, last_status_change_at, distinct_followup_dates)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'Transferred by Supervisor', 1, NOW(), 0)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'ringing', 'Transferred by Supervisor', 1, NOW(), 0)
        ON DUPLICATE KEY UPDATE
          is_active = 1,
-         status_code = 'pending',
+         status_code = 'ringing',
          follow_up_date = NULL,
          follow_up_time = NULL,
          done_date = NULL,
