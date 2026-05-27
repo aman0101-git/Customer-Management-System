@@ -240,13 +240,13 @@ export default function SupervisorSummaryDashboard() {
     ["Follow Up", "follow-up", "info"],
     ["Visit Proposed", "visit-proposed", "brand"],
     ["Visit Confirmed", "visit-confirmed", "brand"],
-    ["Virtual Meet", "virtual-meet", "violet"],
-    ["Virtual Done", "virtual-meet-confirmed", "violet"],
+    ["Virtual Meet Done", "virtual-meet-done", "violet"],
+    ["Virtual Meet Confirmed", "virtual-meet-confirmed", "violet"],
     ["Visit Done", "visit-done", "warning"],
     ["Booking", "booking-done", "success"],
     ["SDOW", "sdow", "warning"],
     ["Not Reachable", "not-reachable", "rose"],
-    ["Lost", "lost", "muted"],
+    ["Ringing", "ringing", "danger"],
   ];
 
   const renderSection1 = () => (
@@ -422,8 +422,8 @@ export default function SupervisorSummaryDashboard() {
   );
 
   const renderSection3 = () => {
-    const allRows = ["visit-proposed", "visit-confirmed", "virtual-meet", "virtual-meet-confirmed",
-                     "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "pending"]
+    const allRows = ["visit-proposed", "visit-confirmed", "virtual-meet-done", "virtual-meet-confirmed",
+                     "visit-done", "booking-done", "lost", "follow-up", "sdow", "not-reachable", "ringing"]
                      .map(s => ({ label: s.replace(/-/g, " "), code: s }));
     return (
       <div className="space-y-4 animate-fade-in">

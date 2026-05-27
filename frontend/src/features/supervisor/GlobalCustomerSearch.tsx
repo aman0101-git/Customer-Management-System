@@ -80,7 +80,7 @@ function ContactCell({ contact }: { contact: string | null | undefined }) {
   );
 }
 
-const CLOSED_STATUSES = new Set(["visit-done", "booking-done", "lost", "completed"]);
+const CLOSED_STATUSES = new Set(["visit-done", "booking-done", "virtual-meet-done", "lost", "completed"]);
 
 // Phase 6: compose full agent name when available; falls back to first-only.
 function composeAgentName(item: any): string {

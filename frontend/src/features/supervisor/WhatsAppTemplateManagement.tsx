@@ -51,18 +51,19 @@ type Template = {
 type Project = { id: number; name: string };
 
 const INITIAL_CODES = ["INITIAL"];
-const STATUS_BASED_CODES = ["VC", "VP", "VMC", "VM", "SDOW", "NR", "VD", "BD", "LOST", "FU"];
+const STATUS_BASED_CODES = ["VC", "VP", "VMC", "VMD", "SDOW", "NR", "VD", "BD", "RNG", "LOST", "FU"];
 
 const TEMPLATE_CODE_LABELS: Record<string, string> = {
   INITIAL: "Initial Welcome Contact",
   VC: "Visit Confirmed",
   VP: "Visit Planned",
   VMC: "Virtual Meet Confirmed",
-  VM: "Virtual Meet",
+  VMD: "Virtual Meet Done",
   SDOW: "Site Drop / Out of Window",
   NR: "Not-Reachable",
   VD: "Visit Done",
   BD: "Booking Done",
+  RNG: "Ringing / Callback Pending",
   LOST: "Lost / Closed",
   FU: "Generic Follow-up",
 };

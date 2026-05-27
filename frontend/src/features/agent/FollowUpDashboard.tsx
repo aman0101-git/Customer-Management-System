@@ -39,7 +39,7 @@ import { getOverdueInfo } from "@/lib/urgency";
 
 const STATUS_OPTIONS = [
   "follow-up", "sdow", "virtual-meet-confirmed", "visit-confirmed", "visit-proposed",
-  "not-reachable", "virtual-meet", "pending",
+  "not-reachable", "ringing",
 ];
 
 const CATEGORY_ORDER = { past: 0, today: 1, future: 2 } as const;
