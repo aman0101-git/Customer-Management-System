@@ -21,24 +21,17 @@
 //     customer so the agent can act immediately.
 // ============================================================================
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
-import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  subDays,
-} from "date-fns";
 
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
+import { useDateRangeFilter } from "@/hooks/useDateRangeFilter";
 import { AppShell } from "@/components/ui/app-shell";
 import RouteFallback from "@/components/system/RouteFallback";
 import PageHeader from "@/components/system/PageHeader";
@@ -50,7 +43,6 @@ import {
   AlarmClock,
   ChartNoAxesCombined,
   ChevronRight,
-  Filter,
   Phone,
   MapPin,
   Inbox,
@@ -133,34 +125,11 @@ const shortFor = (code: string): string => STATUS_SHORT[code] ?? code.toUpperCas
 const colorFor = (code: string): string => STATUS_COLOR[code] ?? FALLBACK_COLOR;
 
 // ----------------------------------------------------------------------------
-// TIME-FILTER → {startDate, endDate}
+// TIME-FILTER — now sourced from the shared useDateRangeFilter hook
+// (frontend/src/hooks/useDateRangeFilter.ts) + DateRangeFilter component, so
+// presets/custom/persistence stay consistent system-wide. The previous local
+// presetToRange/iso helpers were removed in favour of that single source.
 // ----------------------------------------------------------------------------
-// Local-time dates serialized to YYYY-MM-DD; matches SummaryDashboard
-// convention. "This Week" uses Monday as week-start (Indian business norm,
-// same as startOfWeek({ weekStartsOn: 1 }) in SummaryDashboard).
-type Preset = "Today" | "Yesterday" | "This Week" | "This Month" | "Custom";
-
-const iso = (s: Date, e: Date) => ({
-  startDate: format(s, "yyyy-MM-dd"),
-  endDate:   format(e, "yyyy-MM-dd"),
-});
-
-function presetToRange(
-  preset: Preset,
-  custom?: { start: string; end: string }
-): { startDate: string; endDate: string } {
-  const now = new Date();
-  if (preset === "Today")      return iso(now, now);
-  if (preset === "Yesterday")  { const y = subDays(now, 1); return iso(y, y); }
-  if (preset === "This Week")  return iso(startOfWeek(now, { weekStartsOn: 1 }), endOfWeek(now, { weekStartsOn: 1 }));
-  if (preset === "This Month") return iso(startOfMonth(now), endOfMonth(now));
-  // Custom
-  return {
-    startDate: custom?.start || format(now, "yyyy-MM-dd"),
-    endDate:   custom?.end   || format(now, "yyyy-MM-dd"),
-  };
-}
-
 // ----------------------------------------------------------------------------
 // API CONTRACT (mirrors backend response shape)
 // ----------------------------------------------------------------------------
@@ -210,16 +179,9 @@ export default function AgentDashboard() {
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
-  const [preset, setPreset] = useState<Preset>("This Week");
-  const [customStart, setCustomStart] = useState<string>(format(new Date(), "yyyy-MM-dd"));
-  const [customEnd,   setCustomEnd]   = useState<string>(format(new Date(), "yyyy-MM-dd"));
-
-  // Derive the active range. Memoized so we don't churn React Query keys
-  // on every parent render.
-  const range = useMemo(
-    () => presetToRange(preset, { start: customStart, end: customEnd }),
-    [preset, customStart, customEnd]
-  );
+  // Global time filter — URL-persisted, custom range w/ Apply semantics.
+  const dateFilter = useDateRangeFilter({ defaultFilter: "this-week" });
+  const range = dateFilter.range;
 
   const analyticsQuery = useQuery({
     queryKey: ["agent", "analytics", range.startDate, range.endDate],
@@ -235,7 +197,6 @@ export default function AgentDashboard() {
   const loading = analyticsQuery.isLoading || analyticsQuery.isFetching;
   const errored = analyticsQuery.isError;
 
-  const filters: Preset[] = ["Today", "Yesterday", "This Week", "This Month", "Custom"];
 
   return (
     <AppShell sidebar={null}>
@@ -267,42 +228,17 @@ export default function AgentDashboard() {
             <span className="relative">Add Customer</span>
           </button>
 
-          <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2 bg-muted/30 p-1.5 rounded-lg border border-border overflow-x-auto">
-            <Filter className="w-4 h-4 text-muted-foreground ml-2 mr-1 shrink-0" />
-            {filters.map((f) => (
-              <Button
-                key={f}
-                variant={preset === f ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setPreset(f)}
-                className="text-xs h-7 px-3 rounded-md"
-              >
-                {f}
-              </Button>
-            ))}
-          </div>
-
-          {preset === "Custom" && (
-            <div className="flex items-center gap-2 justify-end">
-              <Input
-                type="date"
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-                max={customEnd}
-                className="h-8 text-xs w-[150px]"
-              />
-              <span className="text-muted-foreground text-xs">to</span>
-              <Input
-                type="date"
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-                min={customStart}
-                className="h-8 text-xs w-[150px]"
-              />
-            </div>
-          )}
-          </div>
+          <DateRangeFilter
+            value={dateFilter.filter}
+            onFilterChange={dateFilter.setFilter}
+            startDate={dateFilter.draftStart}
+            endDate={dateFilter.draftEnd}
+            onStartDateChange={dateFilter.setDraftStart}
+            onEndDateChange={dateFilter.setDraftEnd}
+            onApply={dateFilter.applyCustom}
+            validation={dateFilter.validation}
+            loading={loading}
+          />
         </div>
       </div>
 
@@ -805,3 +741,4 @@ function TopFollowupsList({
     </ul>
   );
 }
+
