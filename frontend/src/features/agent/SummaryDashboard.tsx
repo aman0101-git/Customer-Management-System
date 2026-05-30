@@ -36,6 +36,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import ConversionFunnel from "@/components/system/ConversionFunnel";
 import Sparkline from "@/components/system/Sparkline";
 import PageHeader from "@/components/system/PageHeader";
+import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
+import { useDateRangeFilter } from "@/hooks/useDateRangeFilter";
 
 const Tabs = ({ active, setActive, labels }: any) => (
   <div className="flex space-x-1 p-1 bg-muted/60 border border-border rounded-xl mb-8 w-fit">
@@ -92,7 +94,8 @@ export default function SummaryDashboard() {
 
   const [activeTab, setActiveTab] = useState(0);
   const [selectedProject, setSelectedProject] = useState("all");
-  const [period, setPeriod] = useState("This Week");
+  // Section-1 analytics period — reusable URL-persisted filter w/ custom range.
+  const dateFilter = useDateRangeFilter({ defaultFilter: "this-week" });
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
   const [mode, setMode] = useState("all");
   const [sec3Period, setSec3Period] = useState("This Week");
@@ -113,11 +116,11 @@ export default function SummaryDashboard() {
   });
   const projects: any[] = projectsQuery.data ?? [];
 
-  const sec1Params = { projectId: selectedProject, period };
+  const sec1Params = { projectId: selectedProject, range: dateFilter.range };
   const sec1Query = useQuery<Record<string, number>>({
     queryKey: ["agent", "summary", 1, sec1Params],
     queryFn: async () => {
-      const { startDate, endDate } = getDatesFromPeriod(period);
+      const { startDate, endDate } = dateFilter.range;
       const res = await axios.get("/api/agent/customers/summary-dashboard", {
         params: { section: "1", projectId: selectedProject, startDate, endDate },
       });
@@ -192,11 +195,14 @@ export default function SummaryDashboard() {
     setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
 
     try {
-      let usePeriod = period;
-      if (section === "pipeline") usePeriod = pipelinePeriod;
-      if (section === "volume") usePeriod = sec3Period;
-
-      const { startDate, endDate } = getDatesFromPeriod(usePeriod);
+      let startDate: string, endDate: string;
+      if (section === "pipeline") {
+        ({ startDate, endDate } = getDatesFromPeriod(pipelinePeriod));
+      } else if (section === "volume") {
+        ({ startDate, endDate } = getDatesFromPeriod(sec3Period));
+      } else {
+        ({ startDate, endDate } = dateFilter.range);
+      }
 
       const res = await axios.get("/api/agent/customers/drill-down", {
         params: { projectId: selectedProject, startDate, endDate, statusCode, section, dayNum },
@@ -352,7 +358,17 @@ export default function SummaryDashboard() {
     <div className="space-y-4 animate-fade-in">
       <FilterBar>
         <StyledSelect icon={Briefcase} value={selectedProject} onChange={(e: any) => setSelectedProject(e.target.value)} options={<><option value="all">All Projects</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</>} />
-        <StyledSelect icon={Calendar} value={period} onChange={(e: any) => setPeriod(e.target.value)} options={<><option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option></>} />
+        <DateRangeFilter
+          value={dateFilter.filter}
+          onFilterChange={dateFilter.setFilter}
+          startDate={dateFilter.draftStart}
+          endDate={dateFilter.draftEnd}
+          onStartDateChange={dateFilter.setDraftStart}
+          onEndDateChange={dateFilter.setDraftEnd}
+          onApply={dateFilter.applyCustom}
+          validation={dateFilter.validation}
+          loading={sec1Query.isFetching}
+        />
       </FilterBar>
 
       <div className="bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 p-4">
