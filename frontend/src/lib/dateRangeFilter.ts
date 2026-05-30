@@ -2,15 +2,15 @@
 // SHARED DATE-RANGE FILTER UTILITIES  (single source of truth)
 // ----------------------------------------------------------------------------
 // Every page-level date/period filter resolves a filter key -> {startDate,endDate}
-// through THIS module. Replaces the previously duplicated local `presetToRange`
-// (AgentDashboard) and `getDatesFromPeriod` (SummaryDashboard) implementations.
+// through THIS module. Replaces the previously duplicated local presetToRange
+// (AgentDashboard) and getDatesFromPeriod (SummaryDashboard) implementations.
 //
 // Conventions preserved from the existing codebase:
-//   - Dates serialized as local-time YYYY-MM-DD (date-fns `format`).
-//   - Week starts Monday (`weekStartsOn: 1`) — Indian business norm.
+//   - Dates serialized as local-time YYYY-MM-DD (date-fns format).
+//   - Week starts Monday (weekStartsOn: 1) - Indian business norm.
 //   - The backend already includes the FULL end day via the sargable predicate
-//     `col >= startDate AND col < DATE_ADD(endDate, INTERVAL 1 DAY)`, so we only
-//     ever send plain YYYY-MM-DD here — no 23:59:59 / timezone juggling needed.
+//     col >= startDate AND col < DATE_ADD(endDate, INTERVAL 1 DAY), so we only
+//     ever send plain YYYY-MM-DD here - no 23:59:59 / timezone juggling needed.
 // ----------------------------------------------------------------------------
 import {
   format,
@@ -35,8 +35,8 @@ export type DateFilterValue =
   | "custom";
 
 export interface DateRange {
-  startDate: string; // YYYY-MM-DD (inclusive)
-  endDate: string; // YYYY-MM-DD (inclusive — backend expands to full day)
+  startDate: string;
+  endDate: string;
 }
 
 export interface FilterOption {
@@ -44,16 +44,16 @@ export interface FilterOption {
   label: string;
 }
 
-/** Canonical ordered option list — drives every filter dropdown. */
+// Canonical ordered option list - drives every filter dropdown.
+// Trimmed to the six business-relevant ranges. presetToRange still resolves
+// legacy keys (last-week / last-7-days / last-30-days) if they arrive via an
+// old URL, but they are no longer offered in the UI.
 export const FILTER_OPTIONS: FilterOption[] = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
   { value: "this-week", label: "This Week" },
-  { value: "last-week", label: "Last Week" },
   { value: "this-month", label: "This Month" },
   { value: "last-month", label: "Last Month" },
-  { value: "last-7-days", label: "Last 7 Days" },
-  { value: "last-30-days", label: "Last 30 Days" },
   { value: "custom", label: "Custom" },
 ];
 
@@ -63,16 +63,12 @@ export const DEFAULT_FILTER: DateFilterValue = "this-week";
 
 export const fmt = (d: Date): string => format(d, "yyyy-MM-dd");
 
-/** Smart default custom range: last 7 days through today. */
+// Smart default custom range: last 7 days through today.
 export function defaultCustomRange(now: Date = new Date()): DateRange {
   return { startDate: fmt(subDays(now, 6)), endDate: fmt(now) };
 }
 
-/**
- * Resolve a filter key (and optional custom range) into {startDate,endDate}.
- * For "custom", falls back to a sensible last-7-days default when the caller
- * has not yet supplied a complete range.
- */
+// Resolve a filter key (and optional custom range) into {startDate,endDate}.
 export function presetToRange(
   filter: DateFilterValue,
   custom?: Partial<DateRange>,
@@ -123,7 +119,7 @@ export interface CustomRangeValidation {
   message?: string;
 }
 
-/** Validate a custom range before allowing Apply / fetch. */
+// Validate a custom range before allowing Apply / fetch.
 export function validateCustomRange(
   startDate?: string,
   endDate?: string

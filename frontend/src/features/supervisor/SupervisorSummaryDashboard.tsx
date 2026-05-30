@@ -35,6 +35,8 @@ import ConversionFunnel from "@/components/system/ConversionFunnel";
 import Sparkline from "@/components/system/Sparkline";
 import PageHeader from "@/components/system/PageHeader";
 import NativeSelect from "@/components/system/NativeSelect";
+import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
+import { useDateRangeFilter } from "@/hooks/useDateRangeFilter";
 
 const Tabs = ({ active, setActive, labels }: any) => (
   <div className="flex p-1 bg-muted/60 rounded-lg w-fit border border-border">
@@ -87,7 +89,8 @@ export default function SupervisorSummaryDashboard() {
   const [activeTab, setActiveTab] = useState(0);
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [selectedProject, setSelectedProject] = useState("all");
-  const [period, setPeriod] = useState("This Week");
+  // Section-1 period — reusable URL-persisted filter with custom range.
+  const dateFilter = useDateRangeFilter({ defaultFilter: "this-week" });
   const [pipelinePeriod, setPipelinePeriod] = useState("This Week");
   const [sec3Period, setSec3Period] = useState("This Week");
   const [mode, setMode] = useState("all");
@@ -119,11 +122,11 @@ export default function SupervisorSummaryDashboard() {
   });
   const projects: any[] = projectsQuery.data ?? [];
 
-  const sec1Params = { agentId: selectedAgent, projectId: selectedProject, period };
+  const sec1Params = { agentId: selectedAgent, projectId: selectedProject, range: dateFilter.range };
   const sec1Query = useQuery<Record<string, number>>({
     queryKey: ["supervisor", "summary", 1, sec1Params],
     queryFn: async () => {
-      const { startDate, endDate } = getDatesFromPeriod(period);
+      const { startDate, endDate } = dateFilter.range;
       const res = await axios.get("/api/supervisor/summary-dashboard", {
         params: { section: "1", agentId: selectedAgent, projectId: selectedProject, startDate, endDate },
       });
@@ -198,10 +201,14 @@ export default function SupervisorSummaryDashboard() {
     setModalTitle(`${statusCode.replace(/-/g, " ")}${dayLabel}`);
 
     try {
-      let usePeriod = period;
-      if (section === "pipeline") usePeriod = pipelinePeriod;
-      if (section === "volume")   usePeriod = sec3Period;
-      const { startDate, endDate } = getDatesFromPeriod(usePeriod);
+      let startDate: string, endDate: string;
+      if (section === "pipeline") {
+        ({ startDate, endDate } = getDatesFromPeriod(pipelinePeriod));
+      } else if (section === "volume") {
+        ({ startDate, endDate } = getDatesFromPeriod(sec3Period));
+      } else {
+        ({ startDate, endDate } = dateFilter.range);
+      }
 
       const res = await axios.get("/api/supervisor/drill-down", {
         params: {
@@ -259,9 +266,17 @@ export default function SupervisorSummaryDashboard() {
         <div className="flex flex-wrap gap-2 w-full md:w-auto">
           <AgentFilter />
           <ProjectFilter />
-          <NativeSelect icon={Calendar} value={period} onChange={(e) => setPeriod(e.target.value)}>
-            <option>Today</option><option>Yesterday</option><option>This Week</option><option>This Month</option>
-          </NativeSelect>
+          <DateRangeFilter
+            value={dateFilter.filter}
+            onFilterChange={dateFilter.setFilter}
+            startDate={dateFilter.draftStart}
+            endDate={dateFilter.draftEnd}
+            onStartDateChange={dateFilter.setDraftStart}
+            onEndDateChange={dateFilter.setDraftEnd}
+            onApply={dateFilter.applyCustom}
+            validation={dateFilter.validation}
+            loading={sec1Query.isFetching}
+          />
         </div>
       </div>
 
