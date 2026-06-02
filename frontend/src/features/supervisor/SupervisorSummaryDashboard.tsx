@@ -37,6 +37,8 @@ import PageHeader from "@/components/system/PageHeader";
 import NativeSelect from "@/components/system/NativeSelect";
 import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { useDateRangeFilter } from "@/hooks/useDateRangeFilter";
+import AnalyticsSummaryCards from "@/components/analytics/AnalyticsSummaryCards";
+import AnalyticsMatrixTable, { type MatrixData } from "@/components/analytics/AnalyticsMatrixTable";
 
 const Tabs = ({ active, setActive, labels }: any) => (
   <div className="flex p-1 bg-muted/60 rounded-lg w-fit border border-border">
@@ -164,12 +166,29 @@ export default function SupervisorSummaryDashboard() {
     staleTime: 30_000,
   });
 
+  // Section 4 - Agent Performance Matrix. Global timeframe (reuses dateFilter)
+  // + project scope. Agent is intentionally NOT filtered: the matrix shows ALL
+  // agents at once, which is the whole point of the view.
+  const matrixParams = { projectId: selectedProject, range: dateFilter.range };
+  const matrixQuery = useQuery<MatrixData>({
+    queryKey: ["supervisor", "matrix", matrixParams],
+    queryFn: async () => {
+      const { startDate, endDate } = dateFilter.range;
+      const res = await axios.get("/api/supervisor/matrix", {
+        params: { projectId: selectedProject, startDate, endDate },
+      });
+      return res.data;
+    },
+    enabled: !!user && activeTab === 3,
+    staleTime: 30_000,
+  });
+
   const sec1Data: Record<string, number> = sec1Query.data ?? {};
   const sec2Data: any[] = sec2Query.data ?? [];
   const sec3Data: any[] = sec3Query.data ?? [];
 
   const activeQuery =
-    activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : sec3Query;
+    activeTab === 0 ? sec1Query : activeTab === 1 ? sec2Query : activeTab === 2 ? sec3Query : matrixQuery;
   const loading = activeQuery.isLoading;
   const errored = activeQuery.isError;
 
@@ -222,6 +241,34 @@ export default function SupervisorSummaryDashboard() {
       setModalData(res.data);
     } catch (e) {
       console.error("Drill down error", e);
+    } finally {
+      setModalLoading(false);
+    }
+  };
+
+  // Matrix cell drill-down. Reuses the existing /drill-down endpoint with
+  // section="cards" - its date logic (done_date for closed codes, updated_at
+  // otherwise) matches the matrix aggregation exactly, so counts reconcile.
+  const handleMatrixDrill = async (agentId: number, statusCode: string, agentName: string) => {
+    if (!user) return;
+    setModalOpen(true);
+    setModalLoading(true);
+    setModalTitle(`${agentName} - ${statusCode.replace(/-/g, " ")}`);
+    try {
+      const { startDate, endDate } = dateFilter.range;
+      const res = await axios.get("/api/supervisor/drill-down", {
+        params: {
+          supervisorId: user.id,
+          agentId,
+          projectId: selectedProject,
+          startDate, endDate, statusCode,
+          section: "cards",
+        },
+      });
+      setModalData(res.data);
+    } catch (e) {
+      console.error("Matrix drill down error", e);
+      setModalData([]);
     } finally {
       setModalLoading(false);
     }
@@ -455,6 +502,41 @@ export default function SupervisorSummaryDashboard() {
     );
   };
 
+  // Section 4 - Agent Performance Matrix (all agents x all statuses).
+  const renderSection4 = () => {
+    const matrix = matrixQuery.data;
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <div className="bg-card text-card-foreground p-3 rounded-xl shadow-elevation-1 border border-border flex flex-col md:flex-row gap-3 justify-between items-center">
+          <div className="flex items-center gap-2 text-foreground w-full md:w-auto">
+            <div className="p-1.5 bg-brand/15 text-brand rounded-md"><Filter className="w-4 h-4" /></div>
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Filters</span>
+          </div>
+          <div className="flex flex-wrap gap-2 w-full md:w-auto">
+            <ProjectFilter />
+            <DateRangeFilter
+              value={dateFilter.filter}
+              onFilterChange={dateFilter.setFilter}
+              startDate={dateFilter.draftStart}
+              endDate={dateFilter.draftEnd}
+              onStartDateChange={dateFilter.setDraftStart}
+              onEndDateChange={dateFilter.setDraftEnd}
+              onApply={dateFilter.applyCustom}
+              validation={dateFilter.validation}
+              loading={matrixQuery.isFetching}
+            />
+          </div>
+        </div>
+
+        <AnalyticsSummaryCards summary={matrix?.summary} loading={matrixQuery.isLoading} />
+
+        {matrix && (
+          <AnalyticsMatrixTable data={matrix} onCellClick={handleMatrixDrill} />
+        )}
+      </div>
+    );
+  };
+
   return (
     <AppShell sidebar={null}>
       <div className="max-w-7xl mx-auto">
@@ -462,7 +544,7 @@ export default function SupervisorSummaryDashboard() {
         <PageHeader
           title="Supervisor Overview"
           description="Real-time team performance metrics."
-          actions={<Tabs active={activeTab} setActive={setActiveTab} labels={["Cards View", "Pipeline Grid", "Status Grid"]} />}
+          actions={<Tabs active={activeTab} setActive={setActiveTab} labels={["Cards View", "Pipeline Grid", "Status Grid", "Agent Matrix"]} />}
         />
 
         {errored && (
@@ -492,6 +574,7 @@ export default function SupervisorSummaryDashboard() {
             {activeTab === 0 && renderSection1()}
             {activeTab === 1 && renderSection2()}
             {activeTab === 2 && renderSection3()}
+            {activeTab === 3 && renderSection4()}
           </>
         )}
 

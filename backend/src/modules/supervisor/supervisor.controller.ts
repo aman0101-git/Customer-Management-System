@@ -62,6 +62,32 @@ export async function getSummaryDashboard(req: Request, res: Response) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// AGENT PERFORMANCE MATRIX
+// GET /api/supervisor/matrix?projectId=&startDate=&endDate=
+// Returns pre-aggregated agent x status counts + KPI summary. The supervisor
+// scope is enforced inside the service via JOIN users u ON u.supervisor_id = ?,
+// identical to every other supervisor query.
+// ---------------------------------------------------------------------------
+export async function getAgentMatrix(req: Request, res: Response) {
+  try {
+    const supervisorId = req.user!.id;
+    const { projectId, startDate, endDate } = req.query;
+
+    const data = await Service.getSupervisorAgentMatrix(
+      supervisorId,
+      (projectId as string) || "all",
+      startDate as string,
+      endDate as string
+    );
+
+    return res.json(data);
+  } catch (error) {
+    console.error("Agent Matrix Error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
 // NEW: Export Controller
 // NEW: Export Controller
 export async function exportSupervisorData(req: Request, res: Response) {
