@@ -37,7 +37,6 @@ import PageHeader from "@/components/system/PageHeader";
 import NativeSelect from "@/components/system/NativeSelect";
 import { DateRangeFilter } from "@/components/filters/DateRangeFilter";
 import { useDateRangeFilter } from "@/hooks/useDateRangeFilter";
-import AnalyticsSummaryCards from "@/components/analytics/AnalyticsSummaryCards";
 import AnalyticsMatrixTable, { type MatrixData } from "@/components/analytics/AnalyticsMatrixTable";
 
 const Tabs = ({ active, setActive, labels }: any) => (
@@ -527,8 +526,6 @@ export default function SupervisorSummaryDashboard() {
             />
           </div>
         </div>
-
-        <AnalyticsSummaryCards summary={matrix?.summary} loading={matrixQuery.isLoading} />
 
         {matrix && (
           <AnalyticsMatrixTable data={matrix} onCellClick={handleMatrixDrill} />

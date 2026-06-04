@@ -3,15 +3,17 @@
 // ----------------------------------------------------------------------------
 // Agent Performance Matrix: rows = agents, columns = statuses. Renders the
 // pre-aggregated payload from GET /api/supervisor/matrix — NO client-side
-// aggregation of raw leads.
+// aggregation of raw leads. Only agents with real data for the selected
+// project + time range are present in the payload (backend-filtered).
 //
 // Behaviour:
 //   - sticky header row + sticky first column (agent name) for scroll context
 //   - horizontal scroll on narrow screens (mobile-friendly)
 //   - color-coded status column headers (scan speed)
-//   - sortable columns (any status, Total, or Conversion); default Total desc
+//   - sortable columns (any status, Total, or Completion); default Total desc
 //   - clickable count cells → onCellClick(agentId, statusCode, agentName)
 //   - hover row highlight, zebra striping, grand-total footer
+//   - final column = Completion Rate (completed / total). No conversion rate.
 // ============================================================================
 
 import { useMemo, useState } from "react";
@@ -22,10 +24,7 @@ export interface MatrixAgent {
   agent_name: string;
   statuses: Record<string, number>;
   total: number;
-  active: number;
   completed: number;
-  bookings: number;
-  conversion_rate: number;
   completion_rate: number;
 }
 
@@ -33,8 +32,10 @@ export interface MatrixData {
   statusOrder: string[];
   agents: MatrixAgent[];
   columnTotals: Record<string, number>;
-  summary: any;
 }
+
+// Completed / done statuses — used for the team-level footer Completion Rate.
+const COMPLETED_STATUSES = ["visit-done", "virtual-meet-done", "booking-done"];
 
 // Short labels + semantic tone per status (color coding per spec).
 const STATUS_META: Record<string, { label: string; head: string; cell: string }> = {
@@ -54,7 +55,7 @@ const STATUS_META: Record<string, { label: string; head: string; cell: string }>
 const metaFor = (code: string) =>
   STATUS_META[code] ?? { label: code.replace(/-/g, " "), head: "text-foreground", cell: "text-foreground" };
 
-type SortKey = string; // a status code, "total", or "conversion"
+type SortKey = string; // a status code, "total", or "completion"
 type SortDir = "asc" | "desc";
 
 interface Props {
@@ -72,7 +73,7 @@ export default function AnalyticsMatrixTable({ data, onCellClick }: Props) {
     const rows = [...data.agents];
     const valueOf = (a: MatrixAgent) => {
       if (sortKey === "total") return a.total;
-      if (sortKey === "conversion") return a.conversion_rate;
+      if (sortKey === "completion") return a.completion_rate;
       return a.statuses[sortKey] ?? 0;
     };
     rows.sort((x, y) => {
@@ -98,11 +99,13 @@ export default function AnalyticsMatrixTable({ data, onCellClick }: Props) {
   };
 
   const grandTotal = statuses.reduce((s, code) => s + (data.columnTotals[code] ?? 0), 0);
+  const teamCompleted = COMPLETED_STATUSES.reduce((s, code) => s + (data.columnTotals[code] ?? 0), 0);
+  const teamCompletion = grandTotal > 0 ? Number(((teamCompleted / grandTotal) * 100).toFixed(1)) : 0;
 
   if (!data.agents.length) {
     return (
       <div className="bg-card text-card-foreground rounded-xl border border-border shadow-elevation-1 p-10 text-center text-muted-foreground italic">
-        No agents in scope for the selected filters.
+        No agents have data for the selected project and time range.
       </div>
     );
   }
@@ -141,10 +144,11 @@ export default function AnalyticsMatrixTable({ data, onCellClick }: Props) {
                 <span className="inline-flex items-center justify-center gap-0.5">Total <SortIcon k="total" /></span>
               </th>
               <th
-                onClick={() => toggleSort("conversion")}
+                onClick={() => toggleSort("completion")}
                 className="px-2 py-3 text-center w-24 border border-border bg-muted font-bold cursor-pointer select-none"
+                title="Completion Rate = completed / total"
               >
-                <span className="inline-flex items-center justify-center gap-0.5">Conv% <SortIcon k="conversion" /></span>
+                <span className="inline-flex items-center justify-center gap-0.5">Compl% <SortIcon k="completion" /></span>
               </th>
             </tr>
           </thead>
@@ -185,8 +189,8 @@ export default function AnalyticsMatrixTable({ data, onCellClick }: Props) {
                   </td>
                   <td className="px-2 py-2.5 text-center font-semibold border border-border">
                     {a.total > 0 ? (
-                      <span className={a.conversion_rate > 0 ? "text-success" : "text-muted-foreground"}>
-                        {a.conversion_rate}%
+                      <span className={a.completion_rate > 0 ? "text-success" : "text-muted-foreground"}>
+                        {a.completion_rate}%
                       </span>
                     ) : (
                       <span className="text-muted-foreground/40">—</span>
@@ -213,9 +217,7 @@ export default function AnalyticsMatrixTable({ data, onCellClick }: Props) {
                 {grandTotal}
               </td>
               <td className="px-2 py-3 text-center font-bold border border-border">
-                {grandTotal > 0
-                  ? `${Number(((data.columnTotals["booking-done"] ?? 0) / grandTotal * 100).toFixed(1))}%`
-                  : "—"}
+                {grandTotal > 0 ? `${teamCompletion}%` : "—"}
               </td>
             </tr>
           </tbody>
