@@ -745,19 +745,17 @@ export async function getWhatsAppAuditLog(
 // AGENT PERFORMANCE MATRIX  (rows = agents, columns = statuses)
 // ----------------------------------------------------------------------------
 // Single aggregation: GROUP BY ac.agent_id, ac.status_code over the supervisor-
-// scoped join. The date window is applied GLOBALLY using the SAME done_date /
-// updated_at split as the Cards view (getSupervisorVisitsBooking) so that:
-//   - column totals reconcile exactly with the existing Cards numbers, and
-//   - a cell click can reuse GET /drill-down with section="cards".
+// scoped join, with the global date window applied using the SAME done_date /
+// updated_at split as the Cards view (so column totals reconcile, and a cell
+// click can reuse GET /drill-down with section="cards").
 //
-// "All agents" guarantee: we merge the grouped counts with the full associate
-// list so every supervised agent appears, even with an all-zero row.
+// Only agents that actually have matching records for the selected project +
+// date range are returned. There is NO "all agents" zero-row fallback — the
+// agent set is derived purely from the grouped results.
 //
-// Derived metrics are computed in JS from the grouped rows (cheap; no extra
-// round-trips). No frontend aggregation of raw leads.
+// Completion Rate only (completed / total). No conversion-rate logic.
 // ============================================================================
 
-// Canonical column order shared with the frontend matrix.
 const MATRIX_STATUS_ORDER = [
   "ringing",
   "follow-up",
@@ -772,10 +770,8 @@ const MATRIX_STATUS_ORDER = [
   "lost",
 ] as const;
 
-const DONE_STATUSES = ["visit-done", "booking-done", "virtual-meet-done"];
+// Closed / done statuses already defined system-wide. "Completed" == these.
 const COMPLETED_STATUSES = ["visit-done", "virtual-meet-done", "booking-done"];
-// Active = excludes booking-done, lost, virtual-meet-done, visit-done (per spec).
-const NON_ACTIVE_STATUSES = ["booking-done", "lost", "virtual-meet-done", "visit-done"];
 
 export async function getSupervisorAgentMatrix(
   supervisorId: number,
@@ -783,17 +779,6 @@ export async function getSupervisorAgentMatrix(
   startDate: string,
   endDate: string
 ) {
-  // 1) Full associate list — guarantees every supervised agent shows up.
-  const [agentRows]: any = await db.query(
-    `SELECT id, CONCAT(first_name,' ',last_name) AS name
-       FROM users
-      WHERE supervisor_id = ? AND is_active = 1
-      ORDER BY first_name, last_name`,
-    [supervisorId]
-  );
-
-  // 2) Grouped counts. Project filter is optional; agent is NOT filtered here
-  //    because the matrix intentionally shows ALL agents at once.
   const params: any[] = [supervisorId];
   let projectFilter = "";
   if (projectId && projectId !== "all") {
@@ -814,85 +799,63 @@ export async function getSupervisorAgentMatrix(
     params.push(startDate, endDate, startDate, endDate);
   }
 
+  // One grouped query. Agent name is carried so we never need an "all agents"
+  // lookup — rows exist only for agents with real data in this filter context.
   const [countRows]: any = await db.query(
-    `SELECT ac.agent_id, ac.status_code, COUNT(*) AS count
+    `SELECT ac.agent_id,
+            CONCAT(u.first_name,' ',u.last_name) AS agent_name,
+            ac.status_code,
+            COUNT(*) AS count
        FROM agent_customers ac
        JOIN users u ON u.id = ac.agent_id AND u.supervisor_id = ?
        JOIN customers c ON c.id = ac.customer_id
       WHERE 1=1
         ${projectFilter}
         ${dateFilter}
-      GROUP BY ac.agent_id, ac.status_code`,
+      GROUP BY ac.agent_id, agent_name, ac.status_code`,
     params
   );
 
-  // 3) Index grouped counts by agent → status.
-  const byAgent: Record<number, Record<string, number>> = {};
+  // Index grouped counts by agent. Only agents that appear here are returned,
+  // so irrelevant / zero-data agents are naturally excluded.
+  const byAgent: Record<number, { name: string; counts: Record<string, number> }> = {};
   for (const r of countRows) {
     const aid = Number(r.agent_id);
-    (byAgent[aid] ||= {})[r.status_code] = Number(r.count);
+    (byAgent[aid] ||= { name: r.agent_name, counts: {} }).counts[r.status_code] = Number(r.count);
   }
 
-  // 4) Build per-agent rows with derived metrics + accumulate column totals.
   const columnTotals: Record<string, number> = {};
   for (const s of MATRIX_STATUS_ORDER) columnTotals[s] = 0;
 
-  const agents = agentRows.map((a: any) => {
-    const counts = byAgent[Number(a.id)] || {};
+  const agents = Object.entries(byAgent).map(([aid, info]) => {
     const statuses: Record<string, number> = {};
     let total = 0;
     let completed = 0;
-    let nonActive = 0;
 
     for (const s of MATRIX_STATUS_ORDER) {
-      const c = Number(counts[s] || 0);
+      const c = Number(info.counts[s] || 0);
       statuses[s] = c;
       total += c;
       columnTotals[s] += c;
       if (COMPLETED_STATUSES.includes(s)) completed += c;
-      if (NON_ACTIVE_STATUSES.includes(s)) nonActive += c;
     }
 
-    const bookings = statuses["booking-done"] || 0;
     return {
-      agent_id: Number(a.id),
-      agent_name: a.name,
+      agent_id: Number(aid),
+      agent_name: info.name,
       statuses,
       total,
-      active: total - nonActive,
       completed,
-      bookings,
-      conversion_rate: total > 0 ? Number(((bookings / total) * 100).toFixed(1)) : 0,
       completion_rate: total > 0 ? Number(((completed / total) * 100).toFixed(1)) : 0,
     };
   });
 
-  // 5) Team-level KPI summary derived from the same grouped totals.
-  const grandTotal = MATRIX_STATUS_ORDER.reduce((sum, s) => sum + columnTotals[s], 0);
-  const totalBookings = columnTotals["booking-done"] || 0;
-  const totalCompleted =
-    (columnTotals["visit-done"] || 0) +
-    (columnTotals["virtual-meet-done"] || 0) +
-    (columnTotals["booking-done"] || 0);
-  const totalNonActive = NON_ACTIVE_STATUSES.reduce((sum, s) => sum + (columnTotals[s] || 0), 0);
-
-  const summary = {
-    total_leads: grandTotal,
-    total_followups: columnTotals["follow-up"] || 0,
-    total_ringing: columnTotals["ringing"] || 0,
-    total_visits_done: columnTotals["visit-done"] || 0,
-    total_virtual_meetings_done: columnTotals["virtual-meet-done"] || 0,
-    total_bookings: totalBookings,
-    total_lost: columnTotals["lost"] || 0,
-    active_leads: grandTotal - totalNonActive,
-    conversion_rate: grandTotal > 0 ? Number(((totalBookings / grandTotal) * 100).toFixed(1)) : 0,
-    completion_rate: grandTotal > 0 ? Number(((totalCompleted / grandTotal) * 100).toFixed(1)) : 0,
-  };
+  // Deterministic default order (the frontend table can re-sort); name asc.
+  agents.sort((a, b) => a.agent_name.localeCompare(b.agent_name));
 
   return {
     statusOrder: [...MATRIX_STATUS_ORDER],
     agents,
     columnTotals,
-    summary,
   };
 }
