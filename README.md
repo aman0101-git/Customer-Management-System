@@ -1,9 +1,12 @@
-# Real Estate AMS (Agent Management System)
-
-A role-based lead-management and sales-pipeline platform for real-estate teams. Agents track customer leads through an 11-stage funnel, schedule follow-ups, and send templated WhatsApp messages; supervisors allocate projects, monitor team performance through analytics dashboards, and audit every interaction.
-
-> Internal production system. Built with React 19 + TypeScript on the frontend and Express 5 + MySQL on the backend, with a layered, modular architecture and production hardening (compression, rate limiting, health checks, graceful shutdown).
-
+# Customer Management System (CMS)
+ 
+> Role-based lead-management and sales-pipeline platform for a real-estate sales organization. Agents move customers through an 11-stage funnel; supervisors allocate projects, monitor team performance, and audit every interaction.
+ 
+![status](https://img.shields.io/badge/status-production-success)
+![stack](https://img.shields.io/badge/stack-React%2019%20%C2%B7%20TypeScript%20%C2%B7%20Express%205%20%C2%B7%20MySQL-blue)
+ 
+> _Internal production system at Firstclose Solutions; source shared for portfolio review._
+ 
 ---
 
 ## Table of Contents
@@ -250,4 +253,4 @@ Closed/completed set = `{ visit-done, booking-done, virtual-meet-done }` → `fi
 
 ---
 
-*Internal project — not licensed for public distribution.*
+*Built and maintained by [Aman Undre](https://github.com/aman0101-git).*
